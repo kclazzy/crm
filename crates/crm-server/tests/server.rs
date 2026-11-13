@@ -1,21 +1,14 @@
 //! Поведение сервера снаружи: старт на пустой папке, здоровье, настройки БД, поиск.
 #![allow(clippy::unwrap_used)] // в тестах допускается (ТЗ §10)
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use common::config_in;
 use crm_server::{config::Config, db, http};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
-
-fn config_in(dir: &std::path::Path) -> Config {
-    Config::from_toml(&format!(
-        "listen = \"127.0.0.1:0\"\n[storage]\ndb_dir = {:?}\nattachments_dir = {:?}\nbackup_dirs = [{:?}]\n",
-        dir.join("data"),
-        dir.join("files"),
-        dir.join("backups"),
-    ))
-    .unwrap()
-}
 
 #[tokio::test]
 async fn health_reports_ok_on_fresh_install() {
@@ -97,4 +90,21 @@ async fn client_is_found_by_part_of_word_in_russian() {
 fn config_rejects_unknown_fields_and_bad_address() {
     assert!(Config::from_toml("listen = \"not an address\"").is_err());
     assert!(Config::from_toml("listen = \"0.0.0.0:8443\"\ntypo = 1").is_err());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn data_folder_is_private_to_the_server_account() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    db::open(&config_in(dir.path()).storage).await.unwrap();
+    let mode = std::fs::metadata(dir.path().join("data"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(
+        mode & 0o077,
+        0,
+        "другие пользователи компьютера не должны читать БД: {mode:o}"
+    );
 }

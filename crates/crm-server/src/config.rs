@@ -74,8 +74,10 @@ impl Config {
     }
 }
 
+/// Пока нет HTTPS, по умолчанию сервер доступен только с этой машины:
+/// пароли не должны ходить по сети открытым текстом.
 fn default_listen() -> SocketAddr {
-    SocketAddr::from(([0, 0, 0, 0], 8443))
+    SocketAddr::from(([127, 0, 0, 1], 8443))
 }
 
 fn default_data_root() -> PathBuf {

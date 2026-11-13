@@ -30,6 +30,7 @@ pub async fn open(storage: &Storage) -> Result<SqlitePool, DbError> {
         path: storage.db_dir.clone(),
         source,
     })?;
+    make_private(&storage.db_dir)?;
     let path = storage.db_dir.join(DB_FILE);
 
     let options = SqliteConnectOptions::from_str("sqlite://")?
@@ -46,4 +47,22 @@ pub async fn open(storage: &Storage) -> Result<SqlitePool, DbError> {
         .await?;
     sqlx::migrate!("../../migrations").run(&pool).await?;
     Ok(pool)
+}
+
+/// Папка с БД — только для учётной записи сервера (в БД хеши паролей).
+/// На Windows доступ ограничивает установщик через ACL папки ProgramData\CRM.
+fn make_private(dir: &std::path::Path) -> Result<(), DbError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(
+            |source| DbError::CreateDir {
+                path: dir.to_owned(),
+                source,
+            },
+        )?;
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
 }
