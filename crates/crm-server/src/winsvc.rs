@@ -50,7 +50,9 @@ pub enum ServiceError {
     Config(#[from] config::ConfigError),
     #[error("служба не перешла в состояние «{0}» за 30 секунд")]
     Timeout(&'static str),
-    #[error("служба остановилась при запуске (код {0}); подробности — в C:\\ProgramData\\CRM\\logs")]
+    #[error(
+        "служба остановилась при запуске (код {0}); подробности — в C:\\ProgramData\\CRM\\logs"
+    )]
     StartFailed(String),
 }
 
