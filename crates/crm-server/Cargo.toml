@@ -1,0 +1,26 @@
+[package]
+name = "crm-server"
+description = "Сервер CRM: REST API, WebSocket, SQLite, фоновые воркеры"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+crm-core = { path = "../crm-core" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+[lints]
+workspace = true
