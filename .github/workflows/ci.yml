@@ -24,3 +24,48 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
       - run: cargo audit
+  windows-service:
+    # Настоящая установка службы на Windows: права, брандмауэр, HTTPS, перезапуск, удаление.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p crm-server
+      - name: Установка, проверка и удаление службы
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = "$env:GITHUB_WORKSPACE\target\release\crm-server.exe"
+          function Health {
+            for ($i = 0; $i -lt 40; $i++) {
+              $r = curl.exe -s --ssl-no-revoke --cacert C:\ProgramData\CRM\data\tls\ca.crt https://localhost:8443/api/health
+              if ($r -match '"status":"ok"') { return $r }
+              Start-Sleep -Milliseconds 500
+            }
+            Get-ChildItem C:\ProgramData\CRM -Recurse | Format-Table FullName
+            Get-Content C:\ProgramData\CRM\logs\* -ErrorAction SilentlyContinue
+            throw "сервер не отвечает по HTTPS"
+          }
+
+          & $exe service install; if ($LASTEXITCODE) { throw "install" }
+          & $exe service status
+          Write-Host "health: $(Health)"
+
+          $svc = Get-CimInstance Win32_Service -Filter "Name='CRMServer'"
+          if ($svc.StartName -ne 'NT SERVICE\CRMServer') { throw "учётная запись: $($svc.StartName)" }
+          if ($svc.StartMode -ne 'Auto') { throw "автозапуск: $($svc.StartMode)" }
+          $rule = Get-NetFirewallRule -DisplayName 'CRM Server'
+          if ("$($rule.Profile)" -notmatch 'Private' -or "$($rule.Profile)" -match 'Public') { throw "профиль брандмауэра: $($rule.Profile)" }
+          $acl = (Get-Acl C:\ProgramData\CRM).Access | ForEach-Object { "$($_.IdentityReference)" }
+          if ($acl -contains 'BUILTIN\Users') { throw "у обычных пользователей есть доступ к данным" }
+
+          & $exe service install; if ($LASTEXITCODE) { throw "повторная установка" }
+          & $exe service restart; if ($LASTEXITCODE) { throw "restart" }
+          Write-Host "после перезапуска: $(Health)"
+
+          & $exe service uninstall; if ($LASTEXITCODE) { throw "uninstall" }
+          if (Get-Service CRMServer -ErrorAction SilentlyContinue) { throw "служба не удалена" }
+          if (Get-NetFirewallRule -DisplayName 'CRM Server' -ErrorAction SilentlyContinue) { throw "правило брандмауэра осталось" }
+          if (-not (Test-Path C:\ProgramData\CRM\data\crm.db)) { throw "данные удалены, а не должны" }
+          Write-Host "OK"

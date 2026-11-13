@@ -29,6 +29,7 @@ x509-parser = "0.18"
 time = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
@@ -39,3 +40,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [lints]
 workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8"

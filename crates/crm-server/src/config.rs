@@ -102,7 +102,13 @@ fn default_listen() -> SocketAddr {
     SocketAddr::from(([0, 0, 0, 0], 8443))
 }
 
-fn default_data_root() -> PathBuf {
+/// Где лежит config.toml службы: в корне папки данных.
+pub fn default_config_path() -> PathBuf {
+    default_data_root().join("config.toml")
+}
+
+/// Корень данных по умолчанию: `C:\ProgramData\CRM`, `/var/lib/crm`, `/Library/Application Support/CRM`.
+pub fn default_data_root() -> PathBuf {
     if cfg!(windows) {
         std::env::var_os("ProgramData")
             .map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from)
