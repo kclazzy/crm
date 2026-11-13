@@ -366,3 +366,18 @@ async fn secrets_are_never_stored_in_plain_text() {
             .unwrap();
     assert!(hash.starts_with("$argon2id$"));
 }
+
+#[tokio::test]
+async fn app_can_ask_whether_owner_is_still_needed() {
+    let app = App::new().await;
+    let (s, v) = app
+        .call("GET", "/api/setup/status", LOCAL, None, None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["needs_owner"], true);
+    app.owner().await;
+    let (_, v) = app
+        .call("GET", "/api/setup/status", OFFICE_PC, None, None)
+        .await;
+    assert_eq!(v["needs_owner"], false);
+}

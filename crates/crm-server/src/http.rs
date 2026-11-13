@@ -17,11 +17,17 @@ pub struct AppState {
     pub pool: SqlitePool,
     /// Сертификат CA сервера (PEM) для установки в браузер; `None` — HTTPS выключен.
     pub ca_pem: Option<Arc<str>>,
+    /// Отпечаток CA для сверки сотрудником/владельцем.
+    pub ca_fingerprint: Option<Arc<str>>,
 }
 
 impl AppState {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool, ca_pem: None }
+        Self {
+            pool,
+            ca_pem: None,
+            ca_fingerprint: None,
+        }
     }
 }
 
@@ -30,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/health", get(health))
         .route("/api/tls/ca", get(ca_certificate))
         .route("/api/setup", post(auth::setup))
+        .route("/api/setup/status", get(auth::setup_status))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
         .route("/api/invites/accept", post(auth::accept_invite))
@@ -61,6 +68,7 @@ async fn ca_certificate(State(app): State<AppState>) -> Result<Response, ApiErro
 struct Health {
     status: &'static str,
     version: &'static str,
+    ca_fingerprint: Option<Arc<str>>,
 }
 
 async fn health(State(app): State<AppState>) -> Result<Json<Health>, ApiError> {
@@ -68,6 +76,7 @@ async fn health(State(app): State<AppState>) -> Result<Json<Health>, ApiError> {
     Ok(Json(Health {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
+        ca_fingerprint: app.ca_fingerprint,
     }))
 }
 

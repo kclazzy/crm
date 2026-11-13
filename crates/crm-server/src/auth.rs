@@ -267,6 +267,19 @@ pub async fn setup(
     ))
 }
 
+#[derive(Serialize)]
+pub struct SetupStatus {
+    needs_owner: bool,
+}
+
+/// Нужно ли ещё создать владельца — для мастера первого запуска.
+pub async fn setup_status(State(app): State<AppState>) -> Result<Json<SetupStatus>, ApiError> {
+    let any: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users)")
+        .fetch_one(&app.pool)
+        .await?;
+    Ok(Json(SetupStatus { needs_owner: !any }))
+}
+
 // ---------- Вход и выход ----------
 
 #[derive(Deserialize)]

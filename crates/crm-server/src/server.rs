@@ -62,6 +62,9 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
     let state = AppState {
         pool,
         ca_pem: material.as_ref().map(|m| Arc::from(m.ca_pem.as_str())),
+        ca_fingerprint: material
+            .as_ref()
+            .map(|m| Arc::from(m.ca_fingerprint.as_str())),
     };
     let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
     let handle = Handle::new();

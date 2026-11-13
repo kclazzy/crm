@@ -118,6 +118,19 @@ async fn ca_certificate_can_be_downloaded_for_browser_install() {
     let file = std::fs::read_to_string(dir.path().join("data/tls/ca.crt")).unwrap();
     assert!(res.ends_with(&file));
     assert_eq!(running.ca_fingerprint.as_deref().map(str::len), Some(95));
+    let health = https_get(
+        running.addr,
+        "localhost",
+        &[ca_of(dir.path())],
+        "/api/health",
+    )
+    .await
+    .unwrap();
+    let fp = running.ca_fingerprint.clone().unwrap();
+    assert!(
+        health.contains(&fp),
+        "отпечаток CA виден в /api/health для сверки: {health}"
+    );
     running.stop().await.unwrap();
 }
 

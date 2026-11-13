@@ -50,6 +50,8 @@ pub enum ServiceError {
     Config(#[from] config::ConfigError),
     #[error("служба не перешла в состояние «{0}» за 30 секунд")]
     Timeout(&'static str),
+    #[error("служба остановилась при запуске (код {0}); подробности — в C:\\ProgramData\\CRM\\logs")]
+    StartFailed(String),
 }
 
 impl From<windows_service::Error> for ServiceError {
@@ -265,9 +267,18 @@ fn wait_for(
     label: &'static str,
 ) -> Result<(), ServiceError> {
     let deadline = Instant::now() + Duration::from_secs(30);
+    let started = Instant::now();
     while Instant::now() < deadline {
-        if service.query_status()?.current_state == state {
+        let st = service.query_status()?;
+        if st.current_state == state {
             return Ok(());
+        }
+        // Ждём запуска, а служба уже снова остановлена — значит, упала при старте.
+        if state == ServiceState::Running
+            && st.current_state == ServiceState::Stopped
+            && started.elapsed() > Duration::from_secs(1)
+        {
+            return Err(ServiceError::StartFailed(format!("{:?}", st.exit_code)));
         }
         std::thread::sleep(Duration::from_millis(300));
     }

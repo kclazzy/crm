@@ -37,6 +37,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $exe = "$env:GITHUB_WORKSPACE\target\release\crm-server.exe"
+          trap {
+            Write-Host "===== журнал сервера ====="
+            Get-Content C:\ProgramData\CRM\logs\* -ErrorAction SilentlyContinue
+            Write-Host "===== журнал Windows (Service Control Manager) ====="
+            Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'} -MaxEvents 15 -ErrorAction SilentlyContinue | Format-List TimeCreated, Message
+            Write-Host "===== порт 8443 ====="
+            netstat -ano | Select-String ':8443'
+            break
+          }
           function Health {
             for ($i = 0; $i -lt 40; $i++) {
               $r = curl.exe -s --ssl-no-revoke --cacert C:\ProgramData\CRM\data\tls\ca.crt https://localhost:8443/api/health
