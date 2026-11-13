@@ -20,6 +20,7 @@ pub fn to_console() {
 /// Ежедневные файлы `crm-server.ГГГГ-ММ-ДД.log`, старше 14 дней удаляются.
 /// Возвращённый guard нужно держать до конца работы — он дописывает буфер.
 pub fn to_files(dir: &Path) -> Option<WorkerGuard> {
+    std::fs::create_dir_all(dir).ok()?;
     let appender = Builder::new()
         .rotation(Rotation::DAILY)
         .filename_prefix("crm-server")

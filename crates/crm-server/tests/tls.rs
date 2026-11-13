@@ -145,3 +145,25 @@ fn network_listening_without_tls_is_refused() {
         "по умолчанию TLS включён"
     );
 }
+
+#[tokio::test]
+async fn server_waits_for_port_freed_by_previous_process() {
+    // Как при перезапуске службы: порт ещё занят старым процессом и освобождается чуть позже.
+    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = busy.local_addr().unwrap().port();
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = Config::from_toml(&format!(
+        "listen = \"127.0.0.1:{port}\"\n[storage]\ndb_dir = {:?}\nattachments_dir = {:?}\n",
+        dir.path().join("data"),
+        dir.path().join("files"),
+    ))
+    .unwrap();
+    let release = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        drop(busy);
+    });
+    let running = server::start(&cfg).await.unwrap();
+    assert_eq!(running.addr.port(), port);
+    release.await.unwrap();
+    running.stop().await.unwrap();
+}

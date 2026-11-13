@@ -16,6 +16,8 @@ use crate::{db, tls};
 const TLS_CHECK_EVERY: Duration = Duration::from_secs(600);
 /// Сколько ждать завершения текущих запросов при остановке.
 const GRACE: Duration = Duration::from_secs(10);
+/// Сколько ждать, пока порт освободит предыдущий процесс (перезапуск службы).
+const BIND_PATIENCE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
@@ -68,6 +70,7 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
     };
     let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
     let handle = Handle::new();
+    let listener = bind_patiently(cfg.listen).await?;
 
     let (serve, renew) = match &material {
         Some(m) => {
@@ -82,11 +85,11 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
                 rustls.clone(),
                 m.cert_pem.clone(),
             ));
-            let server = axum_server::bind_rustls(cfg.listen, rustls).handle(handle.clone());
+            let server = axum_server::from_tcp_rustls(listener, rustls).handle(handle.clone());
             (tokio::spawn(server.serve(app)), Some(renew))
         }
         None => {
-            let server = axum_server::bind(cfg.listen).handle(handle.clone());
+            let server = axum_server::from_tcp(listener).handle(handle.clone());
             (tokio::spawn(server.serve(app)), None)
         }
     };
@@ -108,6 +111,29 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         serve,
         renew,
     })
+}
+
+/// Занять порт; если он ещё занят (старый процесс службы не успел завершиться) —
+/// повторять до [`BIND_PATIENCE`].
+async fn bind_patiently(addr: SocketAddr) -> Result<std::net::TcpListener, RunError> {
+    let deadline = tokio::time::Instant::now() + BIND_PATIENCE;
+    loop {
+        match std::net::TcpListener::bind(addr) {
+            Ok(l) => {
+                l.set_nonblocking(true)
+                    .map_err(|source| RunError::Bind { addr, source })?;
+                return Ok(l);
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::AddrInUse
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tracing::warn!(%addr, "порт занят, жду освобождения");
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            Err(source) => return Err(RunError::Bind { addr, source }),
+        }
+    }
 }
 
 /// Если у компьютера появился новый адрес или сертификат скоро истечёт —
