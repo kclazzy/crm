@@ -5,7 +5,7 @@ CREATE TABLE users (
     id            TEXT PRIMARY KEY,
     username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
     display_name  TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,                -- NULL: приглашён, пароль ещё не задан
     role          TEXT NOT NULL CHECK (role IN ('host','manager','employee')),
     is_active     INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
     timezone      TEXT,
@@ -45,6 +45,7 @@ CREATE TABLE sessions (
     expires_at    INTEGER NOT NULL,
     revoked_at    INTEGER
 );
+CREATE INDEX sessions_user ON sessions(user_id) WHERE revoked_at IS NULL;
 
 CREATE TABLE clients (
     id           TEXT PRIMARY KEY,
@@ -186,6 +187,7 @@ CREATE TABLE audit_log (
     ip         TEXT,
     created_at INTEGER NOT NULL
 );
+CREATE INDEX audit_log_lookup ON audit_log(action, entity_id, created_at);
 
 CREATE TABLE disk_usage_snapshots (
     taken_at   INTEGER NOT NULL,

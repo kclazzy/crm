@@ -39,11 +39,14 @@ async fn main() -> Result<(), MainError> {
     let listener = tokio::net::TcpListener::bind(cfg.listen).await?;
     tracing::info!(addr = %listener.local_addr()?, db = %cfg.storage.db_dir.display(), "CRM запущена");
 
-    axum::serve(listener, http::router(pool))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("остановка");
-        })
-        .await?;
+    axum::serve(
+        listener,
+        http::router(pool).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+        tracing::info!("остановка");
+    })
+    .await?;
     Ok(())
 }

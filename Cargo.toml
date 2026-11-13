@@ -17,3 +17,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 chrono-tz = "0.10"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+
+# Хеширование паролей в отладочной сборке иначе идёт секундами.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
