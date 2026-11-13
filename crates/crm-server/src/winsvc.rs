@@ -374,6 +374,11 @@ fn run_as_service() -> Result<(), Box<dyn std::error::Error>> {
     });
     if let Err(e) = &result {
         tracing::error!(error = %e, "ошибка сервера");
+        // Простой файл в обход журнала — на случай, если сам журнал не открылся.
+        let _ = std::fs::write(
+            config::default_data_root().join("last-error.txt"),
+            format!("{e}\n{e:?}\n"),
+        );
     }
     handle.set_service_status(status_of(ServiceState::Stopped, u32::from(result.is_err())))?;
     result

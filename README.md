@@ -13,8 +13,10 @@ CRM-система с таск-трекером и мессенджером дл
 - [x] `crm-server` — конфиг, SQLite (WAL) с миграциями, `/api/health`
 - [x] вход: первый владелец (только с машины хоста), приглашения сотрудников, логин, сессии, выход, отзыв сессий, сброс доступа, защита от подбора пароля
 - [x] HTTPS: собственный CA сервера, сертификат на все адреса ПК, автоперевыпуск при смене IP, `/api/tls/ca` для браузера
-- [ ] установка как служба Windows
-- [ ] веб-интерфейс, `crm-desktop` (Tauri) с работой в трее
+- [x] служба Windows «CRM Server» (`crm-server service install|uninstall|start|stop|restart|status`), unit для systemd
+- [x] `crm-desktop` (Tauri): приложение в трее, мастер первого запуска (установка сервера, создание владельца), панель состояния
+- [x] установщик для Windows `CRM_x.y.z_x64-setup.exe` — собирается в CI, прикладывается к релизу по тегу `vX.Y.Z`
+- [ ] веб-интерфейс CRM: клиенты, задачи, чаты
 
 ## Запуск для разработки
 
@@ -49,11 +51,20 @@ backup_dirs = ["./.dev/backups"]
 
 Проверка: `curl --cacert .dev/data/tls/ca.crt https://localhost:8443/api/health` → `{"status":"ok","version":"0.1.0"}`.
 
+## Установка на Windows
+
+1. Скачайте `CRM_…_x64-setup.exe` из раздела [Releases](https://github.com/kclazzy/crm/releases) (или из артефакта `CRM-Setup` последней сборки CI).
+2. Запустите установщик. Пока он не подписан сертификатом, Windows может показать «Windows защитила ваш компьютер» → «Подробнее» → «Выполнить в любом случае».
+3. Откройте CRM → «Этот компьютер — сервер» → подтвердите запрос администратора → создайте владельца.
+4. Окно можно закрыть: CRM останется в трее, сервер работает службой и стартует вместе с Windows.
+
 ## Структура
 
 ```
 crates/crm-core     доменные типы и чистые бизнес-правила (без I/O)
-crates/crm-server   axum API, SQLite, воркеры
+crates/crm-server   axum API, SQLite, HTTPS, служба Windows
+crates/crm-desktop  приложение в трее (Tauri) и установщик NSIS
+packaging/linux     unit systemd
 migrations/         схема БД (единственный источник правды)
 docs/               ТЗ и ревью
 ```

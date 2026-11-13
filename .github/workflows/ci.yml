@@ -39,8 +39,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $exe = "$env:GITHUB_WORKSPACE\target\release\crm-server.exe"
           trap {
+            Write-Host "===== папка данных ====="
+            Get-ChildItem C:\ProgramData\CRM -Recurse -Force -ErrorAction Continue | Select-Object FullName, Length | Out-Host
+            Write-Host "===== last-error.txt ====="
+            Get-Content C:\ProgramData\CRM\last-error.txt -ErrorAction Continue | Out-Host
             Write-Host "===== журнал сервера ====="
-            Get-Content C:\ProgramData\CRM\logs\* -ErrorAction SilentlyContinue
+            Get-ChildItem C:\ProgramData\CRM\logs -File -ErrorAction Continue | ForEach-Object { Get-Content $_.FullName | Out-Host }
             Write-Host "===== журнал Windows (Service Control Manager) ====="
             Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'} -MaxEvents 15 -ErrorAction SilentlyContinue | Format-List TimeCreated, Message
             Write-Host "===== порт 8443 ====="
