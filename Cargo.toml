@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["crates/crm-core"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "UNLICENSED"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+chrono-tz = "0.10"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"

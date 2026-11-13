@@ -1,0 +1,15 @@
+[package]
+name = "crm-core"
+description = "Доменные типы и чистые бизнес-правила CRM (без I/O)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
