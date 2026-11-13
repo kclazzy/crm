@@ -36,7 +36,7 @@ impl App {
         let dir = tempfile::tempdir().unwrap();
         let pool = db::open(&config_in(dir.path()).storage).await.unwrap();
         Self {
-            router: http::router(pool.clone()),
+            router: http::router(http::AppState::new(pool.clone())),
             pool,
             _dir: dir,
         }

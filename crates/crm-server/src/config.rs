@@ -12,7 +12,22 @@ pub struct Config {
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
     #[serde(default)]
+    pub tls: Tls,
+    #[serde(default)]
     pub storage: Storage,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tls {
+    /// Выключать можно только для сервера, слушающего лишь 127.0.0.1 (разработка).
+    pub enabled: bool,
+}
+
+impl Default for Tls {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Где хранятся данные (ТЗ §2.4). БД — только на локальном диске.
@@ -40,6 +55,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             listen: default_listen(),
+            tls: Tls::default(),
             storage: Storage::default(),
         }
     }
@@ -49,6 +65,8 @@ impl Default for Config {
 pub enum ConfigError {
     #[error("ошибка в config.toml: {0}")]
     Parse(#[from] toml::de::Error),
+    #[error("без HTTPS сервер может слушать только 127.0.0.1, а указан {0}: включите [tls] enabled = true")]
+    InsecureListen(SocketAddr),
     #[error("не удалось прочитать {path}: {source}")]
     Read {
         path: PathBuf,
@@ -58,7 +76,11 @@ pub enum ConfigError {
 
 impl Config {
     pub fn from_toml(s: &str) -> Result<Self, ConfigError> {
-        Ok(toml::from_str(s)?)
+        let cfg: Self = toml::from_str(s)?;
+        if !cfg.tls.enabled && !cfg.listen.ip().is_loopback() {
+            return Err(ConfigError::InsecureListen(cfg.listen));
+        }
+        Ok(cfg)
     }
 
     /// Читает файл; если его нет — настройки по умолчанию (первый запуск).
@@ -74,10 +96,10 @@ impl Config {
     }
 }
 
-/// Пока нет HTTPS, по умолчанию сервер доступен только с этой машины:
-/// пароли не должны ходить по сети открытым текстом.
+/// По умолчанию — все сетевые интерфейсы; это допустимо, потому что TLS включён
+/// по умолчанию, а без TLS конфиг с сетевым адресом не принимается.
 fn default_listen() -> SocketAddr {
-    SocketAddr::from(([127, 0, 0, 1], 8443))
+    SocketAddr::from(([0, 0, 0, 0], 8443))
 }
 
 fn default_data_root() -> PathBuf {

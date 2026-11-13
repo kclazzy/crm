@@ -1,7 +1,9 @@
 //! HTTP-маршруты, состояние приложения и единый тип ошибки API.
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use std::sync::Arc;
+
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -13,11 +15,20 @@ use crate::{auth, secrets};
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
+    /// Сертификат CA сервера (PEM) для установки в браузер; `None` — HTTPS выключен.
+    pub ca_pem: Option<Arc<str>>,
 }
 
-pub fn router(pool: SqlitePool) -> Router {
+impl AppState {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool, ca_pem: None }
+    }
+}
+
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route("/api/tls/ca", get(ca_certificate))
         .route("/api/setup", post(auth::setup))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
@@ -27,7 +38,23 @@ pub fn router(pool: SqlitePool) -> Router {
         .route("/api/admin/users/{id}/reset", post(auth::reset_access))
         .route("/api/admin/sessions", get(auth::list_sessions))
         .route("/api/admin/sessions/{id}", delete(auth::revoke_session))
-        .with_state(AppState { pool })
+        .with_state(state)
+}
+
+/// CA сервера — открытая информация (без ключа); нужна браузеру, чтобы доверять серверу.
+async fn ca_certificate(State(app): State<AppState>) -> Result<Response, ApiError> {
+    let pem = app.ca_pem.ok_or(ApiError::NotFound)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/x-x509-ca-cert"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"crm-ca.crt\"",
+            ),
+        ],
+        pem.to_string(),
+    )
+        .into_response())
 }
 
 #[derive(Serialize)]

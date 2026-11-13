@@ -2,16 +2,14 @@
 
 use std::path::PathBuf;
 
-use crm_server::{config, db, http};
+use crm_server::{config, server};
 
 #[derive(Debug, thiserror::Error)]
 enum MainError {
     #[error(transparent)]
     Config(#[from] config::ConfigError),
     #[error(transparent)]
-    Db(#[from] db::DbError),
-    #[error("не удалось открыть порт: {0}")]
-    Io(#[from] std::io::Error),
+    Run(#[from] server::RunError),
     #[error("неизвестный аргумент «{0}». Использование: crm-server [--config PATH]")]
     Args(String),
 }
@@ -35,18 +33,19 @@ async fn main() -> Result<(), MainError> {
         .init();
 
     let cfg = config::Config::load(&config_path()?)?;
-    let pool = db::open(&cfg.storage).await?;
-    let listener = tokio::net::TcpListener::bind(cfg.listen).await?;
-    tracing::info!(addr = %listener.local_addr()?, db = %cfg.storage.db_dir.display(), "CRM запущена");
-
-    axum::serve(
-        listener,
-        http::router(pool).into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
-        tracing::info!("остановка");
-    })
-    .await?;
+    let running = server::start(&cfg).await?;
+    let scheme = if cfg.tls.enabled { "https" } else { "http" };
+    tracing::info!(
+        addr = %format!("{scheme}://{}", running.addr),
+        ca = running.ca_fingerprint.as_deref().unwrap_or("—"),
+        db = %cfg.storage.db_dir.display(),
+        "CRM запущена"
+    );
+    running
+        .run_until(async {
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::info!("остановка");
+        })
+        .await?;
     Ok(())
 }
