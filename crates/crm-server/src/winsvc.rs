@@ -149,6 +149,8 @@ fn install() -> Result<String, ServiceError> {
     service.set_failure_actions_on_non_crash_failures(true)?;
 
     // Учётная запись службы появляется вместе со службой — только теперь можно дать ей права.
+    // Только на корень: вложенные файлы получают права по наследованию. С /T при повторной
+    // установке icacls переписывал права уже созданных файлов БД, и служба теряла к ним доступ.
     run_tool(
         "icacls",
         [
@@ -158,7 +160,6 @@ fn install() -> Result<String, ServiceError> {
             OsStr::new("*S-1-5-18:(OI)(CI)F"),
             OsStr::new("*S-1-5-32-544:(OI)(CI)F"),
             OsStr::new("NT SERVICE\\CRMServer:(OI)(CI)M"),
-            OsStr::new("/T"),
             OsStr::new("/Q"),
         ],
     )?;
