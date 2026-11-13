@@ -160,3 +160,5 @@ jobs:
         with:
           files: '*-setup.exe'
           generate_release_notes: true
+          # Пока версия 0.x — релиз помечается как предварительный.
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}
