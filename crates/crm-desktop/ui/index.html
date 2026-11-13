@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CRM</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><img src="logo.png" alt=""><span>CRM</span></div>
+    <div id="pill" class="pill offline"><i></i><span>Проверяю сервер…</span></div>
+  </header>
+
+  <main>
+    <section id="loading" class="screen center">
+      <div class="spinner"></div>
+    </section>
+
+    <section id="welcome" class="screen" hidden>
+      <h1>Добро пожаловать</h1>
+      <p class="lead">Выберите, какую роль играет этот компьютер.</p>
+      <div class="choices">
+        <article class="choice">
+          <div class="icon">🖥️</div>
+          <h2>Этот компьютер — сервер</h2>
+          <p>Здесь будут храниться клиенты, задачи и переписка команды. Компьютер должен быть включён в рабочее время.</p>
+          <button id="install" class="primary">Установить сервер</button>
+          <small>Windows один раз попросит разрешение администратора.</small>
+        </article>
+        <article class="choice muted">
+          <div class="icon">💻</div>
+          <h2>Подключиться к серверу</h2>
+          <p>Для сотрудников: подключение по коду, который выдаёт владелец.</p>
+          <button disabled>Скоро</button>
+          <small>Появится в следующей версии.</small>
+        </article>
+      </div>
+    </section>
+
+    <section id="owner" class="screen narrow" hidden>
+      <h1>Создайте владельца</h1>
+      <p class="lead">Владелец управляет сервером, сотрудниками и бэкапами. Это ваша учётная запись.</p>
+      <form id="owner-form" class="card form" autocomplete="off">
+        <label>Ваше имя<input name="display_name" required maxlength="100" placeholder="Анна Смирнова"></label>
+        <label>Логин<input name="username" required pattern="[A-Za-z0-9._\-]{3,32}" placeholder="anna" spellcheck="false">
+          <small>3–32 символа: латинские буквы, цифры, точка, дефис</small></label>
+        <label>Пароль<input name="password" type="password" required minlength="10">
+          <small>Не короче 10 символов и без логина внутри</small></label>
+        <label>Повторите пароль<input name="password2" type="password" required minlength="10"></label>
+        <p id="owner-error" class="error" hidden></p>
+        <button class="primary" type="submit">Создать и начать работу</button>
+      </form>
+    </section>
+
+    <section id="dashboard" class="screen" hidden>
+      <h1>Сервер работает</h1>
+      <p class="lead">Окно можно закрыть — CRM останется в трее, а сервер продолжит работать в фоне.</p>
+      <div class="grid">
+        <article class="card">
+          <h3>Адрес для сотрудников</h3>
+          <ul id="addresses" class="addresses"></ul>
+          <small>Работает в локальной сети офиса. Для работы из дома понадобится VPN, например Tailscale.</small>
+        </article>
+        <article class="card">
+          <h3>Отпечаток сертификата</h3>
+          <code id="fingerprint" class="fingerprint">—</code>
+          <small>Сотрудник сверяет его при первом подключении — так он убедится, что подключается именно к вашему серверу.</small>
+        </article>
+      </div>
+      <div class="actions">
+        <button id="restart">Перезапустить сервер</button>
+        <button id="stop" class="danger-ghost">Остановить сервер…</button>
+      </div>
+    </section>
+
+    <section id="down" class="screen narrow center-text" hidden>
+      <div class="big-dot error"></div>
+      <h1 id="down-title">Сервер остановлен</h1>
+      <p class="lead">Пока сервер не работает, сотрудники не могут подключиться.</p>
+      <div class="actions centered">
+        <button id="start" class="primary">Запустить сервер</button>
+      </div>
+    </section>
+
+    <section id="nolink" class="screen narrow center-text" hidden>
+      <div class="big-dot offline"></div>
+      <h1>Нет связи с сервером</h1>
+      <p class="lead">Проверяю каждые несколько секунд…</p>
+    </section>
+  </main>
+
+  <dialog id="confirm-stop">
+    <h3>Остановить сервер?</h3>
+    <p>Все сотрудники потеряют связь с CRM, пока вы снова его не запустите.</p>
+    <div class="actions">
+      <button id="stop-cancel">Отмена</button>
+      <button id="stop-ok" class="danger">Остановить</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

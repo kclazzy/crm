@@ -15,8 +15,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      # Ядро и сервер (default-members); приложение Tauri — в задаче desktop.
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
   audit:
     runs-on: ubuntu-latest
     steps:
@@ -78,3 +79,80 @@ jobs:
           if (Get-NetFirewallRule -DisplayName 'CRM Server' -ErrorAction SilentlyContinue) { throw "правило брандмауэра осталось" }
           if (-not (Test-Path C:\ProgramData\CRM\data\crm.db)) { throw "данные удалены, а не должны" }
           Write-Host "OK"
+  desktop:
+    # Приложение в трее + установщик CRM-Setup.exe, затем настоящая установка/обновление/удаление.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p crm-server
+      - name: crm-server рядом с приложением (sidecar)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force crates/crm-desktop/binaries | Out-Null
+          Copy-Item target/release/crm-server.exe crates/crm-desktop/binaries/crm-server-x86_64-pc-windows-msvc.exe
+      - run: cargo clippy -p crm-desktop --all-targets -- -D warnings
+      - run: cargo test -p crm-desktop
+      - name: Сборка установщика
+        working-directory: crates/crm-desktop
+        run: npx -y @tauri-apps/cli@2 build
+      - name: Установка, обновление и удаление
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1).FullName
+          $dir = 'C:\Program Files\CRM'
+          function Health {
+            for ($i = 0; $i -lt 60; $i++) {
+              $r = curl.exe -s --ssl-no-revoke --cacert C:\ProgramData\CRM\data\tls\ca.crt https://localhost:8443/api/health
+              if ($r -match '"status":"ok"') { return $r }
+              Start-Sleep -Milliseconds 500
+            }
+            Get-Content C:\ProgramData\CRM\logs\* -ErrorAction SilentlyContinue
+            throw "сервер не отвечает"
+          }
+          function WaitUntil($what, [scriptblock]$cond) {
+            for ($i = 0; $i -lt 120; $i++) { if (& $cond) { return }; Start-Sleep -Milliseconds 500 }
+            throw "не дождался: $what"
+          }
+
+          Write-Host "Установщик: $setup ($([math]::Round((Get-Item $setup).Length / 1MB, 1)) МБ)"
+          Start-Process $setup -ArgumentList '/S' -Wait
+          foreach ($f in 'CRM.exe', 'crm-server.exe', 'uninstall.exe') {
+            if (-not (Test-Path "$dir\$f")) { Get-ChildItem $dir; throw "после установки нет $f" }
+          }
+          & "$dir\crm-server.exe" service install; if ($LASTEXITCODE) { throw "service install" }
+          Write-Host "работает: $(Health)"
+
+          # Обновление поверх: служба останавливается на время замены файлов и снова запускается.
+          Start-Process $setup -ArgumentList '/S' -Wait
+          WaitUntil 'служба после обновления' { (Get-Service CRMServer -ErrorAction SilentlyContinue).Status -eq 'Running' }
+          Write-Host "после обновления: $(Health)"
+
+          Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait
+          WaitUntil 'удаление службы' { -not (Get-Service CRMServer -ErrorAction SilentlyContinue) }
+          WaitUntil 'удаление программы' { -not (Test-Path "$dir\CRM.exe") }
+          if (-not (Test-Path C:\ProgramData\CRM\data\crm.db)) { throw "данные удалены без согласия" }
+          Write-Host "OK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CRM-Setup
+          path: target/release/bundle/nsis/*-setup.exe
+  release:
+    # Тег vX.Y.Z → релиз на GitHub с установщиком.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [rust, audit, windows-service, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CRM-Setup
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: '*-setup.exe'
+          generate_release_notes: true

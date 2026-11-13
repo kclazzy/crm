@@ -1,2 +1,4 @@
 /target
 /.dev
+/crates/crm-desktop/binaries
+/crates/crm-desktop/gen

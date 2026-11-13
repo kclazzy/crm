@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Главное окно: вызов команд приложения и события состояния",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
