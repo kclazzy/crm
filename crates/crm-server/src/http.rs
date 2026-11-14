@@ -101,6 +101,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/backup/run", post(crate::admin::backup_now))
         .route("/api/admin/backups", get(crate::admin::backups))
         .route("/api/admin/security", get(crate::admin::security))
+        .route("/api/admin/restore", post(crate::admin::restore))
+        .route("/api/admin/move-out", post(crate::admin::move_out))
         .merge(work_routes())
         .fallback(crate::web::static_or_index)
         .layer(axum::middleware::from_fn_with_state(

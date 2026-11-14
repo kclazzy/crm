@@ -17,6 +17,7 @@ pub mod logging;
 pub mod notify;
 pub mod org;
 pub mod recovery;
+pub mod restore;
 pub mod search;
 pub mod secrets;
 pub mod server;

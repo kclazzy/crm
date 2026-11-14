@@ -22,6 +22,8 @@ pub enum DbError {
     Sqlx(#[from] sqlx::Error),
     #[error("ошибка миграции: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    #[error("восстановление из копии: {0}")]
+    Restore(Box<crate::restore::RestoreError>),
 }
 
 /// Открывает (или создаёт) базу и доводит схему до актуальной. Повторный вызов безопасен.
@@ -31,6 +33,7 @@ pub async fn open(storage: &Storage) -> Result<SqlitePool, DbError> {
         source,
     })?;
     make_private(&storage.db_dir)?;
+    crate::restore::apply_staged(storage).map_err(|e| DbError::Restore(Box::new(e)))?;
     let path = storage.db_dir.join(DB_FILE);
 
     let options = SqliteConnectOptions::from_str("sqlite://")?

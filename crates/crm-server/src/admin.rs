@@ -476,3 +476,103 @@ pub async fn security(
         failed_logins,
     }))
 }
+
+// ---------- Восстановление и переезд ----------
+
+#[derive(Deserialize)]
+pub struct RestoreIn {
+    /// Папка копий (по умолчанию — первая из настроенных) и имя копии или пакета.
+    dir: Option<String>,
+    name: Option<String>,
+}
+
+/// Подготовить восстановление из копии; встанет на место после перезапуска.
+pub async fn restore(
+    State(app): State<AppState>,
+    Owner(owner): Owner,
+    Json(req): Json<RestoreIn>,
+) -> Result<Json<crate::restore::Staged>, ApiError> {
+    let cfg = app.rt.config();
+    let dir = match req.dir.as_deref() {
+        Some(d) => parse_dir(d)?,
+        None => cfg
+            .storage
+            .backup_dirs
+            .first()
+            .cloned()
+            .ok_or_else(|| ApiError::BadRequest("не выбрана папка резервных копий".into()))?,
+    };
+    let source = match req.name.as_deref() {
+        Some(n) if n.contains(['/', '\\']) || n.starts_with('.') => {
+            return Err(ApiError::BadRequest("имя копии без пути".into()))
+        }
+        Some(n) => dir.join(n),
+        None => dir,
+    };
+    // Отдельная копия «до» не делается: при запуске прежняя база сохраняется
+    // как before_restore_*.db (новая копия той же минуты затёрла бы выбранную).
+    let staged = crate::restore::stage(&cfg.storage, &source)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    app.rt.frozen.store(true, Ordering::SeqCst);
+    crate::auth::audit(
+        &app.pool,
+        Some(&owner.id),
+        "restore.staged",
+        Some(&staged.name),
+        "local",
+    )
+    .await?;
+    Ok(Json(staged))
+}
+
+#[derive(Deserialize)]
+pub struct MoveOutIn {
+    /// Куда положить пакет переноса (флешка, сетевая папка).
+    dir: String,
+}
+
+#[derive(Serialize)]
+pub struct Packed {
+    file: String,
+}
+
+/// Переезд: свежая копия → пакет переноса; этот сервер больше не принимает изменения.
+pub async fn move_out(
+    State(app): State<AppState>,
+    Owner(owner): Owner,
+    Json(req): Json<MoveOutIn>,
+) -> Result<Json<Packed>, ApiError> {
+    let out = parse_dir(&req.dir)?;
+    probe_writable(&out)?;
+    let cfg = app.rt.config();
+    let backup_dir = cfg
+        .storage
+        .backup_dirs
+        .first()
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("сначала выберите папку резервных копий".into()))?;
+    // Сначала запрещаем запись, потом копируем — изменения после копии не потеряются.
+    app.rt.frozen.store(true, Ordering::SeqCst);
+    let result = async {
+        crate::backup::run(&app)
+            .await
+            .map_err(|e| ApiError::Failed(e.to_string()))?;
+        tokio::task::spawn_blocking(move || crate::restore::pack(&backup_dir, &out))
+            .await
+            .map_err(|e| ApiError::Failed(e.to_string()))?
+            .map_err(|e| ApiError::Failed(e.to_string()))
+    }
+    .await;
+    let file = match result {
+        Ok(f) => f,
+        Err(e) => {
+            app.rt.frozen.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+    };
+    crate::auth::audit(&app.pool, Some(&owner.id), "move.packed", None, "local").await?;
+    Ok(Json(Packed {
+        file: file.display().to_string(),
+    }))
+}

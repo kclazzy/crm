@@ -108,10 +108,11 @@ async fn run_locked(pool: &SqlitePool, cfg: &Config) -> Result<BackupFile, Backu
     let now = Utc::now();
     let name = crm_core::backup::file_name(now);
     let tls = cfg.storage.db_dir.join("tls");
+    let files = cfg.storage.attachments_dir.clone();
     let size = tokio::task::spawn_blocking({
         let (snapshot, name) = (snapshot.clone(), name.clone());
         let policy = cfg.backup;
-        move || write_copies(&snapshot, &name, &dirs, &tls, now, &policy)
+        move || write_copies(&snapshot, &name, &dirs, &tls, &files, now, &policy)
     })
     .await??;
     let _ = std::fs::remove_file(&snapshot);
@@ -146,6 +147,7 @@ fn write_copies(
     name: &str,
     dirs: &[PathBuf],
     tls: &Path,
+    attachments: &Path,
     now: DateTime<Utc>,
     policy: &crm_core::backup::Policy,
 ) -> Result<u64, BackupError> {
@@ -158,13 +160,45 @@ fn write_copies(
         std::fs::write(&tmp, &packed).map_err(io(&tmp))?;
         std::fs::rename(&tmp, dir.join(name)).map_err(io(dir))?;
         copy_tls(tls, &dir.join("tls"))?;
+        copy_new_files(attachments, &dir.join("attachments"))?;
         rotate(dir, now, policy)?;
     }
     Ok(packed.len() as u64)
 }
 
+/// Вложения — инкрементально: файл с тем же именем (sha256) уже есть — не копируем.
+pub(crate) fn copy_new_files(from: &Path, to: &Path) -> Result<usize, BackupError> {
+    let Ok(prefixes) = std::fs::read_dir(from) else {
+        return Ok(0);
+    };
+    let mut copied = 0;
+    for p in prefixes.flatten() {
+        let name = p.file_name();
+        // Только папки вида «ab» — временные загрузки (tmp) не копируем.
+        if name.len() != 2 || !p.path().is_dir() {
+            continue;
+        }
+        let dest_dir = to.join(&name);
+        for f in std::fs::read_dir(p.path())
+            .map_err(io(&p.path()))?
+            .flatten()
+        {
+            let dest = dest_dir.join(f.file_name());
+            if dest.exists() {
+                continue;
+            }
+            std::fs::create_dir_all(&dest_dir).map_err(io(&dest_dir))?;
+            let tmp = dest.with_extension("part");
+            std::fs::copy(f.path(), &tmp).map_err(io(&tmp))?;
+            std::fs::rename(&tmp, &dest).map_err(io(&dest))?;
+            copied += 1;
+        }
+    }
+    Ok(copied)
+}
+
 /// Ключи и сертификат сервера — чтобы восстановленный сервер остался «тем же» для сотрудников.
-fn copy_tls(from: &Path, to: &Path) -> Result<(), BackupError> {
+pub(crate) fn copy_tls(from: &Path, to: &Path) -> Result<(), BackupError> {
     let Ok(entries) = std::fs::read_dir(from) else {
         return Ok(()); // HTTPS выключен — копировать нечего
     };

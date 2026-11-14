@@ -17,6 +17,8 @@ enum MainError {
     Reset(#[from] crm_server::recovery::ResetError),
     #[error("{0}")]
     Input(String),
+    #[error(transparent)]
+    Restore(#[from] crm_server::restore::RestoreError),
     #[cfg(windows)]
     #[error(transparent)]
     Service(#[from] crm_server::winsvc::ServiceError),
@@ -35,6 +37,7 @@ fn main() -> Result<(), MainError> {
         Command::Run { config } => run_foreground(config),
         Command::Service(cmd) => service(cmd),
         Command::ResetOwnerPassword { config } => reset_owner(config),
+        Command::Restore { source, config } => restore(source, config),
     }
 }
 
@@ -80,6 +83,27 @@ async fn reset_owner(config_path: Option<PathBuf>) -> Result<(), MainError> {
     }
     let username = crm_server::recovery::reset_owner_password(&cfg.storage, &first).await?;
     println!("Готово. Пароль владельца «{username}» изменён, все его входы завершены.");
+    Ok(())
+}
+
+/// Восстановление на этом компьютере: копия готовится и встанет на место при запуске.
+#[tokio::main]
+async fn restore(source: PathBuf, config_path: Option<PathBuf>) -> Result<(), MainError> {
+    let cfg = config::Config::load(&config_location(config_path))?;
+    let staged = crm_server::restore::stage(&cfg.storage, &source).await?;
+    let at = chrono::DateTime::from_timestamp_millis(staged.at)
+        .map(|t| {
+            t.with_timezone(&chrono::Local)
+                .format("%d.%m.%Y %H:%M")
+                .to_string()
+        })
+        .unwrap_or_default();
+    println!(
+        "Копия {} проверена (данные на {at}), файлов вложений перенесено: {}.\n\
+         Перезапустите сервер (меню трея → «Перезапустить сервер» или `crm-server service restart`) —\n\
+         копия встанет на место, прежняя база сохранится как before_restore_*.db.",
+        staged.name, staged.attachments_copied
+    );
     Ok(())
 }
 

@@ -9,6 +9,8 @@ pub const USAGE: &str = "\
   crm-server service uninstall      остановить и удалить службу (данные сохраняются)
   crm-server service start|stop|restart|status
   crm-server reset-owner-password   сбросить забытый пароль владельца (от администратора, на сервере)
+  crm-server restore ИСТОЧНИК       восстановить данные: файл копии .db.zst, папка копий
+                                    или пакет переноса .crmpack (затем перезапустить службу)
   crm-server --version";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +21,10 @@ pub enum Command {
     Service(ServiceCmd),
     /// Сброс пароля владельца прямо в базе (нужны права на папку данных).
     ResetOwnerPassword {
+        config: Option<PathBuf>,
+    },
+    Restore {
+        source: PathBuf,
         config: Option<PathBuf>,
     },
     Version,
@@ -51,6 +57,14 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
         ["--version" | "-V"] => Ok(Command::Version),
         ["reset-owner-password"] => Ok(Command::ResetOwnerPassword { config: None }),
         ["reset-owner-password", "--config", path] => Ok(Command::ResetOwnerPassword {
+            config: Some(PathBuf::from(path)),
+        }),
+        ["restore", source] => Ok(Command::Restore {
+            source: PathBuf::from(source),
+            config: None,
+        }),
+        ["restore", source, "--config", path] => Ok(Command::Restore {
+            source: PathBuf::from(source),
             config: Some(PathBuf::from(path)),
         }),
         ["service", sub] => {
@@ -113,6 +127,18 @@ mod tests {
         assert!(p("service").is_err());
         assert!(p("service install extra").is_err());
         assert!(p("service fly").is_err());
+    }
+
+    #[test]
+    fn restore_command() {
+        assert_eq!(
+            p("restore E:/crm-backup"),
+            Ok(Command::Restore {
+                source: "E:/crm-backup".into(),
+                config: None
+            })
+        );
+        assert!(p("restore").is_err());
     }
 
     #[test]
