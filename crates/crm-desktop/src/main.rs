@@ -5,6 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod connections;
+mod selftest;
 mod server_ctl;
 mod status;
 mod updates;
@@ -277,8 +278,17 @@ fn main() {
             // Главное окно создаётся здесь, чтобы встроить в страницы CRM
             // кнопку «Мои серверы» и объяснение вместо белого экрана.
             if let Some(cfg) = app.config().app.windows.first().cloned() {
+                let handle = app.handle().clone();
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?
                     .initialization_script(connections::guard_script())
+                    .on_navigation(move |url| {
+                        !selftest::enabled() || selftest::on_navigation(&handle, url)
+                    })
+                    .on_page_load(|_, payload| {
+                        if selftest::enabled() {
+                            selftest::log(&format!("LOAD {:?} {}", payload.event(), payload.url()));
+                        }
+                    })
                     .build()?;
             }
             if let Some(w) = app.get_webview_window("main") {
@@ -293,6 +303,9 @@ fn main() {
             }
             tauri::async_runtime::spawn(connections::keep_tunnels_fresh(app.handle().clone()));
             tauri::async_runtime::spawn(updates::watch(app.handle().clone()));
+            if selftest::enabled() {
+                tauri::async_runtime::spawn(selftest::run(app.handle().clone()));
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {

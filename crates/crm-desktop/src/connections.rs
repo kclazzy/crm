@@ -186,7 +186,17 @@ pub fn app_index_url() -> &'static str {
 
 /// Скрипт для страниц CRM в окне: «← Мои серверы» и объяснение вместо белого экрана.
 pub fn guard_script() -> String {
-    include_str!("crm_guard.js").replace("__APP_URL__", app_index_url())
+    include_str!("crm_guard.js")
+        .replace("__APP_URL__", app_index_url())
+        .replace("__REPORT_HOST__", crate::selftest::REPORT_HOST)
+        .replace(
+            "__SELFTEST__",
+            if crate::selftest::enabled() {
+                "true"
+            } else {
+                "false"
+            },
+        )
 }
 
 /// Вернуться из CRM к списку «Мои серверы».

@@ -58,9 +58,23 @@
     box.appendChild(card);
     document.body.appendChild(box);
   }
+  function report() {
+    var root = document.getElementById('root');
+    var d = JSON.stringify({
+      url: location.href,
+      title: document.title,
+      ready: document.readyState,
+      root_children: root ? root.childElementCount : -1,
+      text: (document.body ? document.body.innerText : '').slice(0, 160),
+      errors: errors.slice(0, 8),
+      ua: navigator.userAgent,
+    });
+    location.href = 'http://__REPORT_HOST__/?d=' + encodeURIComponent(d);
+  }
   function ready() {
     addBack();
     setTimeout(explain, 7000);
+    if (__SELFTEST__) setTimeout(report, 8000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);
   else ready();
