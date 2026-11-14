@@ -39,6 +39,43 @@ export interface Health {
   ca_fingerprint: string | null;
 }
 
+export interface ServerInfo {
+  hostname: string;
+  version: string;
+  addresses: string[];
+  ca_fingerprint: string | null;
+}
+
+export interface Volume {
+  path: string;
+  roles: string[];
+  total_bytes: number;
+  free_bytes: number;
+  crm_bytes: number;
+  level: 'ok' | 'warning' | 'critical';
+}
+
+export interface StorageInfo {
+  data_dir: string;
+  backup_dirs: string[];
+  volumes: Volume[];
+  restart_required: boolean;
+}
+
+export interface BackupFile {
+  name: string;
+  at: number;
+  size: number;
+}
+
+export interface BackupStatus {
+  at: number;
+  ok: boolean;
+  file: string | null;
+  size: number | null;
+  error: string | null;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -90,6 +127,12 @@ export const api = {
   resetAccess: (id: string) => request<Invite>('POST', `/api/admin/users/${id}/reset`),
   sessions: () => request<Session[]>('GET', '/api/admin/sessions'),
   revokeSession: (id: string) => request<void>('DELETE', `/api/admin/sessions/${id}`),
+  server: () => request<ServerInfo>('GET', '/api/admin/server'),
+  storage: () => request<StorageInfo>('GET', '/api/admin/storage'),
+  setBackupDirs: (dirs: string[]) => request<{ dirs: string[]; warnings: string[] }>('PUT', '/api/admin/backup', { dirs }),
+  backupNow: () => request<BackupFile>('POST', '/api/admin/backup/run'),
+  backups: () => request<{ last: BackupStatus | null; files: BackupFile[] }>('GET', '/api/admin/backups'),
+  moveData: (data_dir: string) => request<{ data_dir: string; restart_required: boolean }>('POST', '/api/admin/storage/move', { data_dir }),
 };
 
 export const roleName: Record<Role, string> = {
@@ -106,4 +149,16 @@ export function timeAgo(ms: number): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h} ч назад`;
   return new Date(ms).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
+export function bytes(n: number): string {
+  if (n < 1024) return `${n} Б`;
+  const units = ['КБ', 'МБ', 'ГБ', 'ТБ'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toLocaleString('ru-RU', { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[i]}`;
 }

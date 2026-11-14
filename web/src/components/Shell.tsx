@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router';
-import { Activity, Building2, KeyRound, ListChecks, LogOut, MessagesSquare, Server, Users } from 'lucide-react';
+import { Activity, Building2, DatabaseBackup, KeyRound, ListChecks, LogOut, MessagesSquare, Server, Users } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { api, roleName } from '../api';
 import { useAuth } from '../auth';
@@ -54,6 +54,7 @@ export function Shell() {
             <nav className="flex flex-col gap-1">
               <Item to="/admin/staff" icon={Users} label="Сотрудники" />
               <Item to="/admin/sessions" icon={KeyRound} label="Активные входы" />
+              <Item to="/admin/storage" icon={DatabaseBackup} label="Хранилище и копии" />
               <Item to="/admin/server" icon={Server} label="Сервер" />
             </nav>
           </>
