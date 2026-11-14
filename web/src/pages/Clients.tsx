@@ -4,7 +4,7 @@ import { AlertTriangle, Building2, ChevronRight, Download, FileUp, Mail, Pencil,
 import { useAuth } from '../auth';
 import { useLiveReload } from '../live';
 import { childrenOf, type Client, type ClientCardT, type TaskSummary, work } from '../work';
-import { Badge, Button, ErrorText, Modal, PageHeader } from '../components/ui';
+import { BackButton, Badge, Button, ErrorText, Modal, PageHeader } from '../components/ui';
 import { ClientForm, Md, TaskForm, TaskRow, UnreadDot } from '../components/work';
 
 function TagChip({ name, color }: { name: string; color: string }) {
@@ -139,7 +139,7 @@ export function ClientCard() {
 
   return (
     <>
-      <nav className="mb-3 flex items-center gap-1 text-sm text-slate-500"><Link to="/clients" className="hover:text-brand-600">Клиенты</Link><ChevronRight className="size-4" /></nav>
+      <nav className="mb-3 flex items-center gap-3 text-sm text-slate-500"><BackButton fallback="/clients" /><Link to="/clients" className="hover:text-brand-600">Клиенты</Link><ChevronRight className="size-4" /></nav>
       <PageHeader
         title={c.name}
         subtitle={`${c.kind === 'company' ? 'Компания' : 'Физлицо'} · ${c.group_name}${c.manager_name ? ` · отв. ${c.manager_name}` : ''}`}

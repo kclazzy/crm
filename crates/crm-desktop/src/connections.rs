@@ -175,6 +175,20 @@ pub fn navigate(app: &AppHandle, url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Адрес собственных страниц программы: на Windows — http://tauri.localhost, иначе tauri://localhost.
+pub fn app_index_url() -> &'static str {
+    if cfg!(windows) {
+        "http://tauri.localhost/index.html"
+    } else {
+        "tauri://localhost/index.html"
+    }
+}
+
+/// Скрипт для страниц CRM в окне: «← Мои серверы» и объяснение вместо белого экрана.
+pub fn guard_script() -> String {
+    include_str!("crm_guard.js").replace("__APP_URL__", app_index_url())
+}
+
 /// Вернуться из CRM к списку «Мои серверы».
 pub fn back_to_list(app: &AppHandle) {
     let saved = app.state::<AppUrl>().0.lock().ok().and_then(|u| u.clone());

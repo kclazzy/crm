@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { CheckCircle2, ChevronRight, Download, FileSpreadsheet, Undo2 } from 'lucide-react';
 import { timeAgo } from '../api';
 import { type ImportRecord, work } from '../work';
-import { Badge, Button, ErrorText, PageHeader } from '../components/ui';
+import { BackButton, Badge, Button, ErrorText, PageHeader } from '../components/ui';
 import { useGroups } from '../components/work';
 
 const fields: { key: keyof ImportRecord; label: string; required?: boolean }[] = [
@@ -109,7 +109,7 @@ export function ImportClients() {
 
   return (
     <>
-      <nav className="mb-3 flex items-center gap-1 text-sm text-slate-500"><Link to="/clients" className="hover:text-brand-600">Клиенты</Link><ChevronRight className="size-4" /></nav>
+      <nav className="mb-3 flex items-center gap-3 text-sm text-slate-500"><BackButton fallback="/clients" /><Link to="/clients" className="hover:text-brand-600">Клиенты</Link><ChevronRight className="size-4" /></nav>
       <PageHeader title="Импорт клиентов" subtitle="Из Excel (.xlsx) или CSV. Ничего не запишется, пока вы не подтвердите." />
       <div className="mb-6 flex flex-wrap gap-5">
         {['Файл', 'Колонки', 'Проверка', 'Готово'].map((t, i) => <Step key={t} n={i + 1} title={t} active={step === i + 1} done={step > i + 1} />)}

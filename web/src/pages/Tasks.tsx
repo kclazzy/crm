@@ -4,7 +4,7 @@ import { Archive, ArchiveRestore, Check, ChevronRight, Download, LayoutGrid, Lis
 import { useAuth } from '../auth';
 import { useLiveReload } from '../live';
 import { dateTime, fromLocalInput, type Priority, type Status, statusName, type TaskCard, type TaskSummary, toLocalInput, work } from '../work';
-import { Button, ErrorText, Modal, PageHeader } from '../components/ui';
+import { BackButton, Button, ErrorText, Modal, PageHeader } from '../components/ui';
 import { DeadlineText, Md, PeoplePicker, PriorityBadge, Progress, StatusBadge, TaskForm, TaskRow, UnreadDot, deadlineBar, usePeople } from '../components/work';
 import { Chat } from '../components/Chat';
 
@@ -238,7 +238,7 @@ export function TaskPage() {
   useEffect(() => { setT(null); setError(''); setNote(''); void load(); }, [load]);
   useLiveReload(load, id);
 
-  if (error && !t) return <ErrorText>{error === 'не найдено' ? 'Задача не найдена или у вас нет к ней доступа.' : error}</ErrorText>;
+  if (error && !t) return <><BackButton fallback="/" /><ErrorText>{error === 'не найдено' ? 'Задача не найдена или у вас нет к ней доступа.' : error}</ErrorText></>;
   if (!t) return null;
   const manage = t.access === 'manage';
   const archived = t.archived_at != null;
@@ -259,6 +259,7 @@ export function TaskPage() {
     <div className="flex flex-col gap-5 lg:h-[calc(100dvh-5rem)] lg:flex-row">
       <div className="min-w-0 flex-1 overflow-y-auto lg:pr-2">
         <nav className="mb-3 flex flex-wrap items-center gap-1 text-sm text-slate-500">
+          <span className="mr-2"><BackButton fallback="/" /></span>
           <Link to={`/clients/${t.client_id}`} className="hover:text-brand-600">{t.client_name}</Link>
           {t.path.map((p) => (
             <span key={p.id} className="flex items-center gap-1"><ChevronRight className="size-4" />

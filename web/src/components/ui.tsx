@@ -1,6 +1,7 @@
+import { useNavigate } from 'react-router';
 import { type ButtonHTMLAttributes, type ReactNode, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, X } from 'lucide-react';
+import { ArrowLeft, Loader2, X } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -104,4 +105,18 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 export function ErrorText({ children }: { children: ReactNode }) {
   if (!children) return null;
   return <p className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{children}</p>;
+}
+
+/** «← Назад»: на предыдущую страницу, а если её нет (открыли по ссылке) — в раздел `fallback`. */
+export function BackButton({ fallback }: { fallback: string }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate(fallback))}
+      className="inline-flex items-center gap-1 rounded-lg py-1 pr-2 text-sm font-medium text-slate-500 hover:text-brand-600"
+    >
+      <ArrowLeft className="size-4" />Назад
+    </button>
+  );
 }

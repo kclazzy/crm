@@ -6,6 +6,9 @@ const $ = (id) => document.getElementById(id);
 const screens = ['loading', 'welcome', 'owner', 'dashboard', 'down', 'nolink', 'servers'];
 // Экран списка серверов открыт явно (из трея или кнопкой) — состояние сервера его не перебивает.
 let pinned = new URLSearchParams(location.search).get('screen') === 'servers';
+// Экран выбран пользователем (кнопкой «Назад» или «Подключиться») — состояние сервера его не перебивает.
+let chosen = null;
+let lastStatus = null;
 let busy = false;
 
 function show(id) {
@@ -21,10 +24,11 @@ function toast(text) {
 }
 
 function render(st) {
+  lastStatus = st;
   const pill = $('pill');
   pill.className = `pill ${st.light}`;
   pill.querySelector('span').textContent = st.text;
-  if (busy || pinned) return;
+  if (busy || pinned || chosen) return;
 
   if (st.reachable && st.needs_owner) return show('owner');
   if (st.reachable) {
@@ -190,6 +194,7 @@ async function connect(button, id, invite) {
 
 function openServers() {
   pinned = true;
+  chosen = null;
   show('servers');
   loadServers().catch((e) => toast(String(e)));
 }
@@ -250,3 +255,16 @@ invoke('servers')
 setInterval(() => {
   if (!$('servers').hidden) loadServers().catch(() => {});
 }, 10000);
+
+// «Назад» на каждом экране: к выбору «сервер или подключение»; у владельца сервера — к панели.
+document.querySelectorAll('[data-back]').forEach((b) => {
+  b.addEventListener('click', () => {
+    pinned = false;
+    const host = lastStatus && lastStatus.reachable && !lastStatus.needs_owner;
+    chosen = host ? null : 'welcome';
+    if (host) render(lastStatus);
+    else show('welcome');
+  });
+});
+// Выбор на приветственном экране снимает «Назад».
+$('install').addEventListener('click', () => { chosen = null; }, true);

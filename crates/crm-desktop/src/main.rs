@@ -274,6 +274,13 @@ fn main() {
             if !autostart.is_enabled().unwrap_or(false) {
                 let _ = autostart.enable();
             }
+            // Главное окно создаётся здесь, чтобы встроить в страницы CRM
+            // кнопку «Мои серверы» и объяснение вместо белого экрана.
+            if let Some(cfg) = app.config().app.windows.first().cloned() {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?
+                    .initialization_script(connections::guard_script())
+                    .build()?;
+            }
             if let Some(w) = app.get_webview_window("main") {
                 if let (Ok(url), Ok(mut slot)) =
                     (w.url(), app.state::<connections::AppUrl>().0.lock())
