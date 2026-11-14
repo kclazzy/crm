@@ -133,6 +133,8 @@ export const api = {
   forgot: (username: string) => request<{ ok: boolean }>('POST', '/api/auth/forgot', { username }),
   recover: (username: string, code: string, new_password: string) =>
     request<{ ok: boolean }>('POST', '/api/auth/recover', { username, code, new_password }),
+  security: () =>
+    request<{ blocked: { ip: string; count: number; seconds_ago: number }[]; failed_logins: { ip: string; count: number; last_at: number }[] }>('GET', '/api/admin/security'),
   recoveryStatus: () => request<{ unused: number }>('GET', '/api/admin/recovery-codes'),
   newRecoveryCodes: () => request<{ codes: string[] }>('POST', '/api/admin/recovery-codes'),
   health: () => request<Health>('GET', '/api/health'),

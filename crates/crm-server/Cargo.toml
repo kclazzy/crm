@@ -32,6 +32,7 @@ rust-embed = { version = "8", features = ["mime-guess"] }
 zstd = "0.13"
 fs4 = "1"
 rpassword = "7"
+hyper-util = { version = "0.1", features = ["tokio"] }
 time = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

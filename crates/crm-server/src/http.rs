@@ -21,6 +21,8 @@ pub struct Runtime {
     pub frozen: std::sync::atomic::AtomicBool,
     /// Бэкапы идут строго по одному.
     pub backup_lock: tokio::sync::Mutex<()>,
+    /// Лимиты запросов с одного IP.
+    pub limiter: crate::limits::RateLimiter,
 }
 
 impl Runtime {
@@ -55,6 +57,7 @@ impl AppState {
                 config: std::sync::RwLock::new(config),
                 frozen: std::sync::atomic::AtomicBool::new(false),
                 backup_lock: tokio::sync::Mutex::new(()),
+                limiter: crate::limits::RateLimiter::default(),
             }),
             ca_pem: None,
             ca_fingerprint: None,
@@ -94,11 +97,17 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/admin/backup/run", post(crate::admin::backup_now))
         .route("/api/admin/backups", get(crate::admin::backups))
+        .route("/api/admin/security", get(crate::admin::security))
         .fallback(crate::web::static_or_index)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             frozen_guard,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::limits::rate_limit,
+        ))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY))
         .layer(axum::middleware::map_response(crate::web::security_headers))
         .with_state(state)
 }
@@ -135,6 +144,9 @@ async fn ca_certificate(State(app): State<AppState>) -> Result<Response, ApiErro
     )
         .into_response())
 }
+
+/// Самый большой запрос API (вложения будут приниматься отдельно, потоком).
+const MAX_BODY: usize = 1024 * 1024;
 
 #[derive(Serialize)]
 struct Health {

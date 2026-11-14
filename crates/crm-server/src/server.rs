@@ -85,11 +85,13 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
                 rustls.clone(),
                 m.cert_pem.clone(),
             ));
-            let server = axum_server::from_tcp_rustls(listener, rustls).handle(handle.clone());
+            let mut server = axum_server::from_tcp_rustls(listener, rustls).handle(handle.clone());
+            limit_slow_clients(server.http_builder());
             (tokio::spawn(server.serve(app)), Some(renew))
         }
         None => {
-            let server = axum_server::from_tcp(listener).handle(handle.clone());
+            let mut server = axum_server::from_tcp(listener).handle(handle.clone());
+            limit_slow_clients(server.http_builder());
             (tokio::spawn(server.serve(app)), None)
         }
     };
@@ -112,6 +114,18 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         renew,
         backups,
     })
+}
+
+/// Медленный клиент, который присылает заголовки по байту, не держит соединение
+/// дольше 10 секунд (защита от «медленных» атак). TLS-рукопожатие axum-server
+/// ограничивает 10 секундами сам.
+fn limit_slow_clients(
+    builder: &mut hyper_util::server::conn::auto::Builder<hyper_util::rt::TokioExecutor>,
+) {
+    builder
+        .http1()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(Duration::from_secs(10));
 }
 
 /// Занять порт; если он ещё занят (старый процесс службы не успел завершиться) —

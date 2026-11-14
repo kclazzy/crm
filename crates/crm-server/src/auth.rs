@@ -192,6 +192,24 @@ pub(crate) async fn ensure_not_locked(
     }
 }
 
+/// Медленный перебор разных логинов с одного IP: не больше 20 неудач за 15 минут.
+pub(crate) async fn ensure_ip_not_spraying(pool: &SqlitePool, ip: &str) -> Result<(), ApiError> {
+    const IP_LIMIT: i64 = 20;
+    let since = now_ms() - LOCKOUT_WINDOW.num_milliseconds();
+    let failures: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action = 'login.failed' AND ip = ? AND created_at > ?",
+    )
+    .bind(ip)
+    .bind(since)
+    .fetch_one(pool)
+    .await?;
+    if failures >= IP_LIMIT {
+        Err(ApiError::TooManyAttempts)
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) async fn audit(
     pool: &SqlitePool,
     actor: Option<&str>,
@@ -377,6 +395,7 @@ pub async fn login(
     let key = req.username.trim().to_lowercase();
 
     ensure_not_locked(&app.pool, "login.failed", &key, &ip).await?;
+    ensure_ip_not_spraying(&app.pool, &ip).await?;
 
     let row: Option<(String, String, String, Option<String>)> = sqlx::query_as(
         "SELECT id, display_name, role, password_hash FROM users WHERE username = ? AND is_active = 1",

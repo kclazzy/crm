@@ -16,6 +16,8 @@ pub enum SecretError {
     Hash(argon2::password_hash::Error),
     #[error("фоновая задача прервана: {0}")]
     Join(#[from] tokio::task::JoinError),
+    #[error("очередь проверки паролей недоступна")]
+    Busy,
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N], SecretError> {
@@ -42,8 +44,14 @@ fn hash_blocking(password: &str) -> Result<String, SecretError> {
         .map_err(SecretError::Hash)
 }
 
+/// Одновременно не больше двух проверок пароля: каждая — ~19 МБ памяти и заметная
+/// работа процессора. При наплыве попыток входа запросы ждут очереди, а сервер
+/// продолжает отвечать сотрудникам.
+static HASHING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
 /// argon2id — медленный по замыслу, поэтому вне потока обработки запросов.
 pub async fn hash_password(password: String) -> Result<String, SecretError> {
+    let _slot = HASHING.acquire().await.map_err(|_| SecretError::Busy)?;
     tokio::task::spawn_blocking(move || hash_blocking(&password)).await?
 }
 
@@ -64,6 +72,7 @@ pub async fn verify_password(
     password: String,
     stored: Option<String>,
 ) -> Result<bool, SecretError> {
+    let _slot = HASHING.acquire().await.map_err(|_| SecretError::Busy)?;
     tokio::task::spawn_blocking(move || {
         // Пароль заглушки — случайный и нигде не сохранён, поэтому с ней проверка всегда ложна.
         let hash = match &stored {

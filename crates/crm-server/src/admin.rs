@@ -353,3 +353,39 @@ fn copy_keys(from: &Path, to: &Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+// ---------- Безопасность ----------
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct FailedLogins {
+    ip: String,
+    count: i64,
+    last_at: i64,
+}
+
+#[derive(Serialize)]
+pub struct SecurityOut {
+    /// Адреса, которым сервер отказывал из-за слишком частых запросов (сутки).
+    blocked: Vec<crate::limits::Blocked>,
+    /// Неудачные входы и попытки кодов восстановления по адресам (сутки).
+    failed_logins: Vec<FailedLogins>,
+}
+
+pub async fn security(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+) -> Result<Json<SecurityOut>, ApiError> {
+    let since = chrono::Utc::now().timestamp_millis() - 86_400_000;
+    let failed_logins = sqlx::query_as(
+        "SELECT ip, count(*) AS count, max(created_at) AS last_at FROM audit_log
+         WHERE action IN ('login.failed', 'recover.failed') AND created_at > ? AND ip IS NOT NULL
+         GROUP BY ip ORDER BY count DESC LIMIT 50",
+    )
+    .bind(since)
+    .fetch_all(&app.pool)
+    .await?;
+    Ok(Json(SecurityOut {
+        blocked: app.rt.limiter.blocked(),
+        failed_logins,
+    }))
+}
