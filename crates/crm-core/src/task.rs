@@ -100,6 +100,52 @@ pub fn deadline_state(
     }
 }
 
+/// Нарушение правил дерева задач (ТЗ §4.2).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RuleError {
+    #[error("дедлайн подзадачи не может быть позже дедлайна родительской задачи")]
+    DeadlineAfterParent,
+    #[error("нельзя завершить задачу: открыто подзадач — {0}")]
+    OpenSubtasks(usize),
+    #[error("название не может быть пустым и длиннее 300 символов")]
+    BadTitle,
+}
+
+/// Дедлайн подзадачи ≤ дедлайна родителя.
+pub fn check_subtask_deadline(child: i64, parent: Option<i64>) -> Result<(), RuleError> {
+    match parent {
+        Some(p) if child > p => Err(RuleError::DeadlineAfterParent),
+        _ => Ok(()),
+    }
+}
+
+/// Завершить можно, только когда все подзадачи завершены (этапы не блокируют).
+pub fn check_can_complete(to: TaskStatus, open_subtasks: usize) -> Result<(), RuleError> {
+    if to == TaskStatus::Completed && open_subtasks > 0 {
+        Err(RuleError::OpenSubtasks(open_subtasks))
+    } else {
+        Ok(())
+    }
+}
+
+/// Название задачи, этапа или клиента: без пробелов по краям, 1–300 символов.
+pub fn parse_title(s: &str) -> Result<String, RuleError> {
+    let t = s.trim();
+    if t.is_empty() || t.chars().count() > 300 {
+        Err(RuleError::BadTitle)
+    } else {
+        Ok(t.to_owned())
+    }
+}
+
+/// `completed_at` при смене статуса: завершение ставит время, переоткрытие — сбрасывает.
+pub fn completed_at_after(to: TaskStatus, before: Option<i64>, now: i64) -> Option<i64> {
+    match to {
+        TaskStatus::Completed => Some(before.unwrap_or(now)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +207,42 @@ mod tests {
     fn completed_task_is_done_even_after_deadline() {
         let s = deadline_state(TaskStatus::Completed, at(10), at(20), Duration::hours(24));
         assert_eq!(s, DeadlineState::Done);
+    }
+
+    #[test]
+    fn subtask_deadline_not_after_parent() {
+        assert_eq!(check_subtask_deadline(10, Some(10)), Ok(()));
+        assert_eq!(check_subtask_deadline(5, None), Ok(()));
+        assert_eq!(
+            check_subtask_deadline(11, Some(10)),
+            Err(RuleError::DeadlineAfterParent)
+        );
+    }
+
+    #[test]
+    fn open_subtasks_block_completion_only() {
+        assert_eq!(
+            check_can_complete(TaskStatus::Completed, 2),
+            Err(RuleError::OpenSubtasks(2))
+        );
+        assert_eq!(check_can_complete(TaskStatus::Completed, 0), Ok(()));
+        assert_eq!(check_can_complete(TaskStatus::InProgress, 3), Ok(()));
+    }
+
+    #[test]
+    fn reopening_resets_completed_at() {
+        assert_eq!(completed_at_after(TaskStatus::Completed, None, 7), Some(7));
+        assert_eq!(
+            completed_at_after(TaskStatus::Completed, Some(3), 7),
+            Some(3)
+        );
+        assert_eq!(completed_at_after(TaskStatus::InProgress, Some(3), 7), None);
+    }
+
+    #[test]
+    fn titles_are_trimmed_and_bounded() {
+        assert_eq!(parse_title("  Договор "), Ok("Договор".into()));
+        assert_eq!(parse_title("   "), Err(RuleError::BadTitle));
+        assert_eq!(parse_title(&"я".repeat(301)), Err(RuleError::BadTitle));
     }
 }
