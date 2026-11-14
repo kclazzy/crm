@@ -75,3 +75,16 @@ dialog h3 { text-transform: none; letter-spacing: 0; font-size: 18px; color: var
 dialog .actions { justify-content: flex-end; margin-top: 18px; }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.2); max-width: 80%; }
 @media (max-width: 720px) { .choices, .grid { grid-template-columns: 1fr; } }
+textarea { font: 13px/1.5 "Cascadia Mono", Consolas, monospace; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; resize: vertical; user-select: text; }
+textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.servers { list-style: none; padding: 0; margin: 0 0 22px; display: flex; flex-direction: column; gap: 10px; }
+.servers li { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+.servers .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; background: var(--offline); }
+.servers .dot.online { background: var(--ok); box-shadow: 0 0 0 4px rgba(22,163,74,.15); }
+.servers .dot.wrong_server { background: var(--error); }
+.servers .info { flex: 1; min-width: 0; }
+.servers .name { font-weight: 620; }
+.servers .meta { color: var(--muted); font-size: 13px; }
+.servers .row-actions { display: flex; gap: 8px; }
+.servers .row-actions button { padding: 7px 12px; font-size: 13.5px; }
+.empty { color: var(--muted); text-align: center; margin: 0 0 22px; }

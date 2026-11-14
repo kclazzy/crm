@@ -974,6 +974,8 @@ dependencies = [
 name = "crm-desktop"
 version = "0.1.0"
 dependencies = [
+ "crm-connect",
+ "crm-core",
  "if-addrs",
  "reqwest 0.12.28",
  "serde",

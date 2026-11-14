@@ -4,6 +4,7 @@
 // В релизной сборке без окна консоли.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod connections;
 mod server_ctl;
 mod status;
 
@@ -122,6 +123,15 @@ async fn create_owner(
 
 fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
     let open = MenuItem::with_id(app, "open", "Открыть CRM", true, None::<&str>)?;
+    let servers = MenuItem::with_id(app, "servers", "Мои серверы", true, None::<&str>)?;
+    let browser = MenuItem::with_id(app, "browser", "Открыть CRM в браузере", true, None::<&str>)?;
+    let vpn = MenuItem::with_id(
+        app,
+        "vpn-apply",
+        "Применить настройки VPN…",
+        true,
+        None::<&str>,
+    )?;
     let line = MenuItem::with_id(app, "status", "Проверяю сервер…", false, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "Перезапустить сервер", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Остановить сервер…", true, None::<&str>)?;
@@ -143,12 +153,15 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
         app,
         &[
             &open,
+            &servers,
+            &browser,
             &PredefinedMenuItem::separator(app)?,
             &line,
             &PredefinedMenuItem::separator(app)?,
             &restart,
             &stop,
             &reset,
+            &vpn,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -161,6 +174,26 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
+            "servers" => connections::back_to_list(app),
+            "browser" => {
+                let url = format!("https://localhost:{}", server_ctl::PORT);
+                if let Err(e) = server_ctl::open_browser(&url) {
+                    eprintln!("CRM: {e}");
+                }
+            }
+            "vpn-apply" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let result = server_action(app.clone(), "vpn-apply".into()).await;
+                    let text = match result {
+                        Ok(_) => {
+                            "VPN включён. Не забудьте перенаправить порт на роутере.".to_owned()
+                        }
+                        Err(e) => e,
+                    };
+                    let _ = app.emit("toast", text);
+                });
+            }
             "restart" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
@@ -210,11 +243,20 @@ fn main() {
             Some(vec!["--minimized"]),
         ))
         .manage(LastStatus(Mutex::new(None)))
+        .manage(connections::Tunnels::default())
+        .manage(connections::AppUrl(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_status,
             addresses,
             server_action,
-            create_owner
+            create_owner,
+            connections::servers,
+            connections::key_needs_pin,
+            connections::server_add,
+            connections::server_remove,
+            connections::server_rename,
+            connections::server_open,
+            connections::open_own
         ])
         .setup(move |app| {
             build_tray(app)?;
@@ -223,9 +265,17 @@ fn main() {
             if !autostart.is_enabled().unwrap_or(false) {
                 let _ = autostart.enable();
             }
+            if let Some(w) = app.get_webview_window("main") {
+                if let (Ok(url), Ok(mut slot)) =
+                    (w.url(), app.state::<connections::AppUrl>().0.lock())
+                {
+                    *slot = Some(url);
+                }
+            }
             if !minimized {
                 show_main(app.handle());
             }
+            tauri::async_runtime::spawn(connections::keep_tunnels_fresh(app.handle().clone()));
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {

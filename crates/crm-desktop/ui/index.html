@@ -28,12 +28,12 @@
           <button id="install" class="primary">Установить сервер</button>
           <small>Windows один раз попросит разрешение администратора.</small>
         </article>
-        <article class="choice muted">
+        <article class="choice">
           <div class="icon">💻</div>
           <h2>Подключиться к серверу</h2>
-          <p>Для сотрудников: подключение по коду, который выдаёт владелец.</p>
-          <button disabled>Скоро</button>
-          <small>Появится в следующей версии.</small>
+          <p>Для сотрудников: вставьте ключ подключения, который прислал владелец.</p>
+          <button id="to-servers" class="primary">Подключиться по ключу</button>
+          <small>Сертификаты ставить не нужно — программа сама проверит, что сервер ваш.</small>
         </article>
       </div>
     </section>
@@ -60,7 +60,7 @@
         <article class="card">
           <h3>Адрес для сотрудников</h3>
           <ul id="addresses" class="addresses"></ul>
-          <small>Работает в локальной сети офиса. Для работы из дома понадобится VPN, например Tailscale.</small>
+          <small>Работает в локальной сети офиса. Для работы из дома настройте VPN: CRM → Администрирование → Удалённый доступ.</small>
         </article>
         <article class="card">
           <h3>Отпечаток сертификата</h3>
@@ -69,9 +69,29 @@
         </article>
       </div>
       <div class="actions">
+        <button id="open-own" class="primary">Открыть CRM</button>
+        <button id="dash-servers">Мои серверы</button>
         <button id="restart">Перезапустить сервер</button>
         <button id="stop" class="danger-ghost">Остановить сервер…</button>
       </div>
+    </section>
+
+ <section id="servers" class="screen" hidden>
+      <h1>Мои серверы</h1>
+      <p class="lead">Статус проверяется перед подключением: зелёный — сервер отвечает.</p>
+      <ul id="server-list" class="servers"></ul>
+      <p id="servers-empty" class="empty" hidden>Пока нет серверов — добавьте первый по ключу.</p>
+      <form id="add-form" class="card form">
+        <h3>Добавить сервер по ключу</h3>
+        <label>Ключ подключения
+          <textarea name="key" rows="3" required spellcheck="false" placeholder="CRM1-…"></textarea>
+          <small>Ключ присылает владелец CRM. Можно вставить вместе с переносами строк.</small></label>
+        <label id="pin-row" hidden>PIN
+          <input name="pin" inputmode="numeric" autocomplete="off" maxlength="32" placeholder="4–6 цифр">
+          <small>PIN владелец сообщает отдельно — голосом или в мессенджере.</small></label>
+        <p id="add-error" class="error" hidden></p>
+        <button class="primary" type="submit">Добавить и подключиться</button>
+      </form>
     </section>
 
     <section id="down" class="screen narrow center-text" hidden>

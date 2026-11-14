@@ -15,8 +15,10 @@ tauri-plugin-autostart = "2"
 serde = { workspace = true }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "sync"] }
 if-addrs = "0.15"
+crm-connect = { path = "../crm-connect" }
+crm-core = { path = "../crm-core" }
 
 [lints]
 workspace = true

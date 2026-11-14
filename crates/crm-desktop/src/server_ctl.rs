@@ -231,7 +231,33 @@ pub use platform::{elevated, reset_owner_password_console, service_state};
 
 /// Действия, которые окно и трей могут попросить у службы.
 pub fn is_allowed_action(action: &str) -> bool {
-    matches!(action, "install" | "start" | "stop" | "restart")
+    matches!(
+        action,
+        "install" | "start" | "stop" | "restart" | "vpn-apply"
+    )
+}
+
+/// Открыть адрес в браузере по умолчанию (для телефона — тот же адрес в сети).
+pub fn open_browser(url: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// Адреса этого компьютера в локальной сети — их сотрудники вводят для подключения.

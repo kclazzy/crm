@@ -98,7 +98,8 @@ const VPN_RULE: &str = "CRM VPN";
 const VPN_CRM_RULE: &str = "CRM Server (VPN)";
 
 fn wireguard_exe() -> Option<PathBuf> {
-    let base = std::env::var_os("ProgramFiles").map_or_else(|| PathBuf::from("C:\\Program Files"), PathBuf::from);
+    let base = std::env::var_os("ProgramFiles")
+        .map_or_else(|| PathBuf::from("C:\\Program Files"), PathBuf::from);
     let exe = base.join("WireGuard").join("wireguard.exe");
     exe.exists().then_some(exe)
 }
@@ -134,7 +135,8 @@ fn vpn_apply() -> Result<String, ServiceError> {
             )?;
             wireguard_exe().ok_or_else(|| ServiceError::Tool {
                 program: "winget".into(),
-                detail: "WireGuard не установился — поставьте его с wireguard.com и повторите".into(),
+                detail: "WireGuard не установился — поставьте его с wireguard.com и повторите"
+                    .into(),
             })?
         }
     };
@@ -142,11 +144,23 @@ fn vpn_apply() -> Result<String, ServiceError> {
     // Служба туннеля читает файл при установке — для новых настроек переустанавливаем.
     let _ = run_tool(&wg, ["/uninstalltunnelservice", crm_core::vpn::TUNNEL]);
     std::thread::sleep(Duration::from_secs(2));
-    run_tool(&wg, ["/installtunnelservice".to_owned(), conf.display().to_string()])?;
+    run_tool(
+        &wg,
+        [
+            "/installtunnelservice".to_owned(),
+            conf.display().to_string(),
+        ],
+    )?;
     for rule in [VPN_RULE, VPN_CRM_RULE] {
         let _ = run_tool(
             "netsh",
-            ["advfirewall", "firewall", "delete", "rule", format!("name={rule}").as_str()],
+            [
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
+                format!("name={rule}").as_str(),
+            ],
         );
     }
     run_tool(
