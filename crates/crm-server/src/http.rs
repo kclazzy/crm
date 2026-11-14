@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -23,6 +23,8 @@ pub struct Runtime {
     pub backup_lock: tokio::sync::Mutex<()>,
     /// Лимиты запросов с одного IP.
     pub limiter: crate::limits::RateLimiter,
+    /// События в реальном времени для подключённых окон.
+    pub hub: crate::events::Hub,
 }
 
 impl Runtime {
@@ -58,6 +60,7 @@ impl AppState {
                 frozen: std::sync::atomic::AtomicBool::new(false),
                 backup_lock: tokio::sync::Mutex::new(()),
                 limiter: crate::limits::RateLimiter::default(),
+                hub: crate::events::Hub::default(),
             }),
             ca_pem: None,
             ca_fingerprint: None,
@@ -98,6 +101,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/backup/run", post(crate::admin::backup_now))
         .route("/api/admin/backups", get(crate::admin::backups))
         .route("/api/admin/security", get(crate::admin::security))
+        .merge(work_routes())
         .fallback(crate::web::static_or_index)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -110,6 +114,58 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY))
         .layer(axum::middleware::map_response(crate::web::security_headers))
         .with_state(state)
+}
+
+/// Рабочая часть: клиенты, задачи, чаты, организация.
+fn work_routes() -> Router<AppState> {
+    use crate::{attachments, chat, clients, events, org, tasks};
+    Router::new()
+        .route("/api/ws", get(events::ws))
+        .route("/api/org", get(org::get_settings))
+        .route("/api/org/check", get(org::check_time))
+        .route("/api/admin/org", put(org::put_settings))
+        .route("/api/people", get(org::people))
+        .route("/api/groups", get(org::groups))
+        .route("/api/admin/groups", post(org::create_group))
+        .route(
+            "/api/admin/groups/{id}",
+            put(org::update_group).delete(org::delete_group),
+        )
+        .route("/api/tags", get(clients::all_tags))
+        .route("/api/clients", get(clients::list).post(clients::create))
+        .route(
+            "/api/clients/{id}",
+            get(clients::get)
+                .put(clients::update)
+                .delete(clients::trash),
+        )
+        .route("/api/clients/{id}/restore", post(clients::restore))
+        .route("/api/clients/{id}/purge", delete(clients::purge))
+        .route("/api/tasks", get(tasks::list).post(tasks::create))
+        .route("/api/tasks/trash", get(tasks::trashed))
+        .route(
+            "/api/tasks/{id}",
+            get(tasks::get).patch(tasks::update).delete(tasks::trash),
+        )
+        .route("/api/tasks/{id}/status", post(tasks::set_status))
+        .route("/api/tasks/{id}/restore", post(tasks::restore))
+        .route("/api/tasks/{id}/unarchive", post(tasks::unarchive))
+        .route("/api/tasks/{id}/stages", post(tasks::add_stage))
+        .route(
+            "/api/stages/{id}",
+            patch(tasks::update_stage).delete(tasks::delete_stage),
+        )
+        .route(
+            "/api/tasks/{id}/messages",
+            get(chat::messages).post(chat::post),
+        )
+        .route("/api/tasks/{id}/read", post(chat::read))
+        .route("/api/messages/{id}", patch(chat::edit))
+        .route("/api/unread", get(chat::unread))
+        .route("/api/unread/read-all", post(chat::read_all))
+        .route("/api/messenger", get(chat::threads))
+        .route("/api/attachments", post(attachments::upload))
+        .route("/api/attachments/{sha}", get(attachments::download))
 }
 
 /// После переноса данных до перезапуска разрешено только чтение — иначе новые записи

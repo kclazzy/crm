@@ -117,6 +117,40 @@ impl App {
         )
     }
 
+    /// Загрузить файл как вложение; возвращает (статус, ответ).
+    pub async fn upload(&self, token: &str, name: &str, bytes: &[u8]) -> (StatusCode, Value) {
+        let mut req = Request::builder()
+            .method("POST")
+            .uri("/api/attachments")
+            .header("authorization", format!("Bearer {token}"))
+            .header("x-file-name", name)
+            .body(Body::from(bytes.to_vec()))
+            .unwrap();
+        let addr: SocketAddr = format!("{LOCAL}:50000").parse().unwrap();
+        req.extensions_mut().insert(ConnectInfo(addr));
+        let res = self.router.clone().oneshot(req).await.unwrap();
+        let status = res.status();
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    /// Сотрудник заведён, принял приглашение и вошёл; возвращает (id, токен).
+    pub async fn member(
+        &self,
+        owner: &str,
+        username: &str,
+        role: &str,
+        ip: &str,
+    ) -> (String, String) {
+        let (id, invite) = self.invite(owner, username, role).await;
+        let (s, v) = self.accept(&invite, "пароль-сотрудника-1", ip).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        (id, v["token"].as_str().unwrap().to_owned())
+    }
+
     /// Владелец создан с этого компьютера и вошёл; возвращает токен сессии.
     pub async fn owner(&self) -> String {
         let (s, _) = self
