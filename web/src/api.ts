@@ -54,6 +54,8 @@ export interface Volume {
   free_bytes: number;
   crm_bytes: number;
   level: 'ok' | 'warning' | 'critical';
+  /** Через сколько дней том заполнится при нынешнем темпе (нужна история за несколько дней). */
+  days_left: number | null;
 }
 
 export interface BackupPolicy {

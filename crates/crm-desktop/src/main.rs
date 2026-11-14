@@ -7,6 +7,7 @@
 mod connections;
 mod server_ctl;
 mod status;
+mod updates;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -133,6 +134,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
         None::<&str>,
     )?;
     let line = MenuItem::with_id(app, "status", "Проверяю сервер…", false, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", "Обновления…", true, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "Перезапустить сервер", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Остановить сервер…", true, None::<&str>)?;
     let reset = MenuItem::with_id(
@@ -163,10 +165,12 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
             &reset,
             &vpn,
             &PredefinedMenuItem::separator(app)?,
+            &update,
             &quit,
         ],
     )?;
     app.manage(StatusLine(line));
+    app.manage(updates::UpdateItem(update));
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("CRM")
@@ -175,6 +179,11 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
             "servers" => connections::back_to_list(app),
+            "update" => {
+                if let Err(e) = server_ctl::open_browser(updates::RELEASES) {
+                    eprintln!("CRM: {e}");
+                }
+            }
             "browser" => {
                 let url = format!("https://localhost:{}", server_ctl::PORT);
                 if let Err(e) = server_ctl::open_browser(&url) {
@@ -276,6 +285,7 @@ fn main() {
                 show_main(app.handle());
             }
             tauri::async_runtime::spawn(connections::keep_tunnels_fresh(app.handle().clone()));
+            tauri::async_runtime::spawn(updates::watch(app.handle().clone()));
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {

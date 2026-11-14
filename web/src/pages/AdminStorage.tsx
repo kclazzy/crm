@@ -29,6 +29,11 @@ function Volumes({ info }: { info: StorageInfo }) {
               <span className="text-slate-500"><b className="text-slate-900 dark:text-slate-100">{bytes(v.free_bytes)}</b> свободно из {bytes(v.total_bytes)}</span>
               <span className="text-slate-500">CRM занимает {bytes(v.crm_bytes)}</span>
             </div>
+            <p className="mt-1 text-xs text-slate-500">
+              {v.days_left != null
+                ? v.days_left > 3650 ? 'Прогноз: места хватит на годы.' : `Прогноз: при нынешнем темпе места хватит примерно на ${v.days_left} дн.`
+                : 'Прогноз появится через несколько дней работы.'}
+            </p>
             {v.level !== 'ok' && (
               <p className="mt-3 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"><AlertTriangle className="size-4" />Диск заполнен на {pct}% — освободите место.</p>
             )}
