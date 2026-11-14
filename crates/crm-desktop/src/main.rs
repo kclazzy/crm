@@ -125,6 +125,13 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
     let line = MenuItem::with_id(app, "status", "Проверяю сервер…", false, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "Перезапустить сервер", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Остановить сервер…", true, None::<&str>)?;
+    let reset = MenuItem::with_id(
+        app,
+        "reset-owner",
+        "Сбросить пароль владельца…",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(
         app,
         "quit",
@@ -141,6 +148,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
             &PredefinedMenuItem::separator(app)?,
             &restart,
             &stop,
+            &reset,
             &PredefinedMenuItem::separator(app)?,
             &quit,
         ],
@@ -163,6 +171,13 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
             "stop" => {
                 show_main(app);
                 let _ = app.emit("confirm-stop", ());
+            }
+            "reset-owner" => {
+                std::thread::spawn(|| {
+                    if let Err(e) = server_ctl::reset_owner_password_console() {
+                        eprintln!("CRM: {e}");
+                    }
+                });
             }
             "quit" => app.exit(0),
             _ => {}

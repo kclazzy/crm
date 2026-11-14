@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './auth';
 import { ComingSoon, Shell } from './components/Shell';
 import { Login } from './pages/Login';
 import { Invite } from './pages/Invite';
+import { Forgot } from './pages/Forgot';
 import { AdminStaff } from './pages/AdminStaff';
 import { AdminSessions } from './pages/AdminSessions';
 import { AdminServer } from './pages/AdminServer';
@@ -31,6 +32,7 @@ createRoot(document.getElementById('root')!).render(
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/invite" element={<Invite />} />
+          <Route path="/forgot" element={<Forgot />} />
           <Route element={<Gate><Shell /></Gate>}>
             <Route index element={<ComingSoon title="Клиенты" text={`Карточки клиентов и дерево задач. ${soon}`} />} />
             <Route path="tasks" element={<ComingSoon title="Задачи" text={`Все задачи, сроки и этапы. ${soon}`} />} />

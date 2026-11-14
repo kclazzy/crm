@@ -38,6 +38,7 @@ export function Login() {
         </Field>
         <ErrorText>{error}</ErrorText>
         <Button type="submit" busy={busy} className="mt-1 py-3">Войти</Button>
+        <Link to="/forgot" className="-mt-1 text-center text-sm font-semibold text-slate-500 hover:text-brand-600 hover:underline">Забыли пароль?</Link>
         <p className="text-center text-sm text-slate-500">
           Есть код приглашения?{' '}
           <Link to="/invite" className="font-semibold text-brand-600 hover:underline">Принять приглашение</Link>

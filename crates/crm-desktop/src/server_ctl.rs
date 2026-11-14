@@ -145,6 +145,37 @@ mod platform {
         }
     }
 
+    /// Сброс пароля владельца: окно PowerShell от имени администратора с командой
+    /// `crm-server reset-owner-password` — пароль вводится в нём, окно остаётся открытым,
+    /// чтобы был виден результат. Права проверяет сама Windows (окно UAC).
+    pub fn reset_owner_password_console() -> Result<(), String> {
+        let exe = server_exe()?;
+        let inner = format!(
+            "& '{}' reset-owner-password",
+            exe.display().to_string().replace('\'', "''")
+        );
+        let script = format!(
+            "try {{ Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList '-NoExit','-NoProfile','-Command',\"{}\" }} catch {{ exit 1223 }}",
+            inner.replace('"', "`\"")
+        );
+        let status = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &script,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|e| e.to_string())?;
+        match status.code() {
+            Some(0) => Ok(()),
+            _ => Err("действие отменено в окне контроля учётных записей".into()),
+        }
+    }
+
     /// `crm-server service <action>` с повышением прав (окно UAC). Ждём завершения.
     pub fn elevated(action: &str) -> Result<(), String> {
         let exe = server_exe()?;
@@ -184,6 +215,10 @@ mod platform {
         Service::Unknown
     }
 
+    pub fn reset_owner_password_console() -> Result<(), String> {
+        Err("сброс пароля владельца из программы есть только в Windows; используйте команду crm-server reset-owner-password".into())
+    }
+
     pub fn elevated(action: &str) -> Result<(), String> {
         let _ = super::server_exe;
         Err(format!(
@@ -192,7 +227,7 @@ mod platform {
     }
 }
 
-pub use platform::{elevated, service_state};
+pub use platform::{elevated, reset_owner_password_console, service_state};
 
 /// Действия, которые окно и трей могут попросить у службы.
 pub fn is_allowed_action(action: &str) -> bool {

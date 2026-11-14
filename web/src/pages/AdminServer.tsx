@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Copy, Download, Globe, ShieldCheck } from 'lucide-react';
 import { api, type Health, type ServerInfo } from '../api';
 import { Badge, PageHeader } from '../components/ui';
+import { RecoveryCodes } from '../components/RecoveryCodes';
 
 export function AdminServer() {
   const [h, setH] = useState<Health | null>(null);
@@ -46,6 +47,7 @@ export function AdminServer() {
           </a>
         </section>
       </div>
+      <div className="mt-5"><RecoveryCodes /></div>
     </>
   );
 }

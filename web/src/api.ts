@@ -16,6 +16,7 @@ export interface StaffMember {
   role: Role;
   state: 'active' | 'invited' | 'disabled';
   created_at: number;
+  reset_requested: boolean;
 }
 
 export interface Session {
@@ -129,6 +130,11 @@ export const api = {
   acceptInvite: (token: string, password: string) =>
     request<{ user: Me }>('POST', '/api/invites/accept', { token, password, ...device() }),
   logout: () => request<void>('POST', '/api/auth/logout'),
+  forgot: (username: string) => request<{ ok: boolean }>('POST', '/api/auth/forgot', { username }),
+  recover: (username: string, code: string, new_password: string) =>
+    request<{ ok: boolean }>('POST', '/api/auth/recover', { username, code, new_password }),
+  recoveryStatus: () => request<{ unused: number }>('GET', '/api/admin/recovery-codes'),
+  newRecoveryCodes: () => request<{ codes: string[] }>('POST', '/api/admin/recovery-codes'),
   health: () => request<Health>('GET', '/api/health'),
   staff: () => request<StaffMember[]>('GET', '/api/admin/users'),
   addStaff: (username: string, display_name: string, role: Role) =>

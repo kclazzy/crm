@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { Check, Copy, RotateCcw, UserPlus } from 'lucide-react';
 import { api, type Invite, type Role, roleName, type StaffMember } from '../api';
 import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
+import { RecoveryCodes } from '../components/RecoveryCodes';
 
 const stateBadge = {
   active: <Badge tone="green" dot>Активен</Badge>,
@@ -83,6 +84,7 @@ export function AdminStaff() {
         subtitle={counts ? `${counts.active} активных · ${counts.invited} ждут первого входа` : 'Загрузка…'}
         action={<Button onClick={() => { setError(''); setAdding(true); }}><UserPlus className="size-4" />Добавить сотрудника</Button>}
       />
+      <RecoveryCodes compact />
       {error && !adding && <div className="mb-4"><ErrorText>{error}</ErrorText></div>}
       <div className="card overflow-hidden">
         <table className="w-full text-left text-sm">
@@ -99,10 +101,12 @@ export function AdminStaff() {
                   </div>
                 </td>
                 <td className="px-5 py-3.5">{m.role === 'host' ? <Badge tone="brand">{roleName[m.role]}</Badge> : roleName[m.role]}</td>
-                <td className="px-5 py-3.5">{stateBadge[m.state]}</td>
+                <td className="px-5 py-3.5">
+                  <div className="flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.reset_requested && <Badge tone="amber">Просит сбросить пароль</Badge>}</div>
+                </td>
                 <td className="px-5 py-3.5 text-right">
                   {m.role !== 'host' && (
-                    <Button variant="ghost" className="px-3 py-1.5 text-xs" onClick={() => setResetting(m)}>
+                    <Button variant={m.reset_requested ? 'primary' : 'ghost'} className="px-3 py-1.5 text-xs" onClick={() => setResetting(m)}>
                       <RotateCcw className="size-3.5" />Сбросить доступ
                     </Button>
                   )}
