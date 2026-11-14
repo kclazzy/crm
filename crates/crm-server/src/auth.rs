@@ -197,6 +197,15 @@ async fn start_session(
 ) -> Result<SessionOut, ApiError> {
     let token = new_token()?;
     let now = now_ms();
+    // Новый вход с того же устройства заменяет его прежнюю сессию.
+    sqlx::query(
+        "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL",
+    )
+    .bind(now)
+    .bind(&user.id)
+    .bind(device.device_id.trim())
+    .execute(pool)
+    .await?;
     sqlx::query(
         "INSERT INTO sessions(id, user_id, token_hash, device_id, device_name, ip, created_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

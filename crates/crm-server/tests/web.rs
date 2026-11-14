@@ -160,3 +160,46 @@ async fn invite_accept_in_browser_also_sets_cookie() {
         .unwrap()
         .contains("HttpOnly"));
 }
+
+#[tokio::test]
+async fn logging_in_again_from_same_browser_replaces_its_old_session() {
+    let app = App::new().await;
+    let owner = app.owner().await; // устройство dev-127.0.0.1
+    let (_, h1, _) = app
+        .raw("POST", "/api/auth/login", &[], Some(login_body()))
+        .await;
+    let first = session_cookie(&h1);
+    let (_, h2, _) = app
+        .raw("POST", "/api/auth/login", &[], Some(login_body()))
+        .await;
+    let second = session_cookie(&h2);
+
+    let (_, list) = app
+        .call(
+            "GET",
+            "/api/admin/sessions",
+            common::LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    let chrome = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["device_name"] == "Chrome")
+        .count();
+    assert_eq!(chrome, 1, "один браузер — одна сессия: {list}");
+    assert_eq!(
+        app.raw("GET", "/api/me", &[("cookie", &first)], None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        app.raw("GET", "/api/me", &[("cookie", &second)], None)
+            .await
+            .0,
+        StatusCode::OK
+    );
+}
