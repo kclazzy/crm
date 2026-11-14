@@ -49,13 +49,21 @@ async fn database_is_created_in_wal_mode_with_foreign_keys() {
 async fn reopening_existing_database_is_safe() {
     let dir = tempfile::tempdir().unwrap();
     let storage = config_in(dir.path()).storage;
-    db::open(&storage).await.unwrap().close().await;
-    let pool = db::open(&storage).await.unwrap();
-    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(n, 1);
+    let count = |pool: sqlx::SqlitePool| async move {
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        n
+    };
+    let first = count(db::open(&storage).await.unwrap()).await;
+    let second = count(db::open(&storage).await.unwrap()).await;
+    assert!(first >= 1);
+    assert_eq!(
+        first, second,
+        "повторное открытие не применяет миграции заново"
+    );
 }
 
 #[tokio::test]

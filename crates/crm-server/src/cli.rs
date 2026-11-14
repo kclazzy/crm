@@ -8,12 +8,19 @@ pub const USAGE: &str = "\
   crm-server service install        установить и запустить службу Windows (от администратора)
   crm-server service uninstall      остановить и удалить службу (данные сохраняются)
   crm-server service start|stop|restart|status
+  crm-server reset-owner-password   сбросить забытый пароль владельца (от администратора, на сервере)
   crm-server --version";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    Run { config: Option<PathBuf> },
+    Run {
+        config: Option<PathBuf>,
+    },
     Service(ServiceCmd),
+    /// Сброс пароля владельца прямо в базе (нужны права на папку данных).
+    ResetOwnerPassword {
+        config: Option<PathBuf>,
+    },
     Version,
 }
 
@@ -42,6 +49,10 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
             config: Some(PathBuf::from(path)),
         }),
         ["--version" | "-V"] => Ok(Command::Version),
+        ["reset-owner-password"] => Ok(Command::ResetOwnerPassword { config: None }),
+        ["reset-owner-password", "--config", path] => Ok(Command::ResetOwnerPassword {
+            config: Some(PathBuf::from(path)),
+        }),
         ["service", sub] => {
             let cmd = match *sub {
                 "install" => ServiceCmd::Install,
@@ -102,6 +113,21 @@ mod tests {
         assert!(p("service").is_err());
         assert!(p("service install extra").is_err());
         assert!(p("service fly").is_err());
+    }
+
+    #[test]
+    fn owner_password_reset_command() {
+        assert_eq!(
+            p("reset-owner-password"),
+            Ok(Command::ResetOwnerPassword { config: None })
+        );
+        assert_eq!(
+            p("reset-owner-password --config D:/crm.toml"),
+            Ok(Command::ResetOwnerPassword {
+                config: Some("D:/crm.toml".into())
+            })
+        );
+        assert!(p("reset-owner-password now").is_err());
     }
 
     #[test]

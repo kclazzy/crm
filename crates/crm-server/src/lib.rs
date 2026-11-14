@@ -8,6 +8,7 @@ pub mod config;
 pub mod db;
 pub mod http;
 pub mod logging;
+pub mod recovery;
 pub mod secrets;
 pub mod server;
 pub mod tls;

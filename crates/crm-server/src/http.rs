@@ -70,6 +70,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/setup/status", get(auth::setup_status))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
+        .route("/api/auth/recover", post(crate::recovery::recover))
+        .route("/api/auth/forgot", post(crate::recovery::forgot))
+        .route(
+            "/api/admin/recovery-codes",
+            post(crate::recovery::new_codes).get(crate::recovery::codes_status),
+        )
         .route("/api/invites/accept", post(auth::accept_invite))
         .route("/api/me", get(auth::me))
         .route(
@@ -157,6 +163,8 @@ pub enum ApiError {
     BadCredentials,
     #[error("приглашение недействительно или истекло")]
     BadInvite,
+    #[error("неверный логин или код восстановления")]
+    BadCode,
     #[error("недостаточно прав")]
     Forbidden,
     #[error("не найдено")]
@@ -188,7 +196,9 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = match &self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
-            Self::Unauthorized | Self::BadCredentials | Self::BadInvite => StatusCode::UNAUTHORIZED,
+            Self::Unauthorized | Self::BadCredentials | Self::BadInvite | Self::BadCode => {
+                StatusCode::UNAUTHORIZED
+            }
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,

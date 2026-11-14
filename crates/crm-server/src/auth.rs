@@ -23,11 +23,11 @@ pub const LOCKOUT_LIMIT: i64 = 5;
 /// Как часто продлевать сессию (чтобы не писать в БД на каждый запрос).
 const TOUCH_EVERY: Duration = Duration::minutes(1);
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
 }
 
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     uuid::Uuid::now_v7().to_string()
 }
 
@@ -167,7 +167,32 @@ pub struct SessionOut {
     user: CurrentUser,
 }
 
-async fn audit(
+/// Не больше [`LOCKOUT_LIMIT`] неудач действия `action` для пары «логин + IP» за [`LOCKOUT_WINDOW`].
+pub(crate) async fn ensure_not_locked(
+    pool: &SqlitePool,
+    action: &str,
+    key: &str,
+    ip: &str,
+) -> Result<(), ApiError> {
+    let since = now_ms() - LOCKOUT_WINDOW.num_milliseconds();
+    let failures: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log
+         WHERE action = ? AND entity_id = ? AND ip = ? AND created_at > ?",
+    )
+    .bind(action)
+    .bind(key)
+    .bind(ip)
+    .bind(since)
+    .fetch_one(pool)
+    .await?;
+    if failures >= LOCKOUT_LIMIT {
+        Err(ApiError::TooManyAttempts)
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) async fn audit(
     pool: &SqlitePool,
     actor: Option<&str>,
     action: &str,
@@ -351,19 +376,7 @@ pub async fn login(
     // Ключ блокировки — то, что ввели, даже если такого логина нет.
     let key = req.username.trim().to_lowercase();
 
-    let since = now_ms() - LOCKOUT_WINDOW.num_milliseconds();
-    let failures: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit_log
-         WHERE action = 'login.failed' AND entity_id = ? AND ip = ? AND created_at > ?",
-    )
-    .bind(&key)
-    .bind(&ip)
-    .bind(since)
-    .fetch_one(&app.pool)
-    .await?;
-    if failures >= LOCKOUT_LIMIT {
-        return Err(ApiError::TooManyAttempts);
-    }
+    ensure_not_locked(&app.pool, "login.failed", &key, &ip).await?;
 
     let row: Option<(String, String, String, Option<String>)> = sqlx::query_as(
         "SELECT id, display_name, role, password_hash FROM users WHERE username = ? AND is_active = 1",
@@ -536,19 +549,19 @@ pub async fn create_user(
 /// выдаётся новое приглашение. Пароль владельца так не сбросить — только с машины хоста.
 pub async fn reset_access(
     State(app): State<AppState>,
-    Owner(_): Owner,
+    Owner(owner): Owner,
     Path(id): Path<String>,
 ) -> Result<Json<InviteOut>, ApiError> {
     let mut tx = app.pool.begin().await?;
-    let found =
-        sqlx::query("UPDATE users SET password_hash = NULL WHERE id = ? AND role <> 'host'")
-            .bind(&id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-    if found == 0 {
+    let username: Option<String> = sqlx::query_scalar(
+        "UPDATE users SET password_hash = NULL WHERE id = ? AND role <> 'host' RETURNING username",
+    )
+    .bind(&id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(username) = username else {
         return Err(ApiError::NotFound);
-    }
+    };
     sqlx::query("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
         .bind(now_ms())
         .bind(&id)
@@ -556,6 +569,15 @@ pub async fn reset_access(
         .await?;
     let invite = issue_invite(&mut tx, &id).await?;
     tx.commit().await?;
+    // Снимает пометку «просит сбросить пароль».
+    audit(
+        &app.pool,
+        Some(&owner.id),
+        "access.reset",
+        Some(&username),
+        "",
+    )
+    .await?;
     Ok(Json(invite))
 }
 
@@ -613,6 +635,8 @@ pub struct StaffMember {
     /// `active` — работает; `invited` — пароль ещё не задан; `disabled` — отключён.
     state: String,
     created_at: i64,
+    /// Сотрудник нажал «Забыли пароль?» за последнюю неделю, а доступ ещё не сброшен.
+    reset_requested: bool,
 }
 
 /// Список сотрудников для админ-панели владельца.
@@ -625,10 +649,18 @@ pub async fn list_users(
                 CASE WHEN is_active = 0 THEN 'disabled'
                      WHEN password_hash IS NULL THEN 'invited'
                      ELSE 'active' END AS state,
-                created_at
+                created_at,
+                EXISTS (
+                    SELECT 1 FROM audit_log a
+                    WHERE a.action = 'reset.requested' AND a.entity_id = users.username
+                      AND a.created_at > ?
+                      AND a.created_at > COALESCE((SELECT max(b.created_at) FROM audit_log b
+                                                   WHERE b.action = 'access.reset' AND b.entity_id = users.username), 0)
+                ) AS reset_requested
          FROM users
          ORDER BY role = 'host' DESC, display_name COLLATE NOCASE",
     )
+    .bind(now_ms() - Duration::days(7).num_milliseconds())
     .fetch_all(&app.pool)
     .await?;
     Ok(Json(rows))

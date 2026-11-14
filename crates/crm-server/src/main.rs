@@ -13,6 +13,10 @@ enum MainError {
     Config(#[from] config::ConfigError),
     #[error(transparent)]
     Run(#[from] server::RunError),
+    #[error(transparent)]
+    Reset(#[from] crm_server::recovery::ResetError),
+    #[error("{0}")]
+    Input(String),
     #[cfg(windows)]
     #[error(transparent)]
     Service(#[from] crm_server::winsvc::ServiceError),
@@ -30,6 +34,7 @@ fn main() -> Result<(), MainError> {
         }
         Command::Run { config } => run_foreground(config),
         Command::Service(cmd) => service(cmd),
+        Command::ResetOwnerPassword { config } => reset_owner(config),
     }
 }
 
@@ -47,12 +52,41 @@ fn service(_cmd: ServiceCmd) -> Result<(), MainError> {
     Err(MainError::NotWindows)
 }
 
+fn config_location(config_path: Option<PathBuf>) -> PathBuf {
+    config_path
+        .or_else(|| std::env::var_os("CRM_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(config::default_config_path)
+}
+
+/// Сброс забытого пароля владельца на самом сервере. Запускать от администратора:
+/// иначе Windows не даст открыть папку с базой.
+#[tokio::main]
+async fn reset_owner(config_path: Option<PathBuf>) -> Result<(), MainError> {
+    let cfg = config::Config::load(&config_location(config_path))?;
+    println!(
+        "Сброс пароля владельца CRM. Данные: {}",
+        cfg.storage.db_dir.display()
+    );
+    let ask = |prompt: &str| {
+        rpassword::prompt_password(prompt)
+            .map_err(|e| MainError::Input(format!("не удалось прочитать пароль: {e}")))
+    };
+    let first = ask("Новый пароль (не короче 10 символов): ")?;
+    let second = ask("Повторите пароль: ")?;
+    if first != second {
+        return Err(MainError::Input(
+            "пароли не совпадают — ничего не изменено".into(),
+        ));
+    }
+    let username = crm_server::recovery::reset_owner_password(&cfg.storage, &first).await?;
+    println!("Готово. Пароль владельца «{username}» изменён, все его входы завершены.");
+    Ok(())
+}
+
 #[tokio::main]
 async fn run_foreground(config_path: Option<PathBuf>) -> Result<(), MainError> {
     logging::to_console();
-    let path = config_path
-        .or_else(|| std::env::var_os("CRM_CONFIG").map(PathBuf::from))
-        .unwrap_or_else(config::default_config_path);
+    let path = config_location(config_path);
     let cfg = config::Config::load(&path)?;
     let running = server::start(&cfg).await?;
     let scheme = if cfg.tls.enabled { "https" } else { "http" };
