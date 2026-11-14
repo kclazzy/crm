@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, RotateCcw, UserPlus } from 'lucide-react';
+import { Check, Copy, KeyRound, RotateCcw, UserPlus } from 'lucide-react';
+import { ConnectionKey } from './AdminWork';
 import { api, type Invite, type Role, roleName, type StaffMember } from '../api';
 import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 import { RecoveryCodes } from '../components/RecoveryCodes';
@@ -39,6 +40,7 @@ export function AdminStaff() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState<StaffMember | null>(null);
+  const [keyFor, setKeyFor] = useState<StaffMember | 'all' | null>(null);
 
   const load = useCallback(() => api.staff().then(setStaff).catch((e) => setError(e.message)), []);
   useEffect(() => void load(), [load]);
@@ -82,7 +84,12 @@ export function AdminStaff() {
       <PageHeader
         title="Сотрудники"
         subtitle={counts ? `${counts.active} активных · ${counts.invited} ждут первого входа` : 'Загрузка…'}
-        action={<Button onClick={() => { setError(''); setAdding(true); }}><UserPlus className="size-4" />Добавить сотрудника</Button>}
+        action={
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setKeyFor('all')}><KeyRound className="size-4" />Ключ подключения</Button>
+            <Button onClick={() => { setError(''); setAdding(true); }}><UserPlus className="size-4" />Добавить сотрудника</Button>
+          </div>
+        }
       />
       <RecoveryCodes compact />
       {error && !adding && <div className="mb-4"><ErrorText>{error}</ErrorText></div>}
@@ -105,6 +112,11 @@ export function AdminStaff() {
                   <div className="flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.reset_requested && <Badge tone="amber">Просит сбросить пароль</Badge>}</div>
                 </td>
                 <td className="px-5 py-3.5 text-right">
+                  {m.state === 'invited' && (
+                    <Button variant="ghost" className="px-3 py-1.5 text-xs" onClick={() => setKeyFor(m)} title="Ключ для программы CRM со встроенным приглашением">
+                      <KeyRound className="size-3.5" />Ключ
+                    </Button>
+                  )}
                   {m.role !== 'host' && (
                     <Button variant={m.reset_requested ? 'primary' : 'ghost'} className="px-3 py-1.5 text-xs" onClick={() => setResetting(m)}>
                       <RotateCcw className="size-3.5" />Сбросить доступ
@@ -143,6 +155,8 @@ export function AdminStaff() {
           <Button variant="danger" busy={busy} onClick={() => resetting && reset(resetting)}>Сбросить</Button>
         </div>
       </Modal>
+
+      {keyFor && <ConnectionKey userId={keyFor === 'all' ? null : keyFor.id} name={keyFor === 'all' ? undefined : keyFor.display_name} onClose={() => setKeyFor(null)} />}
 
       <Modal open={!!result} onClose={() => setResult(null)} title="Приглашение готово">
         {result && <InviteResult {...result} />}

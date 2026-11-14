@@ -55,7 +55,7 @@ export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md'
   return <div className={`${dim} ${color} grid shrink-0 place-items-center rounded-full font-semibold text-white`}>{initials}</div>;
 }
 
-export function Modal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     if (open) window.addEventListener('keydown', onKey);
@@ -65,7 +65,7 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
   // Портал в body: иначе анимированный предок (transform) обрезает затемнение по своей области.
   return createPortal(
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4 backdrop-blur-sm" onMouseDown={onClose}>
-      <div className="card animate-rise w-full max-w-md p-6" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
+      <div className={`card animate-rise max-h-[92dvh] w-full overflow-auto p-6 ${wide ? 'max-w-2xl' : 'max-w-md'}`} onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" aria-label="Закрыть">

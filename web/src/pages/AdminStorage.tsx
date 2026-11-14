@@ -1,9 +1,10 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, FolderInput, HardDrive, RefreshCw } from 'lucide-react';
+import { AlertTriangle, FolderInput, HardDrive, History, RefreshCw, Truck } from 'lucide-react';
 import { api, type BackupFile, type BackupPolicy, type BackupStatus, bytes, type StorageInfo } from '../api';
 import { BackupScheme } from '../components/BackupScheme';
 import { BackupSettings } from '../components/BackupSettings';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
+import { work } from '../work';
 
 const levelColor = { ok: 'bg-emerald-500', warning: 'bg-amber-500', critical: 'bg-red-500' };
 
@@ -46,6 +47,9 @@ export function AdminStorage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'' | 'save' | 'run' | 'move'>('');
   const [moving, setMoving] = useState(false);
+  const [restoring, setRestoring] = useState<BackupFile | null>(null);
+  const [movingOut, setMovingOut] = useState(false);
+  const [done, setDone] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -120,6 +124,17 @@ export function AdminStorage() {
           <code className="mt-4 block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm break-all dark:border-slate-700 dark:bg-slate-950">{info.data_dir}</code>
           <Button variant="secondary" className="mt-4" disabled={info.restart_required} onClick={() => { setError(''); setMoving(true); }}>Перенести в другую папку…</Button>
         </section>
+        <section className="card mt-6 p-6">
+          <h2 className="flex items-center gap-2 font-semibold"><Truck className="size-5 text-brand-600" />Переезд на другой компьютер</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Сервер сделает свежую копию и соберёт <b>пакет переноса</b> (база, вложения, ключи сервера) — например, на флешку. После этого этот сервер перестанет принимать изменения.
+            На новом компьютере: установите CRM и выполните от администратора <code className="font-mono">crm-server restore E:\crm_move_….crmpack</code>, затем «Перезапустить сервер».
+            Сотрудникам переподключаться не нужно, если у нового компьютера то же имя в сети.
+          </p>
+          <Button variant="secondary" className="mt-4" disabled={info.restart_required || info.backup_dirs.length === 0} onClick={() => { setError(''); setMovingOut(true); }}>Подготовить пакет переноса…</Button>
+          {info.backup_dirs.length === 0 && <p className="mt-2 text-xs text-slate-500">Сначала выберите папку резервных копий.</p>}
+        </section>
+        {done && <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">{done}</div>}
 
       </div>
 
@@ -128,9 +143,12 @@ export function AdminStorage() {
           <h2 className="px-6 pt-5 font-semibold">Последние копии <span className="font-normal text-slate-500">· {info.backup_dirs[0]}</span></h2>
           <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
             {files.slice(0, 8).map((f) => (
-              <li key={f.name} className="flex justify-between px-6 py-2.5 text-sm">
+              <li key={f.name} className="flex flex-wrap items-center justify-between gap-2 px-6 py-2.5 text-sm">
                 <span className="font-mono text-xs">{f.name}</span>
-                <span className="text-slate-500">{new Date(f.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {bytes(f.size)}</span>
+                <span className="flex items-center gap-3 text-slate-500">
+                  {new Date(f.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {bytes(f.size)}
+                  <Button variant="ghost" className="px-2 py-1 text-xs" disabled={info.restart_required} onClick={() => { setError(''); setRestoring(f); }}><History className="size-3.5" />Восстановить</Button>
+                </span>
               </li>
             ))}
           </ul>
@@ -147,6 +165,47 @@ export function AdminStorage() {
           </Field>
           <ErrorText>{error}</ErrorText>
           <Button type="submit" busy={busy === 'move'}>Перенести</Button>
+        </form>
+      </Modal>
+      <Modal open={!!restoring} onClose={() => setRestoring(null)} title="Восстановить из копии?">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Данные вернутся к состоянию на <b>{restoring && new Date(restoring.at).toLocaleString('ru-RU')}</b>. Всё, что сделано после, пропадёт из рабочей базы
+          (текущая база сохранится рядом как <code className="font-mono">before_restore_….db</code>). Копия будет проверена; встанет на место после перезапуска сервера.
+        </p>
+        <ErrorText>{error}</ErrorText>
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setRestoring(null)}>Отмена</Button>
+          <Button variant="danger" busy={busy === 'move'} onClick={async () => {
+            if (!restoring) return;
+            setBusy('move');
+            setError('');
+            try {
+              const r = await work.restore(restoring.name, null);
+              setRestoring(null);
+              setDone(`Копия ${r.name} проверена. Перезапустите сервер (трей → «Перезапустить сервер») — данные вернутся.`);
+              load();
+            } catch (x) { setError((x as Error).message); } finally { setBusy(''); }
+          }}>Восстановить</Button>
+        </div>
+      </Modal>
+
+      <Modal open={movingOut} onClose={() => setMovingOut(false)} title="Пакет переноса">
+        <form className="flex flex-col gap-4" onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy('move');
+          setError('');
+          try {
+            const r = await work.moveOut(String(new FormData(e.currentTarget).get('dir')));
+            setMovingOut(false);
+            setDone(`Пакет готов: ${r.file}. Этот сервер теперь только для чтения.`);
+            load();
+          } catch (x) { setError((x as Error).message); } finally { setBusy(''); }
+        }}>
+          <Field label="Куда сохранить" hint="Флешка или сетевая папка, доступная этому компьютеру">
+            <input name="dir" className="input font-mono text-sm" placeholder="E:\" required spellCheck={false} />
+          </Field>
+          <ErrorText>{error}</ErrorText>
+          <Button type="submit" busy={busy === 'move'}>Собрать пакет и остановить приём изменений</Button>
         </form>
       </Modal>
     </>

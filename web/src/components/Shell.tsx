@@ -1,15 +1,22 @@
+import { useEffect, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
-import { Activity, BookOpen, Building2, DatabaseBackup, KeyRound, LifeBuoy, ListChecks, LogOut, MessagesSquare, Server, Users } from 'lucide-react';
-import type { ComponentType } from 'react';
+import {
+  BookOpen, Building2, Clock, DatabaseBackup, Globe, KeyRound, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
+  Server, Trash2, Users, UsersRound, WifiOff, X,
+} from 'lucide-react';
 import { api, roleName } from '../api';
 import { useAuth } from '../auth';
+import { useLive } from '../live';
 import { Avatar } from './ui';
+import { Bell } from './Bell';
+import { SearchPalette } from './Search';
 
-function Item({ to, icon: Icon, label, soon }: { to: string; icon: ComponentType<{ className?: string }>; label: string; soon?: boolean }) {
+function Item({ to, icon: Icon, label, count, onClick }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void }) {
   return (
     <NavLink
       to={to}
       end={to === '/'}
+      onClick={onClick}
       className={({ isActive }) =>
         `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${
           isActive
@@ -20,16 +27,48 @@ function Item({ to, icon: Icon, label, soon }: { to: string; icon: ComponentType
     >
       <Icon className="size-[18px]" />
       <span className="flex-1">{label}</span>
-      {soon && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800">скоро</span>}
+      {!!count && <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{count}</span>}
     </NavLink>
+  );
+}
+
+/** Нижнее меню телефона: главное под большим пальцем. */
+function BottomNav({ unread, onSearch }: { unread: number; onSearch: () => void }) {
+  const cls = ({ isActive }: { isActive: boolean }) => `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${isActive ? 'text-brand-600' : 'text-slate-500'}`;
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden dark:border-slate-800 dark:bg-slate-900/95">
+      <NavLink to="/" end className={cls}><ListChecks className="size-5" />Мои</NavLink>
+      <NavLink to="/clients" className={cls}><Building2 className="size-5" />Клиенты</NavLink>
+      <NavLink to="/messenger" className={cls}>
+        <span className="relative"><MessagesSquare className="size-5" />{unread > 0 && <span className="absolute -right-2 -top-1 rounded-full bg-red-600 px-1 text-[9px] font-bold text-white">{unread}</span>}</span>Чаты
+      </NavLink>
+      <button onClick={onSearch} className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium text-slate-500"><Search className="size-5" />Поиск</button>
+    </nav>
   );
 }
 
 export function Shell() {
   const { me, setMe } = useAuth();
+  const { unread, online } = useLive();
   const navigate = useNavigate();
+  const [search, setSearch] = useState(false);
+  const [menu, setMenu] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearch(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   if (!me) return null;
   const isOwner = me.role === 'host';
+  const isManager = me.role !== 'employee';
+  const close = () => setMenu(false);
 
   async function logout() {
     await api.logout().catch(() => {});
@@ -37,60 +76,77 @@ export function Shell() {
     navigate('/login', { replace: true });
   }
 
+  const sidebar = (
+    <>
+      <div className="mb-5 flex items-center gap-2.5 px-3 text-[17px] font-bold tracking-tight">
+        <img src="/logo.png" alt="" className="size-8 rounded-lg" /> CRM
+        <button className="ml-auto lg:hidden" onClick={close} aria-label="Закрыть меню"><X className="size-5" /></button>
+      </div>
+      <button onClick={() => { close(); setSearch(true); }} className="mb-5 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500 hover:border-brand-400 dark:border-slate-700">
+        <Search className="size-4" /><span className="flex-1 text-left">Поиск</span><kbd className="rounded bg-slate-100 px-1.5 text-[11px] dark:bg-slate-800">Ctrl K</kbd>
+      </button>
+      <nav className="flex flex-col gap-1">
+        <Item to="/" icon={ListChecks} label="Мои задачи" onClick={close} />
+        <Item to="/clients" icon={Building2} label="Клиенты" onClick={close} />
+        <Item to="/messenger" icon={MessagesSquare} label="Мессенджер" count={unread} onClick={close} />
+        {isManager && <Item to="/trash" icon={Trash2} label="Корзина" onClick={close} />}
+      </nav>
+      {isOwner && (
+        <>
+          <p className="mb-2 mt-7 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Администрирование</p>
+          <nav className="flex flex-col gap-1">
+            <Item to="/admin/staff" icon={Users} label="Сотрудники" onClick={close} />
+            <Item to="/admin/groups" icon={UsersRound} label="Группы" onClick={close} />
+            <Item to="/admin/org" icon={Clock} label="Рабочее время" onClick={close} />
+            <Item to="/admin/sessions" icon={KeyRound} label="Активные входы" onClick={close} />
+            <Item to="/admin/storage" icon={DatabaseBackup} label="Хранилище и копии" onClick={close} />
+            <Item to="/admin/vpn" icon={Globe} label="Удалённый доступ" onClick={close} />
+            <Item to="/admin/server" icon={Server} label="Сервер" onClick={close} />
+            <Item to="/admin/help" icon={BookOpen} label="Инструкция администратора" onClick={close} />
+          </nav>
+        </>
+      )}
+      <nav className="mb-2 mt-auto flex flex-col gap-1 pt-6">
+        <Item to="/help" icon={LifeBuoy} label="Справка" onClick={close} />
+      </nav>
+      <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <Avatar name={me.display_name} size="sm" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{me.display_name}</p>
+          <p className="truncate text-xs text-slate-500">{roleName[me.role]}</p>
+        </div>
+        <button onClick={logout} title="Выйти" className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-red-600 dark:hover:bg-slate-900">
+          <LogOut className="size-4" />
+        </button>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex min-h-dvh">
-      <aside className="sticky top-0 flex h-dvh w-64 shrink-0 flex-col border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur dark:border-slate-800 dark:bg-slate-900/60">
-        <div className="mb-7 flex items-center gap-2.5 px-3 text-[17px] font-bold tracking-tight">
-          <img src="/logo.png" alt="" className="size-8 rounded-lg" /> CRM
-        </div>
-        <nav className="flex flex-col gap-1">
-          <Item to="/" icon={Building2} label="Клиенты" soon />
-          <Item to="/tasks" icon={ListChecks} label="Задачи" soon />
-          <Item to="/messenger" icon={MessagesSquare} label="Мессенджер" soon />
-        </nav>
-        {isOwner && (
-          <>
-            <p className="mb-2 mt-8 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Администрирование</p>
-            <nav className="flex flex-col gap-1">
-              <Item to="/admin/staff" icon={Users} label="Сотрудники" />
-              <Item to="/admin/sessions" icon={KeyRound} label="Активные входы" />
-              <Item to="/admin/storage" icon={DatabaseBackup} label="Хранилище и копии" />
-              <Item to="/admin/server" icon={Server} label="Сервер" />
-              <Item to="/admin/help" icon={BookOpen} label="Инструкция администратора" />
-            </nav>
-          </>
-        )}
-        <nav className="mt-auto mb-2 flex flex-col gap-1">
-          <Item to="/help" icon={LifeBuoy} label="Справка" />
-        </nav>
-        <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
-          <Avatar name={me.display_name} size="sm" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">{me.display_name}</p>
-            <p className="truncate text-xs text-slate-500">{roleName[me.role]}</p>
-          </div>
-          <button onClick={logout} title="Выйти" className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-red-600 dark:hover:bg-slate-900">
-            <LogOut className="size-4" />
-          </button>
-        </div>
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur lg:flex dark:border-slate-800 dark:bg-slate-900/60">
+        {sidebar}
       </aside>
-      <main className="min-w-0 flex-1 px-6 py-10 sm:px-10 lg:px-14">
-        <div className="mx-auto max-w-5xl animate-rise">
-          <Outlet />
+      {menu && (
+        <div className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={close}>
+          <aside className="flex h-full w-72 flex-col overflow-y-auto bg-white px-3 py-5 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>{sidebar}</aside>
         </div>
-      </main>
-    </div>
-  );
-}
-
-export function ComingSoon({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="card mt-6 flex flex-col items-center px-8 py-20 text-center">
-      <div className="grid size-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
-        <Activity className="size-7" />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-slate-200/80 bg-slate-50/90 px-4 py-2 backdrop-blur lg:justify-end lg:border-none lg:bg-transparent lg:px-8 dark:border-slate-800 dark:bg-slate-950/90 lg:dark:bg-transparent">
+          <button className="rounded-xl p-2 lg:hidden" onClick={() => setMenu(true)} aria-label="Меню"><Menu className="size-5" /></button>
+          <span className="flex-1 font-bold lg:hidden">CRM</span>
+          {!online && <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" title="Обновления придут после восстановления связи"><WifiOff className="size-3.5" />Нет связи с сервером</span>}
+          <Bell />
+        </header>
+        <main className="min-w-0 flex-1 px-4 pb-24 pt-4 sm:px-8 lg:px-12 lg:pb-10">
+          <div className="mx-auto max-w-6xl animate-rise">
+            <Outlet />
+          </div>
+        </main>
       </div>
-      <h1 className="mt-5 text-xl font-bold">{title}</h1>
-      <p className="mt-2 max-w-md text-slate-500">{text}</p>
+      <BottomNav unread={unread} onSearch={() => setSearch(true)} />
+      <SearchPalette open={search} onClose={() => setSearch(false)} />
     </div>
   );
 }
