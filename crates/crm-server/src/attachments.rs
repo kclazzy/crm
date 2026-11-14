@@ -168,7 +168,7 @@ async fn receive(body: Body, tmp: &std::path::Path) -> Result<(String, usize), A
     Ok((sha, size))
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -279,6 +279,7 @@ pub async fn collect_garbage(app: &AppState) -> Result<usize, ApiError> {
     .fetch_all(&app.pool)
     .await?;
     let dir = app.rt.config().storage.attachments_dir;
+    clean_tmp(&dir.join("tmp"));
     let mut removed = 0;
     for sha in orphans {
         if !is_sha(&sha) {
@@ -296,6 +297,25 @@ pub async fn collect_garbage(app: &AppState) -> Result<usize, ApiError> {
         }
     }
     Ok(removed)
+}
+
+/// Недокачанные загрузки и старые выгрузки во временной папке — старше суток.
+fn clean_tmp(tmp: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(tmp) else {
+        return;
+    };
+    let day = std::time::Duration::from_secs(24 * 3600);
+    for e in entries.flatten() {
+        let old = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > day);
+        if old {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
 }
 
 #[cfg(test)]

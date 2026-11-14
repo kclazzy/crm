@@ -118,7 +118,8 @@ pub fn router(state: AppState) -> Router {
 
 /// Рабочая часть: клиенты, задачи, чаты, организация.
 fn work_routes() -> Router<AppState> {
-    use crate::{attachments, chat, clients, events, notify, org, search, tasks};
+    use crate::{attachments, chat, clients, events, notify, org, search, tasks, transfer};
+    let big = axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024);
     Router::new()
         .route("/api/ws", get(events::ws))
         .route("/api/org", get(org::get_settings))
@@ -171,6 +172,24 @@ fn work_routes() -> Router<AppState> {
             "/api/me/prefs",
             get(notify::get_prefs).put(notify::put_prefs),
         )
+        .route(
+            "/api/import/clients/parse",
+            post(transfer::parse).layer(big),
+        )
+        .route(
+            "/api/import/clients/check",
+            post(transfer::check).layer(big),
+        )
+        .route(
+            "/api/import/clients/commit",
+            post(transfer::commit).layer(big),
+        )
+        .route("/api/import/clients/template", get(transfer::template))
+        .route("/api/import/batches", get(transfer::batches))
+        .route("/api/import/batches/{id}/undo", post(transfer::undo))
+        .route("/api/export/clients", get(transfer::export_clients))
+        .route("/api/export/tasks", get(transfer::export_tasks))
+        .route("/api/admin/export/full", get(transfer::export_full))
         .route("/api/attachments", post(attachments::upload))
         .route("/api/attachments/{sha}", get(attachments::download))
 }

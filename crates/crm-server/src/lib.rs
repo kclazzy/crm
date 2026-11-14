@@ -22,6 +22,7 @@ pub mod secrets;
 pub mod server;
 pub mod tasks;
 pub mod tls;
+pub mod transfer;
 pub mod web;
 #[cfg(windows)]
 pub mod winsvc;

@@ -121,9 +121,21 @@ impl App {
 
     /// Загрузить файл как вложение; возвращает (статус, ответ).
     pub async fn upload(&self, token: &str, name: &str, bytes: &[u8]) -> (StatusCode, Value) {
+        self.post_bytes(token, "/api/attachments", name, bytes)
+            .await
+    }
+
+    /// POST с телом-файлом (вложение, импорт).
+    pub async fn post_bytes(
+        &self,
+        token: &str,
+        path: &str,
+        name: &str,
+        bytes: &[u8],
+    ) -> (StatusCode, Value) {
         let mut req = Request::builder()
             .method("POST")
-            .uri("/api/attachments")
+            .uri(path)
             .header("authorization", format!("Bearer {token}"))
             .header("x-file-name", name)
             .body(Body::from(bytes.to_vec()))
@@ -136,6 +148,23 @@ impl App {
         (
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    /// GET, тело ответа — байтами (выгрузки).
+    pub async fn get_bytes(&self, token: &str, path: &str) -> (StatusCode, Vec<u8>) {
+        let mut req = Request::builder()
+            .uri(path)
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let addr: SocketAddr = format!("{LOCAL}:50000").parse().unwrap();
+        req.extensions_mut().insert(ConnectInfo(addr));
+        let res = self.router.clone().oneshot(req).await.unwrap();
+        let status = res.status();
+        (
+            status,
+            res.into_body().collect().await.unwrap().to_bytes().to_vec(),
         )
     }
 
