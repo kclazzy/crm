@@ -297,11 +297,15 @@ pub struct Seen(std::sync::Mutex<HashMap<Ipv4Addr, i64>>);
 
 pub async fn track(
     State(app): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if let IpAddr::V4(ip) = addr.ip() {
+    // Адреса нет у внутренних вызовов (тесты) — отмечать нечего.
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0.ip());
+    if let Some(IpAddr::V4(ip)) = peer {
         if crm_core::vpn::is_vpn_ip(ip) && ip != SERVER_IP {
             let now = now_ms();
             let due = match app.rt.vpn_seen.0.lock() {
