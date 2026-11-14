@@ -27,6 +27,7 @@ pub fn config_in(dir: &std::path::Path) -> Config {
 
 pub struct App {
     pub pool: SqlitePool,
+    pub state: http::AppState,
     router: axum::Router,
     _dir: tempfile::TempDir,
 }
@@ -38,7 +39,8 @@ impl App {
         let pool = db::open(&cfg.storage).await.unwrap();
         let state = http::AppState::new(pool.clone(), cfg, Some(dir.path().join("config.toml")));
         Self {
-            router: http::router(state),
+            router: http::router(state.clone()),
+            state,
             pool,
             _dir: dir,
         }

@@ -45,6 +45,7 @@ pub struct Running {
     serve: JoinHandle<std::io::Result<()>>,
     renew: Option<JoinHandle<()>>,
     backups: JoinHandle<()>,
+    workers: JoinHandle<()>,
 }
 
 pub async fn start(cfg: &Config) -> Result<Running, RunError> {
@@ -68,6 +69,7 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         .as_ref()
         .map(|m| Arc::from(m.ca_fingerprint.as_str()));
     let backups = tokio::spawn(crate::backup::hourly(state.clone()));
+    let workers = tokio::spawn(crate::workers::run(state.clone()));
     let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
     let handle = Handle::new();
     let listener = bind_patiently(cfg.listen).await?;
@@ -113,6 +115,7 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         serve,
         renew,
         backups,
+        workers,
     })
 }
 
@@ -190,6 +193,7 @@ impl Running {
     pub async fn stop(self) -> Result<(), RunError> {
         self.handle.graceful_shutdown(Some(GRACE));
         self.backups.abort();
+        self.workers.abort();
         if let Some(r) = self.renew {
             r.abort();
         }

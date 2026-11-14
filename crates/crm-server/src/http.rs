@@ -118,7 +118,7 @@ pub fn router(state: AppState) -> Router {
 
 /// Рабочая часть: клиенты, задачи, чаты, организация.
 fn work_routes() -> Router<AppState> {
-    use crate::{attachments, chat, clients, events, org, tasks};
+    use crate::{attachments, chat, clients, events, notify, org, search, tasks};
     Router::new()
         .route("/api/ws", get(events::ws))
         .route("/api/org", get(org::get_settings))
@@ -164,6 +164,13 @@ fn work_routes() -> Router<AppState> {
         .route("/api/unread", get(chat::unread))
         .route("/api/unread/read-all", post(chat::read_all))
         .route("/api/messenger", get(chat::threads))
+        .route("/api/search", get(search::search))
+        .route("/api/notifications", get(notify::list))
+        .route("/api/notifications/read", post(notify::read_all))
+        .route(
+            "/api/me/prefs",
+            get(notify::get_prefs).put(notify::put_prefs),
+        )
         .route("/api/attachments", post(attachments::upload))
         .route("/api/attachments/{sha}", get(attachments::download))
 }

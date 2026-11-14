@@ -50,13 +50,15 @@ pub async fn server_info(State(app): State<AppState>, Owner(_): Owner) -> Json<S
 #[derive(Serialize)]
 pub struct Volume {
     /// Корень тома (диск C:\ или точка монтирования) — для подписи.
-    path: String,
+    pub(crate) path: String,
     /// Что лежит на томе: «Данные», «Резервные копии».
     roles: Vec<&'static str>,
     total_bytes: u64,
     free_bytes: u64,
     crm_bytes: u64,
-    level: DiskLevel,
+    pub(crate) level: DiskLevel,
+    /// Через сколько дней том заполнится при нынешнем темпе.
+    pub(crate) days_left: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -106,13 +108,42 @@ fn dir_size(p: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-pub async fn storage(State(app): State<AppState>, Owner(_): Owner) -> Json<StorageInfo> {
+/// История свободного места тома за окно прогноза.
+async fn history(pool: &sqlx::SqlitePool, volume: &str) -> Vec<crm_core::disk::Sample> {
+    let since = (chrono::Utc::now() - crm_core::disk::TREND_WINDOW).timestamp_millis();
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT taken_at, free_bytes FROM disk_usage_snapshots WHERE volume_id = ? AND taken_at >= ? ORDER BY taken_at",
+    )
+    .bind(volume)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    rows.into_iter()
+        .filter_map(|(at, free)| {
+            Some(crm_core::disk::Sample {
+                at: chrono::DateTime::from_timestamp_millis(at)?,
+                free_bytes: u64::try_from(free).ok()?,
+            })
+        })
+        .collect()
+}
+
+/// Тома, где лежат данные CRM: заполненность, прогноз, что на них хранится.
+pub(crate) async fn volumes(app: &AppState) -> Vec<(String, Volume)> {
     let cfg = app.rt.config();
-    let mut places: Vec<(&'static str, PathBuf, u64)> = vec![(
-        "Данные",
-        cfg.storage.db_dir.clone(),
-        dir_size(&cfg.storage.db_dir),
-    )];
+    let mut places: Vec<(&'static str, PathBuf, u64)> = vec![
+        (
+            "Данные",
+            cfg.storage.db_dir.clone(),
+            dir_size(&cfg.storage.db_dir),
+        ),
+        (
+            "Вложения",
+            cfg.storage.attachments_dir.clone(),
+            tree_size(&cfg.storage.attachments_dir),
+        ),
+    ];
     for d in &cfg.storage.backup_dirs {
         let size = backup::list_dir(d)
             .map(|v| v.iter().map(|f| f.size).sum())
@@ -133,7 +164,13 @@ pub async fn storage(State(app): State<AppState>, Owner(_): Owner) -> Json<Stora
         let (total, free) = fs4::statvfs(&at)
             .map(|s| (s.total_space(), s.available_space()))
             .unwrap_or((0, 0));
-        let level = assess(total, free, &[], chrono::Utc::now(), Thresholds::default()).level;
+        let status = assess(
+            total,
+            free,
+            &history(&app.pool, &id).await,
+            chrono::Utc::now(),
+            Thresholds::default(),
+        );
         let root = at
             .ancestors()
             .last()
@@ -147,10 +184,60 @@ pub async fn storage(State(app): State<AppState>, Owner(_): Owner) -> Json<Stora
                 total_bytes: total,
                 free_bytes: free,
                 crm_bytes: size,
-                level,
+                level: status.level,
+                days_left: status.days_left,
             },
         ));
     }
+    volumes
+}
+
+/// Снимок заполненности томов — раз в час, для прогноза.
+pub(crate) async fn snapshot_disks(app: &AppState) -> Result<Vec<Volume>, ApiError> {
+    let vols = volumes(app).await;
+    let now = crate::auth::now_ms();
+    for (id, v) in &vols {
+        sqlx::query(
+            "INSERT OR REPLACE INTO disk_usage_snapshots(taken_at, volume_id, total_bytes, free_bytes, crm_bytes)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(now)
+        .bind(id)
+        .bind(i64::try_from(v.total_bytes).unwrap_or(i64::MAX))
+        .bind(i64::try_from(v.free_bytes).unwrap_or(i64::MAX))
+        .bind(serde_json::json!({ "crm": v.crm_bytes }).to_string())
+        .execute(&app.pool)
+        .await?;
+    }
+    // Старше года история не нужна.
+    sqlx::query("DELETE FROM disk_usage_snapshots WHERE taken_at < ?")
+        .bind(now - 366 * 24 * 3600 * 1000)
+        .execute(&app.pool)
+        .await?;
+    Ok(vols.into_iter().map(|(_, v)| v).collect())
+}
+
+/// Размер папки со всеми вложенными (вложения разложены по подпапкам).
+fn tree_size(p: &Path) -> u64 {
+    std::fs::read_dir(p)
+        .map(|it| {
+            it.flatten()
+                .filter_map(|e| {
+                    let m = e.metadata().ok()?;
+                    Some(if m.is_dir() {
+                        tree_size(&e.path())
+                    } else {
+                        m.len()
+                    })
+                })
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+pub async fn storage(State(app): State<AppState>, Owner(_): Owner) -> Json<StorageInfo> {
+    let cfg = app.rt.config();
+    let volumes = volumes(&app).await;
     Json(StorageInfo {
         data_dir: cfg.storage.db_dir,
         backup_dirs: cfg.storage.backup_dirs,

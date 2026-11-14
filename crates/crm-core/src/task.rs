@@ -146,6 +146,54 @@ pub fn completed_at_after(to: TaskStatus, before: Option<i64>, now: i64) -> Opti
     }
 }
 
+/// Задача глазами автоархива.
+#[derive(Debug, Clone)]
+pub struct ArchiveNode {
+    pub id: String,
+    pub parent: Option<String>,
+    pub completed_at: Option<i64>,
+}
+
+/// Что отправить в архив (ТЗ §4.4): завершённая давнее `older_than` задача, у которой
+/// всё поддерево завершено, уходит в архив целиком — вместе с поддеревом.
+pub fn archive_candidates(nodes: &[ArchiveNode], older_than: i64) -> Vec<String> {
+    use std::collections::{HashMap, HashSet};
+    let mut children: HashMap<&str, Vec<&ArchiveNode>> = HashMap::new();
+    for n in nodes {
+        if let Some(p) = &n.parent {
+            children.entry(p.as_str()).or_default().push(n);
+        }
+    }
+    fn subtree<'a>(
+        n: &'a ArchiveNode,
+        children: &HashMap<&str, Vec<&'a ArchiveNode>>,
+        seen: &mut HashSet<&'a str>,
+        out: &mut Vec<&'a ArchiveNode>,
+    ) {
+        if !seen.insert(n.id.as_str()) {
+            return;
+        }
+        out.push(n);
+        for c in children.get(n.id.as_str()).into_iter().flatten() {
+            subtree(c, children, seen, out);
+        }
+    }
+    let mut picked: HashSet<&str> = HashSet::new();
+    for n in nodes {
+        if !n.completed_at.is_some_and(|at| at < older_than) {
+            continue;
+        }
+        let mut all = Vec::new();
+        subtree(n, &children, &mut HashSet::new(), &mut all);
+        if all.iter().all(|t| t.completed_at.is_some()) {
+            picked.extend(all.iter().map(|t| t.id.as_str()));
+        }
+    }
+    let mut out: Vec<String> = picked.into_iter().map(str::to_owned).collect();
+    out.sort();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +292,32 @@ mod tests {
         assert_eq!(parse_title("  Договор "), Ok("Договор".into()));
         assert_eq!(parse_title("   "), Err(RuleError::BadTitle));
         assert_eq!(parse_title(&"я".repeat(301)), Err(RuleError::BadTitle));
+    }
+
+    fn an(id: &str, parent: Option<&str>, done: Option<i64>) -> ArchiveNode {
+        ArchiveNode {
+            id: id.into(),
+            parent: parent.map(Into::into),
+            completed_at: done,
+        }
+    }
+
+    #[test]
+    fn archive_takes_old_completed_subtrees_only() {
+        let nodes = vec![
+            an("old", None, Some(1)),
+            an("old.child", Some("old"), Some(50)), // свежий, но родитель забирает
+            an("blocked", None, Some(1)),
+            an("blocked.open", Some("blocked"), None),
+            an("fresh", None, Some(90)),
+            an("open", None, None),
+        ];
+        assert_eq!(archive_candidates(&nodes, 10), ["old", "old.child"]);
+    }
+
+    #[test]
+    fn archive_survives_cycles() {
+        let nodes = vec![an("a", Some("b"), Some(1)), an("b", Some("a"), Some(1))];
+        assert_eq!(archive_candidates(&nodes, 10), ["a", "b"]);
     }
 }

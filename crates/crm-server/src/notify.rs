@@ -1,0 +1,171 @@
+//! Уведомления: колокольчик, системные уведомления ОС, тихие часы (ТЗ §4.5).
+
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
+use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+
+use crate::auth::{new_id, now_ms, CurrentUser};
+use crate::http::{ApiError, AppState};
+
+/// Сохранить уведомление и сразу подсказать онлайн-окнам пользователя.
+pub async fn push(
+    app: &AppState,
+    user: &str,
+    task: Option<&str>,
+    kind: &str,
+    payload: serde_json::Value,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO notifications(id, user_id, task_id, kind, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(new_id())
+    .bind(user)
+    .bind(task)
+    .bind(kind)
+    .bind(payload.to_string())
+    .bind(now_ms())
+    .execute(&app.pool)
+    .await?;
+    app.rt.hub.send(
+        vec![user.to_owned()],
+        serde_json::json!({ "type": "notification", "kind": kind }),
+    );
+    Ok(())
+}
+
+/// Было ли уже такое уведомление пользователю за последние `within_ms` — чтобы не спамить.
+pub async fn recently(
+    pool: &SqlitePool,
+    user: &str,
+    kind: &str,
+    within_ms: i64,
+) -> Result<bool, ApiError> {
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE user_id = ? AND kind = ? AND created_at > ?",
+    )
+    .bind(user)
+    .bind(kind)
+    .bind(now_ms() - within_ms)
+    .fetch_one(pool)
+    .await?;
+    Ok(n > 0)
+}
+
+#[derive(sqlx::FromRow)]
+struct Row {
+    id: String,
+    task_id: Option<String>,
+    kind: String,
+    payload: String,
+    created_at: i64,
+    read_at: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct Notification {
+    id: String,
+    task_id: Option<String>,
+    kind: String,
+    payload: serde_json::Value,
+    created_at: i64,
+    read_at: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct Bell {
+    unread: i64,
+    items: Vec<Notification>,
+    /// Сейчас тихие часы для этого пользователя: без звука и уведомлений ОС.
+    quiet: bool,
+}
+
+pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Result<Json<Bell>, ApiError> {
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT id, task_id, kind, payload, created_at, read_at FROM notifications
+         WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+    )
+    .bind(&user.id)
+    .fetch_all(&app.pool)
+    .await?;
+    let items = rows
+        .into_iter()
+        .map(|r| Notification {
+            payload: serde_json::from_str(&r.payload).unwrap_or(serde_json::Value::Null),
+            id: r.id,
+            task_id: r.task_id,
+            kind: r.kind,
+            created_at: r.created_at,
+            read_at: r.read_at,
+        })
+        .collect();
+    let unread = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE user_id = ? AND read_at IS NULL",
+    )
+    .bind(&user.id)
+    .fetch_one(&app.pool)
+    .await?;
+    Ok(Json(Bell {
+        unread,
+        items,
+        quiet: is_quiet(&app.pool, &user.id).await?,
+    }))
+}
+
+pub async fn is_quiet(pool: &SqlitePool, user: &str) -> Result<bool, ApiError> {
+    let always: bool = sqlx::query_scalar("SELECT notify_always FROM users WHERE id = ?")
+        .bind(user)
+        .fetch_one(pool)
+        .await?;
+    if always {
+        return Ok(false);
+    }
+    let org = crate::org::load(pool).await?;
+    Ok(!org.schedule().is_working(chrono::Utc::now()))
+}
+
+pub async fn read_all(
+    State(app): State<AppState>,
+    user: CurrentUser,
+) -> Result<StatusCode, ApiError> {
+    sqlx::query("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL")
+        .bind(now_ms())
+        .bind(&user.id)
+        .execute(&app.pool)
+        .await?;
+    app.rt
+        .hub
+        .send(vec![user.id], serde_json::json!({ "type": "notification" }));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Prefs {
+    /// «Получать уведомления всегда» — игнорировать тихие часы.
+    notify_always: bool,
+}
+
+pub async fn get_prefs(
+    State(app): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<Prefs>, ApiError> {
+    let notify_always = sqlx::query_scalar("SELECT notify_always FROM users WHERE id = ?")
+        .bind(&user.id)
+        .fetch_one(&app.pool)
+        .await?;
+    Ok(Json(Prefs { notify_always }))
+}
+
+pub async fn put_prefs(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Json(p): Json<Prefs>,
+) -> Result<Json<Prefs>, ApiError> {
+    sqlx::query("UPDATE users SET notify_always = ? WHERE id = ?")
+        .bind(p.notify_always)
+        .bind(&user.id)
+        .execute(&app.pool)
+        .await?;
+    Ok(Json(p))
+}
