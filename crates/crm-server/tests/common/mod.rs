@@ -76,6 +76,39 @@ impl App {
         (status, value)
     }
 
+    /// Запрос с произвольными заголовками; ответ целиком: статус, заголовки, тело.
+    pub async fn raw(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: Option<Value>,
+    ) -> (StatusCode, axum::http::HeaderMap, String) {
+        let mut req = Request::builder().method(method).uri(path);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let body = match body {
+            Some(v) => {
+                req = req.header("content-type", "application/json");
+                Body::from(v.to_string())
+            }
+            None => Body::empty(),
+        };
+        let mut req = req.body(body).unwrap();
+        let addr: SocketAddr = format!("{LOCAL}:50000").parse().unwrap();
+        req.extensions_mut().insert(ConnectInfo(addr));
+        let res = self.router.clone().oneshot(req).await.unwrap();
+        let status = res.status();
+        let headers = res.headers().clone();
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            headers,
+            String::from_utf8_lossy(&bytes).into_owned(),
+        )
+    }
+
     /// Владелец создан с этого компьютера и вошёл; возвращает токен сессии.
     pub async fn owner(&self) -> String {
         let (s, _) = self

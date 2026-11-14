@@ -4,6 +4,7 @@ description = "Сервер CRM: REST API, WebSocket, SQLite, фоновые в�
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
 crm-core = { path = "../crm-core" }
@@ -26,6 +27,7 @@ axum-server = { version = "0.7", default-features = false, features = ["tls-rust
 if-addrs = "0.15"
 gethostname = "1"
 x509-parser = "0.18"
+rust-embed = { version = "8", features = ["mime-guess"] }
 time = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

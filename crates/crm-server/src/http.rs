@@ -41,10 +41,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/logout", post(auth::logout))
         .route("/api/invites/accept", post(auth::accept_invite))
         .route("/api/me", get(auth::me))
-        .route("/api/admin/users", post(auth::create_user))
+        .route(
+            "/api/admin/users",
+            post(auth::create_user).get(auth::list_users),
+        )
         .route("/api/admin/users/{id}/reset", post(auth::reset_access))
         .route("/api/admin/sessions", get(auth::list_sessions))
         .route("/api/admin/sessions/{id}", delete(auth::revoke_session))
+        .fallback(crate::web::static_or_index)
+        .layer(axum::middleware::map_response(crate::web::security_headers))
         .with_state(state)
 }
 

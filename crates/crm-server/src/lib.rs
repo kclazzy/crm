@@ -9,5 +9,6 @@ pub mod logging;
 pub mod secrets;
 pub mod server;
 pub mod tls;
+pub mod web;
 #[cfg(windows)]
 pub mod winsvc;

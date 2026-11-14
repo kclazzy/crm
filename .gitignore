@@ -2,3 +2,5 @@
 /.dev
 /crates/crm-desktop/binaries
 /crates/crm-desktop/gen
+/web/dist
+/web/node_modules

@@ -3,8 +3,10 @@
 use std::net::SocketAddr;
 
 use axum::extract::{ConnectInfo, FromRequestParts, Path, State};
+use axum::http::header::SET_COOKIE;
 use axum::http::request::Parts;
-use axum::http::StatusCode;
+use axum::http::{HeaderName, StatusCode};
+use axum::response::AppendHeaders;
 use axum::Json;
 use chrono::{Duration, Utc};
 use crm_core::auth::{check_password, parse_display_name, Role, Username};
@@ -45,11 +47,8 @@ impl FromRequestParts<AppState> for CurrentUser {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, app: &AppState) -> Result<Self, ApiError> {
-        let token = parts
-            .headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
+        let token = bearer(parts)
+            .or_else(|| session_cookie(parts))
             .ok_or(ApiError::Unauthorized)?;
         let now = now_ms();
         let row: Option<(String, String, String, String, String, i64)> = sqlx::query_as(
@@ -82,6 +81,49 @@ impl FromRequestParts<AppState> for CurrentUser {
             session_id,
         })
     }
+}
+
+/// Токен из заголовка `Authorization: Bearer` (приложение, скрипты).
+fn bearer(parts: &Parts) -> Option<&str> {
+    parts
+        .headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .strip_prefix("Bearer ")
+}
+
+/// Токен из cookie браузера.
+fn session_cookie(parts: &Parts) -> Option<&str> {
+    let prefix = format!("{COOKIE}=");
+    parts
+        .headers
+        .get_all(axum::http::header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .find_map(|c| c.trim().strip_prefix(prefix.as_str()))
+}
+
+pub const COOKIE: &str = "crm_session";
+
+/// Cookie сессии для браузера: недоступна скриптам (HttpOnly), только по HTTPS,
+/// не уходит с запросами с чужих сайтов (SameSite=Strict — защита от CSRF).
+fn set_cookie(token: &str) -> String {
+    format!(
+        "{COOKIE}={token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
+        SESSION_TTL.num_seconds()
+    )
+}
+
+fn clear_cookie() -> String {
+    format!("{COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0")
+}
+
+type WithCookie<T> = (AppendHeaders<[(HeaderName, String); 1]>, T);
+
+fn with_cookie<T>(cookie: String, body: T) -> WithCookie<T> {
+    (AppendHeaders([(SET_COOKIE, cookie)]), body)
 }
 
 /// Пользователь с ролью владельца.
@@ -294,7 +336,7 @@ pub async fn login(
     State(app): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(req): Json<LoginIn>,
-) -> Result<Json<SessionOut>, ApiError> {
+) -> Result<WithCookie<Json<SessionOut>>, ApiError> {
     req.device.check()?;
     let ip = addr.ip().to_string();
     // Ключ блокировки — то, что ввели, даже если такого логина нет.
@@ -336,21 +378,20 @@ pub async fn login(
             .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
         session_id: String::new(),
     };
-    Ok(Json(
-        start_session(&app.pool, user, &req.device, &ip).await?,
-    ))
+    let out = start_session(&app.pool, user, &req.device, &ip).await?;
+    Ok(with_cookie(set_cookie(&out.token), Json(out)))
 }
 
 pub async fn logout(
     State(app): State<AppState>,
     user: CurrentUser,
-) -> Result<StatusCode, ApiError> {
+) -> Result<WithCookie<StatusCode>, ApiError> {
     sqlx::query("UPDATE sessions SET revoked_at = ? WHERE id = ?")
         .bind(now_ms())
         .bind(&user.session_id)
         .execute(&app.pool)
         .await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(with_cookie(clear_cookie(), StatusCode::NO_CONTENT))
 }
 
 pub async fn me(user: CurrentUser) -> Json<CurrentUser> {
@@ -371,7 +412,7 @@ pub async fn accept_invite(
     State(app): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(req): Json<AcceptIn>,
-) -> Result<Json<SessionOut>, ApiError> {
+) -> Result<WithCookie<Json<SessionOut>>, ApiError> {
     req.device.check()?;
     let row: Option<(String, String, String, String, String)> = sqlx::query_as(
         "SELECT i.id, u.id, u.username, u.display_name, u.role
@@ -413,9 +454,8 @@ pub async fn accept_invite(
             .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
         session_id: String::new(),
     };
-    Ok(Json(
-        start_session(&app.pool, user, &req.device, &addr.ip().to_string()).await?,
-    ))
+    let out = start_session(&app.pool, user, &req.device, &addr.ip().to_string()).await?;
+    Ok(with_cookie(set_cookie(&out.token), Json(out)))
 }
 
 // ---------- Администрирование ----------
@@ -553,4 +593,34 @@ pub async fn revoke_session(
     } else {
         Err(ApiError::NotFound)
     }
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct StaffMember {
+    id: String,
+    username: String,
+    display_name: String,
+    role: String,
+    /// `active` — работает; `invited` — пароль ещё не задан; `disabled` — отключён.
+    state: String,
+    created_at: i64,
+}
+
+/// Список сотрудников для админ-панели владельца.
+pub async fn list_users(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+) -> Result<Json<Vec<StaffMember>>, ApiError> {
+    let rows = sqlx::query_as(
+        "SELECT id, username, display_name, role,
+                CASE WHEN is_active = 0 THEN 'disabled'
+                     WHEN password_hash IS NULL THEN 'invited'
+                     ELSE 'active' END AS state,
+                created_at
+         FROM users
+         ORDER BY role = 'host' DESC, display_name COLLATE NOCASE",
+    )
+    .fetch_all(&app.pool)
+    .await?;
+    Ok(Json(rows))
 }
