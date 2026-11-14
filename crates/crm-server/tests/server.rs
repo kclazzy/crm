@@ -15,7 +15,7 @@ async fn health_reports_ok_on_fresh_install() {
     let dir = tempfile::tempdir().unwrap();
     let pool = db::open(&config_in(dir.path()).storage).await.unwrap();
 
-    let res = http::router(http::AppState::new(pool))
+    let res = http::router(http::AppState::new(pool, Config::default(), None))
         .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
         .await
         .unwrap();

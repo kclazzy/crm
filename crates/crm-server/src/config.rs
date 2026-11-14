@@ -4,9 +4,9 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "default_listen")]
@@ -15,9 +15,12 @@ pub struct Config {
     pub tls: Tls,
     #[serde(default)]
     pub storage: Storage,
+    /// Откуда прочитан конфиг — туда же сохраняются изменения из админ-панели.
+    #[serde(skip)]
+    pub source: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tls {
     /// Выключать можно только для сервера, слушающего лишь 127.0.0.1 (разработка).
@@ -31,7 +34,7 @@ impl Default for Tls {
 }
 
 /// Где хранятся данные (ТЗ §2.4). БД — только на локальном диске.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Storage {
     pub db_dir: PathBuf,
@@ -57,6 +60,7 @@ impl Default for Config {
             listen: default_listen(),
             tls: Tls::default(),
             storage: Storage::default(),
+            source: None,
         }
     }
 }
@@ -67,6 +71,13 @@ pub enum ConfigError {
     Parse(#[from] toml::de::Error),
     #[error("без HTTPS сервер может слушать только 127.0.0.1, а указан {0}: включите [tls] enabled = true")]
     InsecureListen(SocketAddr),
+    #[error("не удалось записать {path}: {source}")]
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("не удалось сохранить настройки: {0}")]
+    Serialize(#[from] toml::ser::Error),
     #[error("не удалось прочитать {path}: {source}")]
     Read {
         path: PathBuf,
@@ -86,8 +97,14 @@ impl Config {
     /// Читает файл; если его нет — настройки по умолчанию (первый запуск).
     pub fn load(path: &std::path::Path) -> Result<Self, ConfigError> {
         match std::fs::read_to_string(path) {
-            Ok(s) => Self::from_toml(&s),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Ok(s) => Self::from_toml(&s).map(|c| Self {
+                source: Some(path.to_owned()),
+                ..c
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self {
+                source: Some(path.to_owned()),
+                ..Self::default()
+            }),
             Err(source) => Err(ConfigError::Read {
                 path: path.to_owned(),
                 source,
@@ -98,6 +115,26 @@ impl Config {
 
 /// По умолчанию — все сетевые интерфейсы; это допустимо, потому что TLS включён
 /// по умолчанию, а без TLS конфиг с сетевым адресом не принимается.
+impl Config {
+    /// Сохранить настройки (через временный файл — сбой не оставит битый config.toml).
+    pub fn save(&self, path: &std::path::Path) -> Result<(), ConfigError> {
+        let text = format!(
+            "# Настройки сервера CRM. Изменяются из админ-панели; править вручную — при остановленном сервере.\n{}",
+            toml::to_string_pretty(self)?
+        );
+        let tmp = path.with_extension("toml.tmp");
+        let io = |source| ConfigError::Write {
+            path: path.to_owned(),
+            source,
+        };
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(io)?;
+        }
+        std::fs::write(&tmp, text).map_err(io)?;
+        std::fs::rename(&tmp, path).map_err(io)
+    }
+}
+
 fn default_listen() -> SocketAddr {
     SocketAddr::from(([0, 0, 0, 0], 8443))
 }

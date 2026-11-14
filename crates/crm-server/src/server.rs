@@ -44,6 +44,7 @@ pub struct Running {
     handle: Handle,
     serve: JoinHandle<std::io::Result<()>>,
     renew: Option<JoinHandle<()>>,
+    backups: JoinHandle<()>,
 }
 
 pub async fn start(cfg: &Config) -> Result<Running, RunError> {
@@ -61,13 +62,12 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         None
     };
 
-    let state = AppState {
-        pool,
-        ca_pem: material.as_ref().map(|m| Arc::from(m.ca_pem.as_str())),
-        ca_fingerprint: material
-            .as_ref()
-            .map(|m| Arc::from(m.ca_fingerprint.as_str())),
-    };
+    let mut state = AppState::new(pool, cfg.clone(), cfg.source.clone());
+    state.ca_pem = material.as_ref().map(|m| Arc::from(m.ca_pem.as_str()));
+    state.ca_fingerprint = material
+        .as_ref()
+        .map(|m| Arc::from(m.ca_fingerprint.as_str()));
+    let backups = tokio::spawn(crate::backup::hourly(state.clone()));
     let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
     let handle = Handle::new();
     let listener = bind_patiently(cfg.listen).await?;
@@ -110,6 +110,7 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         handle,
         serve,
         renew,
+        backups,
     })
 }
 
@@ -174,6 +175,7 @@ impl Running {
     /// Корректная остановка: новые соединения не принимаются, текущие запросы дорабатывают.
     pub async fn stop(self) -> Result<(), RunError> {
         self.handle.graceful_shutdown(Some(GRACE));
+        self.backups.abort();
         if let Some(r) = self.renew {
             r.abort();
         }

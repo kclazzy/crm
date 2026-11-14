@@ -12,9 +12,30 @@ use sqlx::SqlitePool;
 
 use crate::{auth, secrets};
 
+/// Изменяемые на лету настройки и режимы сервера.
+pub struct Runtime {
+    /// Куда сохранять изменения настроек (config.toml).
+    pub config_path: Option<std::path::PathBuf>,
+    pub config: std::sync::RwLock<crate::config::Config>,
+    /// Данные перенесены в новое место — до перезапуска только чтение.
+    pub frozen: std::sync::atomic::AtomicBool,
+    /// Бэкапы идут строго по одному.
+    pub backup_lock: tokio::sync::Mutex<()>,
+}
+
+impl Runtime {
+    pub fn config(&self) -> crate::config::Config {
+        match self.config.read() {
+            Ok(c) => c.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
+    pub rt: Arc<Runtime>,
     /// Сертификат CA сервера (PEM) для установки в браузер; `None` — HTTPS выключен.
     pub ca_pem: Option<Arc<str>>,
     /// Отпечаток CA для сверки сотрудником/владельцем.
@@ -22,9 +43,19 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(
+        pool: SqlitePool,
+        config: crate::config::Config,
+        config_path: Option<std::path::PathBuf>,
+    ) -> Self {
         Self {
             pool,
+            rt: Arc::new(Runtime {
+                config_path,
+                config: std::sync::RwLock::new(config),
+                frozen: std::sync::atomic::AtomicBool::new(false),
+                backup_lock: tokio::sync::Mutex::new(()),
+            }),
             ca_pem: None,
             ca_fingerprint: None,
         }
@@ -48,9 +79,39 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/users/{id}/reset", post(auth::reset_access))
         .route("/api/admin/sessions", get(auth::list_sessions))
         .route("/api/admin/sessions/{id}", delete(auth::revoke_session))
+        .route("/api/admin/server", get(crate::admin::server_info))
+        .route("/api/admin/storage", get(crate::admin::storage))
+        .route("/api/admin/storage/move", post(crate::admin::move_data))
+        .route(
+            "/api/admin/backup",
+            axum::routing::put(crate::admin::set_backup_dirs),
+        )
+        .route("/api/admin/backup/run", post(crate::admin::backup_now))
+        .route("/api/admin/backups", get(crate::admin::backups))
         .fallback(crate::web::static_or_index)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            frozen_guard,
+        ))
         .layer(axum::middleware::map_response(crate::web::security_headers))
         .with_state(state)
+}
+
+/// После переноса данных до перезапуска разрешено только чтение — иначе новые записи
+/// попали бы в старую базу и потерялись.
+async fn frozen_guard(
+    State(app): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let read = matches!(
+        *req.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD
+    );
+    if !read && app.rt.frozen.load(std::sync::atomic::Ordering::SeqCst) {
+        return ApiError::Frozen.into_response();
+    }
+    next.run(req).await
 }
 
 /// CA сервера — открытая информация (без ключа); нужна браузеру, чтобы доверять серверу.
@@ -104,6 +165,11 @@ pub enum ApiError {
     Conflict(&'static str),
     #[error("слишком много неудачных попыток, попробуйте через 15 минут")]
     TooManyAttempts,
+    #[error("данные перенесены в новое место — перезапустите сервер (меню трея → «Перезапустить сервер»)")]
+    Frozen,
+    /// Понятная владельцу причина сбоя операции (бэкап, перенос).
+    #[error("{0}")]
+    Failed(String),
     #[error("внутренняя ошибка сервера")]
     Db(#[from] sqlx::Error),
     #[error("внутренняя ошибка сервера")]
@@ -127,6 +193,11 @@ impl IntoResponse for ApiError {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyAttempts => StatusCode::TOO_MANY_REQUESTS,
+            Self::Frozen => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Failed(why) => {
+                tracing::error!(%why, "операция не выполнена");
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
             Self::Db(e) => {
                 tracing::error!(error = %e, "ошибка БД");
                 StatusCode::INTERNAL_SERVER_ERROR

@@ -51,7 +51,7 @@ pub async fn open(storage: &Storage) -> Result<SqlitePool, DbError> {
 
 /// Папка с БД — только для учётной записи сервера (в БД хеши паролей).
 /// На Windows доступ ограничивает установщик через ACL папки ProgramData\CRM.
-fn make_private(dir: &std::path::Path) -> Result<(), DbError> {
+pub(crate) fn make_private(dir: &std::path::Path) -> Result<(), DbError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

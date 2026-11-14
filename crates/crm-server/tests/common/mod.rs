@@ -34,12 +34,19 @@ pub struct App {
 impl App {
     pub async fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let pool = db::open(&config_in(dir.path()).storage).await.unwrap();
+        let cfg = config_in(dir.path());
+        let pool = db::open(&cfg.storage).await.unwrap();
+        let state = http::AppState::new(pool.clone(), cfg, Some(dir.path().join("config.toml")));
         Self {
-            router: http::router(http::AppState::new(pool.clone())),
+            router: http::router(state),
             pool,
             _dir: dir,
         }
+    }
+
+    /// Временная папка этого теста (там же config.toml и data/).
+    pub fn dir(&self) -> &std::path::Path {
+        self._dir.path()
     }
 
     pub async fn call(
