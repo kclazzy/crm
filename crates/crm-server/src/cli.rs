@@ -8,6 +8,7 @@ pub const USAGE: &str = "\
   crm-server service install        установить и запустить службу Windows (от администратора)
   crm-server service uninstall      остановить и удалить службу (данные сохраняются)
   crm-server service start|stop|restart|status
+  crm-server service vpn-apply      включить VPN WireGuard по настройкам из админ-панели (от администратора)
   crm-server reset-owner-password   сбросить забытый пароль владельца (от администратора, на сервере)
   crm-server restore ИСТОЧНИК       восстановить данные: файл копии .db.zst, папка копий
                                     или пакет переноса .crmpack (затем перезапустить службу)
@@ -40,6 +41,8 @@ pub enum ServiceCmd {
     Status,
     /// Вызывается диспетчером служб Windows, не человеком.
     Run,
+    /// Включить VPN WireGuard по файлу из админ-панели.
+    VpnApply,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -76,6 +79,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 "restart" => ServiceCmd::Restart,
                 "status" => ServiceCmd::Status,
                 "run" => ServiceCmd::Run,
+                "vpn-apply" => ServiceCmd::VpnApply,
                 _ => return Err(bad()),
             };
             Ok(Command::Service(cmd))
@@ -124,6 +128,10 @@ mod tests {
             Ok(Command::Service(ServiceCmd::Status))
         );
         assert_eq!(p("service run"), Ok(Command::Service(ServiceCmd::Run)));
+        assert_eq!(
+            p("service vpn-apply"),
+            Ok(Command::Service(ServiceCmd::VpnApply))
+        );
         assert!(p("service").is_err());
         assert!(p("service install extra").is_err());
         assert!(p("service fly").is_err());
