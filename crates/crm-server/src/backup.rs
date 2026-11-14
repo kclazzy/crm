@@ -12,9 +12,10 @@ use sqlx::{ConnectOptions, SqlitePool};
 use crate::config::Config;
 use crate::http::AppState;
 
-/// Первый бэкап — через 2 минуты после старта, дальше раз в час.
+/// Первая проверка — через 2 минуты после старта, дальше раз в минуту:
+/// копия делается, когда с последней удачной прошёл выбранный владельцем интервал.
 const FIRST_DELAY: Duration = Duration::from_secs(120);
-const EVERY: Duration = Duration::from_secs(3600);
+const CHECK_EVERY: Duration = Duration::from_secs(60);
 const STATUS_KEY: &str = "backup.last";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,7 +110,8 @@ async fn run_locked(pool: &SqlitePool, cfg: &Config) -> Result<BackupFile, Backu
     let tls = cfg.storage.db_dir.join("tls");
     let size = tokio::task::spawn_blocking({
         let (snapshot, name) = (snapshot.clone(), name.clone());
-        move || write_copies(&snapshot, &name, &dirs, &tls, now)
+        let policy = cfg.backup;
+        move || write_copies(&snapshot, &name, &dirs, &tls, now, &policy)
     })
     .await??;
     let _ = std::fs::remove_file(&snapshot);
@@ -145,6 +147,7 @@ fn write_copies(
     dirs: &[PathBuf],
     tls: &Path,
     now: DateTime<Utc>,
+    policy: &crm_core::backup::Policy,
 ) -> Result<u64, BackupError> {
     let raw = std::fs::read(snapshot).map_err(io(snapshot))?;
     let packed = zstd::encode_all(raw.as_slice(), 10).map_err(io(snapshot))?;
@@ -155,7 +158,7 @@ fn write_copies(
         std::fs::write(&tmp, &packed).map_err(io(&tmp))?;
         std::fs::rename(&tmp, dir.join(name)).map_err(io(dir))?;
         copy_tls(tls, &dir.join("tls"))?;
-        rotate(dir, now)?;
+        rotate(dir, now, policy)?;
     }
     Ok(packed.len() as u64)
 }
@@ -176,13 +179,17 @@ fn copy_tls(from: &Path, to: &Path) -> Result<(), BackupError> {
 }
 
 /// Ротация: всё за 48 ч, дальше по одной в сутки за 30 дней. Чужие файлы не трогаем.
-fn rotate(dir: &Path, now: DateTime<Utc>) -> Result<(), BackupError> {
+fn rotate(
+    dir: &Path,
+    now: DateTime<Utc>,
+    policy: &crm_core::backup::Policy,
+) -> Result<(), BackupError> {
     let files = list_dir(dir)?;
     let times: Vec<DateTime<Utc>> = files
         .iter()
         .filter_map(|f| DateTime::from_timestamp_millis(f.at))
         .collect();
-    for t in crm_core::backup::to_delete(&times, now, chrono_tz::UTC) {
+    for t in crm_core::backup::to_delete(&times, now, chrono_tz::UTC, policy) {
         let p = dir.join(crm_core::backup::file_name(t));
         std::fs::remove_file(&p).map_err(io(&p))?;
     }
@@ -223,13 +230,18 @@ pub async fn last_status(pool: &SqlitePool) -> Option<Status> {
     json.and_then(|j| serde_json::from_str(&j).ok())
 }
 
-/// Фоновый воркер: раз в час, если папка бэкапов выбрана.
+/// Фоновый воркер: копия по расписанию владельца, если папка выбрана.
 pub async fn hourly(app: AppState) {
     tokio::time::sleep(FIRST_DELAY).await;
-    let mut tick = tokio::time::interval(EVERY);
+    let mut tick = tokio::time::interval(CHECK_EVERY);
     loop {
         tick.tick().await;
-        if app.rt.config().storage.backup_dirs.is_empty() {
+        let cfg = app.rt.config();
+        let last_ok = last_status(&app.pool)
+            .await
+            .filter(|s| s.ok)
+            .and_then(|s| DateTime::from_timestamp_millis(s.at));
+        if cfg.storage.backup_dirs.is_empty() || !cfg.backup.is_due(last_ok, Utc::now()) {
             continue;
         }
         if let Err(e) = run(&app).await {

@@ -15,6 +15,9 @@ pub struct Config {
     pub tls: Tls,
     #[serde(default)]
     pub storage: Storage,
+    /// Расписание и сроки хранения резервных копий (выбирает владелец).
+    #[serde(default)]
+    pub backup: crm_core::backup::Policy,
     /// Откуда прочитан конфиг — туда же сохраняются изменения из админ-панели.
     #[serde(skip)]
     pub source: Option<PathBuf>,
@@ -60,6 +63,7 @@ impl Default for Config {
             listen: default_listen(),
             tls: Tls::default(),
             storage: Storage::default(),
+            backup: crm_core::backup::Policy::default(),
             source: None,
         }
     }

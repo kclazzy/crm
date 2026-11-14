@@ -210,3 +210,70 @@ async fn moving_data_copies_db_updates_config_and_freezes_writes_until_restart()
         "чтение работает"
     );
 }
+
+#[tokio::test]
+async fn owner_sets_backup_schedule_and_retention() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let dir = app.dir().join("b");
+    let policy = json!({ "enabled": true, "every_hours": 6, "keep_all_hours": 24, "keep_days": 7 });
+    let (s, v) = app
+        .call(
+            "PUT",
+            "/api/admin/backup",
+            LOCAL,
+            Some(&owner),
+            Some(json!({ "dirs": [dir], "policy": policy })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, info) = app
+        .call("GET", "/api/admin/storage", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(info["policy"]["every_hours"], 6);
+    assert_eq!(
+        info["expected_copies"],
+        4 + 6,
+        "4 копии за сутки + 6 ежедневных"
+    );
+    let cfg = crm_server::config::Config::load(&app.dir().join("config.toml")).unwrap();
+    assert_eq!(cfg.backup.every_hours(), 6, "сохранено в config.toml");
+
+    // Копия 10-дневной давности при хранении 7 дней удаляется.
+    std::fs::write(
+        dir.join(crm_core::backup::file_name(
+            chrono::Utc::now() - chrono::Duration::days(10),
+        )),
+        b"x",
+    )
+    .unwrap();
+    let kept = crm_core::backup::file_name(chrono::Utc::now() - chrono::Duration::days(5));
+    std::fs::write(dir.join(&kept), b"x").unwrap();
+    app.call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".zst"))
+        .collect();
+    assert_eq!(left.len(), 2, "свежая + 5-дневная: {left:?}");
+    assert!(left.contains(&kept));
+}
+
+#[tokio::test]
+async fn impossible_schedule_is_explained() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let policy = json!({ "enabled": true, "every_hours": 5, "keep_all_hours": 24, "keep_days": 7 });
+    let (s, v) = app
+        .call(
+            "PUT",
+            "/api/admin/backup",
+            LOCAL,
+            Some(&owner),
+            Some(json!({ "dirs": [app.dir().join("b")], "policy": policy })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(v["error"].as_str().unwrap().contains("часа"), "{v}");
+}

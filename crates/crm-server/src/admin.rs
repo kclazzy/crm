@@ -66,6 +66,9 @@ pub struct StorageInfo {
     volumes: Vec<Volume>,
     /// Данные перенесены, ждём перезапуска.
     restart_required: bool,
+    policy: crm_core::backup::Policy,
+    /// Сколько копий будет лежать в папке при этих настройках.
+    expected_copies: u32,
 }
 
 /// Ближайшая существующая папка (у ещё не созданной папки бэкапов — её родитель).
@@ -153,6 +156,8 @@ pub async fn storage(State(app): State<AppState>, Owner(_): Owner) -> Json<Stora
         backup_dirs: cfg.storage.backup_dirs,
         volumes: volumes.into_iter().map(|(_, v)| v).collect(),
         restart_required: app.rt.frozen.load(Ordering::SeqCst),
+        policy: cfg.backup,
+        expected_copies: cfg.backup.expected_copies(),
     })
 }
 
@@ -197,6 +202,8 @@ fn save(app: &AppState, change: impl FnOnce(&mut crate::config::Config)) -> Resu
 #[derive(Deserialize)]
 pub struct BackupDirsIn {
     dirs: Vec<String>,
+    /// Расписание и сроки; не передано — остаются прежние.
+    policy: Option<crm_core::backup::RawPolicy>,
 }
 
 #[derive(Serialize)]
@@ -211,6 +218,11 @@ pub async fn set_backup_dirs(
     Owner(_): Owner,
     Json(req): Json<BackupDirsIn>,
 ) -> Result<Json<BackupDirsOut>, ApiError> {
+    let policy = match req.policy {
+        Some(raw) => crm_core::backup::Policy::try_from(raw)
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?,
+        None => app.rt.config().backup,
+    };
     let data = app.rt.config().storage.db_dir;
     let mut dirs = Vec::new();
     let mut warnings = Vec::new();
@@ -227,7 +239,10 @@ pub async fn set_backup_dirs(
         }
         dirs.push(dir);
     }
-    save(&app, |c| c.storage.backup_dirs = dirs.clone())?;
+    save(&app, |c| {
+        c.storage.backup_dirs = dirs.clone();
+        c.backup = policy;
+    })?;
     Ok(Json(BackupDirsOut { dirs, warnings }))
 }
 
