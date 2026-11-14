@@ -141,7 +141,7 @@ jobs:
           & "$dir\crm-server.exe" service install; if ($LASTEXITCODE) { throw "service install" }
           Write-Host "работает: $(Health)"
 
-          # Самопроверка окна программы: CRM в окне (WebView2) и кнопка «Остановить сервер».
+          # Самопроверка окна программы: CRM в окне (WebView2) и кнопка «Остановить сервер» — обязательны.
           $report = "$env:RUNNER_TEMP\selftest.txt"
           $env:CRM_SELFTEST_OUT = $report
           $app = Start-Process "$dir\CRM.exe" -PassThru
@@ -154,8 +154,8 @@ jobs:
           if (Test-Path $report) { Get-Content $report | Out-Host } else { Write-Warning "отчёта нет" }
           if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
           $page = if (Test-Path $report) { Select-String -Path $report -Pattern '^PAGE ' | Select-Object -First 1 } else { $null }
-          if (-not $page -or $page.Line -notmatch '"root_children":[1-9]') { Write-Warning "CRM в окне программы не отрисовалась" }
-          if (-not (Select-String -Path $report -Pattern 'STOP ok service=Stopped' -Quiet -ErrorAction SilentlyContinue)) { Write-Warning "«Остановить сервер» не остановил службу" }
+          if (-not $page -or $page.Line -notmatch '"root_children":[1-9]' -or $page.Line -notmatch '"errors":\[\]') { throw "CRM в окне программы не отрисовалась" }
+          if (-not (Select-String -Path $report -Pattern 'STOP ok service=Stopped' -Quiet -ErrorAction SilentlyContinue)) { throw "«Остановить сервер» не остановил службу" }
           Write-Host "служба: $((Get-Service CRMServer).Status)"
           if ((Get-Service CRMServer).Status -ne 'Running') { & "$dir\crm-server.exe" service start; if ($LASTEXITCODE) { throw "service start" } }
           Write-Host "снова работает: $(Health)"
