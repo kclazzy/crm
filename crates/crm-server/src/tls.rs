@@ -125,6 +125,14 @@ pub fn ensure(dir: &Path, sans: &Sans, now: OffsetDateTime) -> Result<TlsMateria
     })
 }
 
+impl TlsMaterial {
+    /// Цепочка для рукопожатия: сертификат сервера и CA. CA в цепочке позволяет
+    /// программе сотрудника сверить его отпечаток из ключа подключения.
+    pub fn chain_pem(&self) -> String {
+        format!("{}\n{}", self.cert_pem.trim_end(), self.ca_pem)
+    }
+}
+
 /// SHA-256 сертификата в виде `AB:CD:…` — его показывают сотруднику для сверки.
 pub fn fingerprint(der: &[u8]) -> String {
     Sha256::digest(der)

@@ -76,12 +76,10 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
 
     let (serve, renew) = match &material {
         Some(m) => {
-            let rustls = RustlsConfig::from_pem(
-                m.cert_pem.clone().into_bytes(),
-                m.key_pem.clone().into_bytes(),
-            )
-            .await
-            .map_err(RunError::TlsLoad)?;
+            let rustls =
+                RustlsConfig::from_pem(m.chain_pem().into_bytes(), m.key_pem.clone().into_bytes())
+                    .await
+                    .map_err(RunError::TlsLoad)?;
             let renew = tokio::spawn(keep_certificate_fresh(
                 tls_dir,
                 rustls.clone(),
@@ -171,7 +169,7 @@ async fn keep_certificate_fresh(
         match fresh {
             Ok(Ok(m)) if m.cert_pem != current => {
                 match rustls
-                    .reload_from_pem(m.cert_pem.clone().into_bytes(), m.key_pem.into_bytes())
+                    .reload_from_pem(m.chain_pem().into_bytes(), m.key_pem.into_bytes())
                     .await
                 {
                     Ok(()) => {

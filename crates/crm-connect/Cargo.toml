@@ -1,0 +1,24 @@
+[package]
+name = "crm-connect"
+description = "Подключение программы сотрудника к серверу CRM: «Мои серверы», статус, туннель с закреплённым сертификатом"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+crm-core = { path = "../crm-core" }
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+sha2 = "0.10"
+tokio = { version = "1", features = ["net", "io-util", "time", "rt", "macros", "sync"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[dev-dependencies]
+crm-server = { path = "../crm-server" }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true
