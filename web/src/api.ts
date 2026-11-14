@@ -55,11 +55,20 @@ export interface Volume {
   level: 'ok' | 'warning' | 'critical';
 }
 
+export interface BackupPolicy {
+  enabled: boolean;
+  every_hours: number;
+  keep_all_hours: number;
+  keep_days: number;
+}
+
 export interface StorageInfo {
   data_dir: string;
   backup_dirs: string[];
   volumes: Volume[];
   restart_required: boolean;
+  policy: BackupPolicy;
+  expected_copies: number;
 }
 
 export interface BackupFile {
@@ -129,7 +138,8 @@ export const api = {
   revokeSession: (id: string) => request<void>('DELETE', `/api/admin/sessions/${id}`),
   server: () => request<ServerInfo>('GET', '/api/admin/server'),
   storage: () => request<StorageInfo>('GET', '/api/admin/storage'),
-  setBackupDirs: (dirs: string[]) => request<{ dirs: string[]; warnings: string[] }>('PUT', '/api/admin/backup', { dirs }),
+  saveBackup: (dirs: string[], policy: BackupPolicy) =>
+    request<{ dirs: string[]; warnings: string[] }>('PUT', '/api/admin/backup', { dirs, policy }),
   backupNow: () => request<BackupFile>('POST', '/api/admin/backup/run'),
   backups: () => request<{ last: BackupStatus | null; files: BackupFile[] }>('GET', '/api/admin/backups'),
   moveData: (data_dir: string) => request<{ data_dir: string; restart_required: boolean }>('POST', '/api/admin/storage/move', { data_dir }),

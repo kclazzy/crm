@@ -1,7 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, DatabaseBackup, FolderInput, HardDrive, Plus, RefreshCw, Trash2, XCircle } from 'lucide-react';
-import { api, type BackupFile, type BackupStatus, bytes, type StorageInfo, timeAgo } from '../api';
+import { AlertTriangle, FolderInput, HardDrive, RefreshCw } from 'lucide-react';
+import { api, type BackupFile, type BackupPolicy, type BackupStatus, bytes, type StorageInfo } from '../api';
 import { BackupScheme } from '../components/BackupScheme';
+import { BackupSettings } from '../components/BackupSettings';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 
 const levelColor = { ok: 'bg-emerald-500', warning: 'bg-amber-500', critical: 'bg-red-500' };
@@ -37,22 +38,14 @@ function Volumes({ info }: { info: StorageInfo }) {
   );
 }
 
-function LastBackup({ last }: { last: BackupStatus | null }) {
-  if (!last) return <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"><AlertTriangle className="size-4" />Копий ещё не было.</p>;
-  if (!last.ok) return <p className="flex items-start gap-2 text-sm text-red-600"><XCircle className="mt-0.5 size-4 shrink-0" />Последняя попытка {timeAgo(last.at)} не удалась: {last.error}</p>;
-  return <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" />Последняя копия {timeAgo(last.at)} · {bytes(last.size ?? 0)} · проверена</p>;
-}
-
 export function AdminStorage() {
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const [last, setLast] = useState<BackupStatus | null>(null);
   const [files, setFiles] = useState<BackupFile[]>([]);
-  const [dirs, setDirs] = useState<string[]>(['']);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'' | 'save' | 'run' | 'move'>('');
   const [moving, setMoving] = useState(false);
-  const [saved, setSaved] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -60,7 +53,6 @@ export function AdminStorage() {
       setInfo(s);
       setLast(b.last);
       setFiles(b.files);
-      setDirs(s.backup_dirs.length ? s.backup_dirs : ['']);
     } catch (x) {
       setError((x as Error).message);
     }
@@ -80,12 +72,10 @@ export function AdminStorage() {
     }
   }
 
-  const saveDirs = () =>
+  const saveBackup = (dirs: string[], policy: BackupPolicy) =>
     act('save', async () => {
-      const r = await api.setBackupDirs(dirs.map((d) => d.trim()).filter(Boolean));
+      const r = await api.saveBackup(dirs, policy);
       setWarnings(r.warnings);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
     });
 
   async function move(e: FormEvent<HTMLFormElement>) {
@@ -118,7 +108,12 @@ export function AdminStorage() {
 
       <Volumes info={info} />
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <div className="mt-6">
+        <BackupSettings key={JSON.stringify([info.backup_dirs, info.policy])} dirs={info.backup_dirs} policy={info.policy} last={last}
+          hasSavedDirs={info.backup_dirs.length > 0} busy={busy} warnings={warnings} onSave={saveBackup} onRun={() => act('run', api.backupNow)} />
+      </div>
+
+      <div className="mt-6">
         <section className="card p-6">
           <h2 className="flex items-center gap-2 font-semibold"><FolderInput className="size-5 text-brand-600" />Папка данных</h2>
           <p className="mt-1 text-sm text-slate-500">База, ключи и сертификат сервера.</p>
@@ -126,34 +121,6 @@ export function AdminStorage() {
           <Button variant="secondary" className="mt-4" disabled={info.restart_required} onClick={() => { setError(''); setMoving(true); }}>Перенести в другую папку…</Button>
         </section>
 
-        <section className="card p-6">
-          <h2 className="flex items-center gap-2 font-semibold"><DatabaseBackup className="size-5 text-brand-600" />Резервные копии</h2>
-          <p className="mt-1 text-sm text-slate-500">Каждый час, автоматически. Хранятся все за 48 часов и по одной в сутки за 30 дней.</p>
-          <div className="mt-4 flex flex-col gap-2">
-            {dirs.map((d, i) => (
-              <div key={i} className="flex gap-2">
-                <input className="input font-mono text-sm" value={d} placeholder="E:\CRM-backup" spellCheck={false}
-                  onChange={(e) => setDirs(dirs.map((x, j) => (j === i ? e.target.value : x)))} />
-                {dirs.length > 1 && (
-                  <button className="rounded-xl px-2 text-slate-400 hover:bg-slate-100 hover:text-red-600 dark:hover:bg-slate-800" title="Убрать" onClick={() => setDirs(dirs.filter((_, j) => j !== i))}>
-                    <Trash2 className="size-4" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          {dirs.length < 3 && (
-            <button className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:underline" onClick={() => setDirs([...dirs, ''])}>
-              <Plus className="size-4" />Ещё одна папка
-            </button>
-          )}
-          {warnings.map((w) => <p key={w} className="mt-3 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{w}</p>)}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button busy={busy === 'save'} onClick={saveDirs}>{saved ? 'Сохранено' : 'Сохранить папки'}</Button>
-            <Button variant="secondary" busy={busy === 'run'} disabled={!info.backup_dirs.length} onClick={() => act('run', api.backupNow)}>Сделать копию сейчас</Button>
-          </div>
-          <div className="mt-4"><LastBackup last={last} /></div>
-        </section>
       </div>
 
       {files.length > 0 && (

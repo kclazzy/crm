@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router';
-import { Activity, Building2, DatabaseBackup, KeyRound, ListChecks, LogOut, MessagesSquare, Server, Users } from 'lucide-react';
+import { Activity, BookOpen, Building2, DatabaseBackup, KeyRound, LifeBuoy, ListChecks, LogOut, MessagesSquare, Server, Users } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { api, roleName } from '../api';
 import { useAuth } from '../auth';
@@ -56,10 +56,14 @@ export function Shell() {
               <Item to="/admin/sessions" icon={KeyRound} label="Активные входы" />
               <Item to="/admin/storage" icon={DatabaseBackup} label="Хранилище и копии" />
               <Item to="/admin/server" icon={Server} label="Сервер" />
+              <Item to="/admin/help" icon={BookOpen} label="Инструкция администратора" />
             </nav>
           </>
         )}
-        <div className="mt-auto flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <nav className="mt-auto mb-2 flex flex-col gap-1">
+          <Item to="/help" icon={LifeBuoy} label="Справка" />
+        </nav>
+        <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
           <Avatar name={me.display_name} size="sm" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{me.display_name}</p>

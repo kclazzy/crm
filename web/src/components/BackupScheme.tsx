@@ -15,7 +15,7 @@ export function BackupScheme() {
         </defs>
         {[
           { x: 10, n: '1', t: 'Рабочая база', a: 'Сервер, диск C:', b: 'Работает постоянно' },
-          { x: 260, n: '2', t: 'Копии на 2-м диске', a: 'Второй диск, USB или NAS', b: 'Все за 48 ч + по одной в сутки за 30 дней' },
+          { x: 260, n: '2', t: 'Копии на 2-м диске', a: 'Второй диск, USB или NAS', b: 'Сроки хранения — в настройках выше' },
           { x: 510, n: '3', t: 'Копия вне офиса', a: 'Зашифрованный USB-диск', b: 'Раз в неделю — домой или в сейф' },
         ].map((s) => (
           <g key={s.n}>
@@ -29,7 +29,7 @@ export function BackupScheme() {
           </g>
         ))}
         <line x1="214" y1="100" x2="254" y2="100" className="stroke-brand-500" strokeWidth="2" markerEnd="url(#arr)" />
-        <text x="234" y="30" textAnchor="middle" className="fill-brand-600 text-[11px] font-semibold dark:fill-brand-100">каждый час</text>
+        <text x="234" y="30" textAnchor="middle" className="fill-brand-600 text-[11px] font-semibold dark:fill-brand-100">по расписанию</text>
         <text x="234" y="190" textAnchor="middle" className={sub}>автоматически</text>
         <line x1="464" y1="100" x2="504" y2="100" className="stroke-brand-500" strokeWidth="2" strokeDasharray="5 4" markerEnd="url(#arr)" />
         <text x="484" y="30" textAnchor="middle" className="fill-brand-600 text-[11px] font-semibold dark:fill-brand-100">раз в неделю</text>
