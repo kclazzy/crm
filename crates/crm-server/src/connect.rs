@@ -1,0 +1,101 @@
+//! Ключ подключения для программы сотрудника (ТЗ §2.3).
+
+use axum::extract::State;
+use axum::Json;
+use crm_core::connkey::{encode, ServerKey};
+use serde::{Deserialize, Serialize};
+
+use crate::auth::{issue_invite, Owner};
+use crate::http::{ApiError, AppState};
+
+#[derive(Deserialize)]
+pub struct KeyIn {
+    /// Для приглашённого сотрудника — ключ сразу с приглашением (старое перестаёт работать).
+    user_id: Option<String>,
+    /// Рекомендуется: PIN сообщают отдельно от ключа (голосом, в мессенджере).
+    pin: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct KeyOut {
+    key: String,
+    with_pin: bool,
+    /// До какого времени действует приглашение внутри ключа.
+    invite_expires_at: Option<i64>,
+    addrs: Vec<String>,
+}
+
+/// Адреса сервера в порядке попыток: имена, IP офисной сети, адрес VPN.
+pub fn server_addrs(app: &AppState) -> Vec<String> {
+    let sans = crate::tls::local_sans();
+    let names = sans.names.iter().filter(|n| *n != "localhost").cloned();
+    let mut ips: Vec<std::net::IpAddr> = sans
+        .ips
+        .iter()
+        .copied()
+        .filter(|ip| ip.is_ipv4() && !ip.is_loopback())
+        .collect();
+    // VPN — последним: в офисе быстрее напрямую.
+    ips.sort_by_key(|ip| crate::vpn::is_vpn_ip(*ip));
+    let mut out: Vec<String> = names.chain(ips.iter().map(ToString::to_string)).collect();
+    let vpn = crate::vpn::SERVER_IP.to_string();
+    if crate::vpn::is_configured(app) && !out.contains(&vpn) {
+        out.push(vpn);
+    }
+    out
+}
+
+pub async fn connection_key(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+    Json(req): Json<KeyIn>,
+) -> Result<Json<KeyOut>, ApiError> {
+    let fp = app
+        .ca_fingerprint
+        .as_deref()
+        .ok_or_else(|| ApiError::BadRequest("ключ работает только с включённым HTTPS".into()))?
+        .to_owned();
+    let pin = req.pin.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    let mut invite = None;
+    let mut user = None;
+    let mut expires = None;
+    if let Some(id) = &req.user_id {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT username, password_hash FROM users WHERE id = ? AND is_active = 1",
+        )
+        .bind(id)
+        .fetch_optional(&app.pool)
+        .await?;
+        let (username, hash) = row.ok_or(ApiError::NotFound)?;
+        if hash.is_some() {
+            return Err(ApiError::Conflict(
+                "сотрудник уже задал пароль — дайте ему общий ключ без приглашения",
+            ));
+        }
+        let mut tx = app.pool.begin().await?;
+        let inv = issue_invite(&mut tx, id).await?;
+        tx.commit().await?;
+        invite = Some(inv.invite_token);
+        expires = Some(inv.invite_expires_at);
+        user = Some(username);
+    }
+    let addrs = server_addrs(&app);
+    let key = ServerKey {
+        name: gethostname::gethostname().to_string_lossy().into_owned(),
+        addrs: addrs.clone(),
+        port: app.rt.config().listen.port(),
+        fp,
+        invite,
+        user,
+    };
+    let mut random = [0u8; 40];
+    getrandom::fill(&mut random)
+        .map_err(|e| ApiError::Failed(format!("генератор случайных чисел: {e}")))?;
+    let key = encode(&key, pin, random).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    Ok(Json(KeyOut {
+        key,
+        with_pin: pin.is_some(),
+        invite_expires_at: expires,
+        addrs,
+    }))
+}

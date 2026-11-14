@@ -9,6 +9,7 @@ pub mod chat;
 pub mod cli;
 pub mod clients;
 pub mod config;
+pub mod connect;
 pub mod db;
 pub mod events;
 pub mod http;
@@ -24,6 +25,7 @@ pub mod server;
 pub mod tasks;
 pub mod tls;
 pub mod transfer;
+pub mod vpn;
 pub mod web;
 #[cfg(windows)]
 pub mod winsvc;

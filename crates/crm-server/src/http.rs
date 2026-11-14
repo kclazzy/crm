@@ -25,6 +25,8 @@ pub struct Runtime {
     pub limiter: crate::limits::RateLimiter,
     /// События в реальном времени для подключённых окон.
     pub hub: crate::events::Hub,
+    /// Когда устройства VPN последний раз заходили.
+    pub vpn_seen: crate::vpn::Seen,
 }
 
 impl Runtime {
@@ -61,6 +63,7 @@ impl AppState {
                 backup_lock: tokio::sync::Mutex::new(()),
                 limiter: crate::limits::RateLimiter::default(),
                 hub: crate::events::Hub::default(),
+                vpn_seen: crate::vpn::Seen::default(),
             }),
             ca_pem: None,
             ca_fingerprint: None,
@@ -102,6 +105,16 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/backups", get(crate::admin::backups))
         .route("/api/admin/security", get(crate::admin::security))
         .route("/api/admin/restore", post(crate::admin::restore))
+        .route(
+            "/api/admin/connection-key",
+            post(crate::connect::connection_key),
+        )
+        .route(
+            "/api/admin/vpn",
+            get(crate::vpn::info).put(crate::vpn::setup),
+        )
+        .route("/api/admin/vpn/peers", post(crate::vpn::add_peer))
+        .route("/api/admin/vpn/peers/{id}", delete(crate::vpn::remove_peer))
         .route("/api/admin/move-out", post(crate::admin::move_out))
         .merge(work_routes())
         .fallback(crate::web::static_or_index)
@@ -112,6 +125,10 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::limits::rate_limit,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::vpn::track,
         ))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY))
         .layer(axum::middleware::map_response(crate::web::security_headers))

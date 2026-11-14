@@ -270,11 +270,11 @@ async fn start_session(
 
 #[derive(Serialize)]
 pub struct InviteOut {
-    invite_token: String,
-    invite_expires_at: i64,
+    pub(crate) invite_token: String,
+    pub(crate) invite_expires_at: i64,
 }
 
-async fn issue_invite(
+pub(crate) async fn issue_invite(
     tx: &mut Transaction<'_, Sqlite>,
     user_id: &str,
 ) -> Result<InviteOut, ApiError> {

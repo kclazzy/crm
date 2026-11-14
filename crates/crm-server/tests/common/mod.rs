@@ -37,7 +37,9 @@ impl App {
         let dir = tempfile::tempdir().unwrap();
         let cfg = config_in(dir.path());
         let pool = db::open(&cfg.storage).await.unwrap();
-        let state = http::AppState::new(pool.clone(), cfg, Some(dir.path().join("config.toml")));
+        let mut state =
+            http::AppState::new(pool.clone(), cfg, Some(dir.path().join("config.toml")));
+        state.ca_fingerprint = Some("AB:CD:EF:01".into());
         Self {
             router: http::router(state.clone()),
             state,
