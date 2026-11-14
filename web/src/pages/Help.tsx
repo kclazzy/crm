@@ -17,6 +17,9 @@ function Topic({ title, children, open = false }: { title: string; children: Rea
 const Steps = ({ children }: { children: ReactNode }) => <ol className="ml-5 list-decimal space-y-1.5">{children}</ol>;
 const List = ({ children }: { children: ReactNode }) => <ul className="ml-5 list-disc space-y-1.5">{children}</ul>;
 const Code = ({ children }: { children: ReactNode }) => <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] dark:bg-slate-800">{children}</code>;
+const Conf = ({ children }: { children: string }) => (
+  <pre className="mt-2 mb-3 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-[13px] leading-relaxed dark:border-slate-700 dark:bg-slate-950">{children}</pre>
+);
 const Tip = ({ children }: { children: ReactNode }) => <p className="mt-3 rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-900 dark:bg-brand-500/10 dark:text-brand-100">{children}</p>;
 
 /** Справка для всех пользователей. */
@@ -45,8 +48,21 @@ export function UserHelp() {
             <li>Перезапустите браузер.</li>
           </Steps>
         </Topic>
-        <Topic title="Работа из дома">
-          <p>Из интернета CRM напрямую не открывается — так безопаснее. Для работы из дома владелец подключит вас к защищённой сети (VPN Tailscale): вы установите программу Tailscale и войдёте по приглашению владельца. После этого CRM открывается по тому же адресу.</p>
+        <Topic title="Работа из дома (VPN WireGuard)">
+          <p>Из интернета CRM напрямую не открывается — так безопаснее. Для работы из дома владелец выдаст вам <b>файл</b> или <b>QR-код</b> для защищённого подключения WireGuard.</p>
+          <p className="mt-3 font-semibold">На ноутбуке Windows</p>
+          <Steps>
+            <li>Скачайте и установите WireGuard с официального сайта <Code>wireguard.com/install</Code>.</li>
+            <li>В WireGuard: «Импорт туннелей из файла» → выберите файл от владельца (например, <Code>crm-ivan.conf</Code>).</li>
+            <li>Нажмите «Подключить». Откройте CRM по адресу <Code>https://10.77.0.1:8443</Code>.</li>
+          </Steps>
+          <p className="mt-3 font-semibold">На телефоне</p>
+          <Steps>
+            <li>Установите приложение WireGuard из App Store или Google Play.</li>
+            <li>«+» → «Сканировать QR-код» (если владелец показал QR) или «Импорт из файла» (если прислал файл).</li>
+            <li>Включите переключатель и откройте в браузере <Code>https://10.77.0.1:8443</Code>.</li>
+          </Steps>
+          <Tip>В офисе VPN выключайте — CRM работает по обычному адресу. Файл и QR-код — ваш личный ключ: никому не пересылайте. Потеряли ноутбук или телефон — сразу сообщите владельцу.</Tip>
         </Topic>
         <Topic title="Забыли пароль или сменили компьютер">
           <p>Напишите владельцу CRM: он сбросит доступ и пришлёт новую ссылку-приглашение. Старый пароль после этого перестанет работать на всех устройствах.</p>
@@ -104,9 +120,58 @@ export function AdminHelp() {
         <Topic title="Перенос данных на другой диск">
           <p>«Хранилище и копии» → «Перенести в другую папку…». Подходит только диск этого компьютера: сетевые папки, NAS, OneDrive и Яндекс.Диск для базы не годятся. После переноса перезапустите сервер из меню трея. Старую папку удалите через неделю.</p>
         </Topic>
-        <Topic title="Работа сотрудников из дома">
-          <p>Не открывайте порт сервера в интернет на роутере. Используйте бесплатный VPN Tailscale: установите его на этот компьютер и на компьютеры сотрудников, войдите одним аккаунтом. CRM будет доступна из дома по тому же адресу — сервер сам добавит адрес Tailscale в сертификат.</p>
-          <Tip>Пошаговый мастер настройки Tailscale появится в разделе администрирования в одном из следующих обновлений.</Tip>
+        <Topic title="Работа из дома через VPN WireGuard — настройка">
+          <p>WireGuard — бесплатный защищённый VPN. Сотрудники из дома попадают в CRM, а сама CRM остаётся невидимой из интернета. Мастер в админ-панели, который сделает это за вас, — в разработке; пока настройка вручную, около 20 минут.</p>
+          <p className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+            <b>Условие:</b> у интернета в офисе должен быть <b>«белый» IP-адрес</b>. Спросите провайдера: «У нас белый IP?» Если нет — подключите услугу (обычно недорого) или используйте Tailscale/NetBird, они работают и без него.
+          </p>
+          <p className="mt-4 font-semibold">1. VPN на сервере (этот компьютер)</p>
+          <Steps>
+            <li>Установите WireGuard: <Code>wireguard.com/install</Code> → Windows.</li>
+            <li>WireGuard → стрелка у «Добавить туннель» → «Добавить пустой туннель». Имя: <Code>CRM-VPN</Code>. Программа сама создаст ключи — <b>открытый ключ сервера</b> показан вверху, он понадобится сотрудникам.</li>
+            <li>Под строкой <Code>PrivateKey</Code> допишите:
+              <Conf>{`Address = 10.77.0.1/24
+ListenPort = 51820`}</Conf>
+              Сохраните и нажмите «Подключить». Туннель включается автоматически после перезагрузки — проверьте один раз.
+            </li>
+            <li>Откройте PowerShell от имени администратора и разрешите VPN — <b>только к CRM</b>, не к общим папкам компьютера:
+              <Conf>{`New-NetFirewallRule -DisplayName "WireGuard" -Direction Inbound -Protocol UDP -LocalPort 51820 -Action Allow
+New-NetFirewallRule -DisplayName "CRM через VPN" -Direction Inbound -Protocol TCP -LocalPort 8443 -RemoteAddress 10.77.0.0/24 -Action Allow`}</Conf>
+            </li>
+          </Steps>
+          <p className="mt-4 font-semibold">2. Роутер</p>
+          <Steps>
+            <li>Закрепите за сервером постоянный IP в локальной сети (пункт «Резервирование адресов» / «DHCP reservation»).</li>
+            <li>Пробросьте порт: <b>UDP 51820</b> → на IP сервера, порт 51820 (пункт «Переадресация портов» / «Port forwarding» / «Виртуальные серверы»).</li>
+            <li>Узнайте внешний IP офиса (например, на сайте <Code>2ip.ru</Code>). Если он меняется — включите в роутере DDNS и используйте выданное имя вместо IP.</li>
+          </Steps>
+          <p className="mt-4 font-semibold">3. Доступ сотруднику (для каждого свой)</p>
+          <Steps>
+            <li>На любом компьютере в WireGuard: «Добавить пустой туннель», имя — <Code>crm-ivan</Code>. Запомните его <b>открытый ключ</b>.</li>
+            <li>Под <Code>PrivateKey</Code> допишите (номер 2 — для первого сотрудника, 3 — для второго и т. д.):
+              <Conf>{`Address = 10.77.0.2/32
+
+[Peer]
+PublicKey = <открытый ключ сервера>
+Endpoint = <внешний IP офиса или DDNS-имя>:51820
+AllowedIPs = 10.77.0.1/32
+PersistentKeepalive = 25`}</Conf>
+              Сохраните, затем «Экспорт туннелей в zip» — внутри файл <Code>crm-ivan.conf</Code> для сотрудника. Туннель на этом компьютере после экспорта удалите.
+            </li>
+            <li>На сервере: WireGuard → туннель <Code>CRM-VPN</Code> → «Изменить» → допишите в конец:
+              <Conf>{`[Peer]
+# Иван Петров
+PublicKey = <открытый ключ сотрудника>
+AllowedIPs = 10.77.0.2/32`}</Conf>
+              Сохраните.
+            </li>
+            <li>Передайте файл сотруднику лично (флешка, личное сообщение). На телефоне приложение WireGuard открывает его через «+» → «Импорт из файла». Не загружайте файл в онлайн-генераторы QR-кодов: это ключ доступа. QR-коды будет показывать сам мастер настройки.</li>
+          </Steps>
+          <p className="mt-4 font-semibold">4. Проверка</p>
+          <p>Сотрудник подключает VPN из дома и открывает <Code>https://10.77.0.1:8443</Code>. В WireGuard на сервере у его записи появится «Последнее рукопожатие». Адрес 10.77.0.1 сервер сам добавит в сертификат в течение 10 минут после включения туннеля.</p>
+          <p className="mt-4 font-semibold">Отозвать доступ</p>
+          <p>Удалите блок <Code>[Peer]</Code> сотрудника в туннеле <Code>CRM-VPN</Code> на сервере и сохраните, а в CRM — «Сбросить доступ».</p>
+          <Tip>Не открывайте в интернет порт CRM (8443) — только UDP 51820 для WireGuard. Без ключа WireGuard на этот порт никто даже не получит ответа.</Tip>
         </Topic>
         <Topic title="Обновление и удаление">
           <List>
