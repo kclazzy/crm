@@ -134,7 +134,9 @@ pub async fn check_integrity(db: &Path) -> Result<(), BackupError> {
     let verdict: String = sqlx::query_scalar("PRAGMA integrity_check")
         .fetch_one(&mut conn)
         .await?;
-    drop(conn);
+    // Закрыть явно и дождаться: на Windows открытый файл нельзя переименовать,
+    // а простой drop закрывает соединение в фоне, позже.
+    sqlx::Connection::close(conn).await?;
     if verdict == "ok" {
         Ok(())
     } else {
