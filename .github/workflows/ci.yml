@@ -156,7 +156,9 @@ jobs:
           $page = if (Test-Path $report) { Select-String -Path $report -Pattern '^PAGE ' | Select-Object -First 1 } else { $null }
           if (-not $page -or $page.Line -notmatch '"root_children":[1-9]' -or $page.Line -notmatch '"errors":\[\]') { throw "CRM в окне программы не отрисовалась" }
           if (-not (Select-String -Path $report -Pattern 'STOP ok service=Stopped' -Quiet -ErrorAction SilentlyContinue)) { throw "«Остановить сервер» не остановил службу" }
-          if (-not (Select-String -Path $report -Pattern 'LOAD Finished http://tauri\.localhost/.*confirm=stop' -Quiet)) { throw "трей «Остановить сервер» не вернул окно на панель" }
+          # Панель убирает ?confirm=stop из адреса после показа окна подтверждения.
+          if (-not (Select-String -Path $report -Pattern 'TRAY stop' -Context 0,4 | Out-String | Select-String 'LOAD Started http://tauri\.localhost/.*confirm=stop' -Quiet)) { throw "трей «Остановить сервер» не вернул окно на панель" }
+          if (-not (Select-String -Path $report -Pattern 'TRAY stop' -Context 0,5 | Out-String | Select-String 'LOAD Finished http://tauri\.localhost/' -Quiet)) { throw "панель после «Остановить сервер» не загрузилась" }
           if (-not (Select-String -Path $report -Pattern 'TRAY panel' -Context 0,2 | Out-String | Select-String 'NAVIGATE http://tauri\.localhost/' -Quiet)) { throw "трей «Панель управления» не открыл панель" }
           Write-Host "служба: $((Get-Service CRMServer).Status)"
           if ((Get-Service CRMServer).Status -ne 'Running') { & "$dir\crm-server.exe" service start; if ($LASTEXITCODE) { throw "service start" } }
