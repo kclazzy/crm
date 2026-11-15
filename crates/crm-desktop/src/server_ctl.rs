@@ -123,6 +123,20 @@ mod platform {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
 
+    /// Запускается ли служба вместе с Windows (`None` — службы нет).
+    pub fn service_autostart() -> Option<bool> {
+        let out = Command::new("sc.exe")
+            .args(["qc", "CRMServer"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        // AUTO_START / DEMAND_START sc.exe тоже не переводит.
+        Some(String::from_utf8_lossy(&out.stdout).contains("AUTO_START"))
+    }
+
     pub fn service_state() -> Service {
         let Ok(out) = Command::new("sc.exe")
             .args(["query", "CRMServer"])
@@ -215,6 +229,10 @@ mod platform {
         Service::Unknown
     }
 
+    pub fn service_autostart() -> Option<bool> {
+        None
+    }
+
     pub fn reset_owner_password_console() -> Result<(), String> {
         Err("сброс пароля владельца из программы есть только в Windows; используйте команду crm-server reset-owner-password".into())
     }
@@ -227,7 +245,7 @@ mod platform {
     }
 }
 
-pub use platform::{elevated, reset_owner_password_console, service_state};
+pub use platform::{elevated, reset_owner_password_console, service_autostart, service_state};
 
 /// Действия, которые окно и трей могут попросить у службы.
 pub fn is_allowed_action(action: &str) -> bool {

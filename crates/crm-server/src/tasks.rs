@@ -191,7 +191,7 @@ pub struct ListQuery {
     archived: bool,
     #[serde(default)]
     priority: Option<i64>,
-    /// `assignee` — я исполнитель, `creator` — я постановщик.
+    /// `assignee` — я исполнитель, `creator` — я постановщик, `involved` — то или другое.
     #[serde(default)]
     role: Option<String>,
     /// Поиск по названию задачи и клиента.
@@ -209,16 +209,17 @@ pub async fn list(
 ) -> Result<Json<Vec<TaskSummary>>, ApiError> {
     let scope = Scope::load(&app.pool, &user).await?;
     let mine = q.view.as_deref() == Some("mine");
-    let created: std::collections::HashSet<String> = if q.role.as_deref() == Some("creator") {
-        sqlx::query_scalar("SELECT id FROM tasks WHERE created_by = ?")
-            .bind(&user.id)
-            .fetch_all(&app.pool)
-            .await?
-            .into_iter()
-            .collect()
-    } else {
-        Default::default()
-    };
+    let created: std::collections::HashSet<String> =
+        if matches!(q.role.as_deref(), Some("creator" | "involved")) {
+            sqlx::query_scalar("SELECT id FROM tasks WHERE created_by = ?")
+                .bind(&user.id)
+                .fetch_all(&app.pool)
+                .await?
+                .into_iter()
+                .collect()
+        } else {
+            Default::default()
+        };
     let needle =
         q.q.as_deref()
             .map(str::to_lowercase)
@@ -232,6 +233,8 @@ pub async fn list(
             let role_ok = match q.role.as_deref() {
                 Some("assignee") => is_assignee,
                 Some("creator") => created.contains(&t.id),
+                // «Мои задачи»: я исполнитель или постановщик.
+                Some("involved") => is_assignee || created.contains(&t.id),
                 _ => true,
             };
             (d.archived_at.is_some() == q.archived)

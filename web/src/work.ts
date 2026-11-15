@@ -2,7 +2,7 @@
 import { ApiError } from './api';
 
 export type Priority = 1 | 2 | 3;
-export type Status = 'new' | 'in_progress' | 'completed';
+export type Status = 'waiting' | 'in_progress' | 'postponed' | 'completed';
 export type DeadlineState = 'ok' | 'due_soon' | 'overdue' | 'done';
 export type TaskAccess = 'none' | 'path_only' | 'participant' | 'manage';
 export type ClientAccess = 'none' | 'view' | 'manage';
@@ -48,6 +48,9 @@ export interface TaskCard extends TaskSummary {
   subtasks: TaskSummary[];
   parent_deadline_at: number | null;
   can_trash: boolean;
+  can_change_status: boolean;
+  can_archive: boolean;
+  archived_by: string | null;
 }
 
 export interface Tag { name: string; color: string }
@@ -182,7 +185,7 @@ export const work = {
   restoreClient: (id: string) => req<void>('POST', `/api/clients/${id}/restore`),
   purgeClient: (id: string) => req<void>('DELETE', `/api/clients/${id}/purge`),
 
-  tasks: (p: { view?: 'mine'; status?: Status; client_id?: string; archived?: boolean; priority?: number } = {}) =>
+  tasks: (p: { view?: 'mine'; status?: Status; client_id?: string; archived?: boolean; priority?: number; role?: 'assignee' | 'creator' | 'involved'; q?: string; overdue?: boolean } = {}) =>
     req<TaskSummary[]>('GET', `/api/tasks${q(p)}`),
   task: (id: string) => req<TaskCard>('GET', `/api/tasks/${id}`),
   createTask: (t: {
@@ -196,6 +199,8 @@ export const work = {
   restoreTask: (id: string) => req<void>('POST', `/api/tasks/${id}/restore`),
   trashedTasks: () => req<{ id: string; title: string; client_name: string; deleted_at: number }[]>('GET', '/api/tasks/trash'),
   unarchive: (id: string) => req<void>('POST', `/api/tasks/${id}/unarchive`),
+  archive: (id: string) => req<void>('POST', `/api/tasks/${id}/archive`),
+  purgeTask: (id: string) => req<void>('DELETE', `/api/tasks/${id}/purge`),
   addStage: (task: string, title: string) => req<{ id: string }>('POST', `/api/tasks/${task}/stages`, { title }),
   updateStage: (id: string, p: { done?: boolean; title?: string }) => req<void>('PATCH', `/api/stages/${id}`, p),
   deleteStage: (id: string) => req<void>('DELETE', `/api/stages/${id}`),
@@ -267,7 +272,19 @@ export interface VpnInfo {
 
 // ---------- Отображение ----------
 
-export const statusName: Record<Status, string> = { new: 'Новая', in_progress: 'В работе', completed: 'Завершена' };
+export const statusName: Record<Status, string> = {
+  waiting: 'Ждёт выполнения',
+  in_progress: 'Выполняется',
+  postponed: 'Отложена',
+  completed: 'Завершена',
+};
+
+/** Действия над статусом — те же правила, что на сервере (crm_core::task::check_transition). */
+export const statusActions: { to: Status; label: string; from: Status[] }[] = [
+  { to: 'in_progress', label: 'Начать выполнение', from: ['waiting', 'postponed'] },
+  { to: 'completed', label: 'Завершить', from: ['waiting', 'in_progress', 'postponed'] },
+  { to: 'postponed', label: 'Отложить', from: ['waiting', 'in_progress'] },
+];
 
 /** «Осталось 3 дня», «Осталось 5 ч», «Просрочено на 2 ч». */
 export function deadlineText(at: number, state: DeadlineState, now = Date.now()): string {

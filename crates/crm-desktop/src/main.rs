@@ -47,6 +47,65 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+/// Пункты трея. Окно может показывать саму CRM (чужую страницу) — поэтому всё, что
+/// требует ответа на экране, сначала возвращает окно на панель программы.
+pub fn on_menu(app: &AppHandle, id: &str) {
+    match id {
+        "panel" => connections::to_panel(app, None),
+        "open" => {
+            // У владельца — CRM этого компьютера, у сотрудника — окно как есть.
+            if server_ctl::service_state() == status::Service::NotInstalled {
+                show_main(app);
+            } else {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = connections::open_own(app.clone()).await {
+                        connections::to_panel(&app, Some(("toast", &e)));
+                    }
+                });
+            }
+        }
+        "servers" => connections::back_to_list(app),
+        "update" => {
+            if let Err(e) = server_ctl::open_browser(updates::RELEASES) {
+                eprintln!("CRM: {e}");
+            }
+        }
+        "browser" => {
+            let url = format!("https://localhost:{}", server_ctl::PORT);
+            if let Err(e) = server_ctl::open_browser(&url) {
+                eprintln!("CRM: {e}");
+            }
+        }
+        "vpn-apply" | "restart" => {
+            let (app, action) = (app.clone(), id.to_owned());
+            connections::to_panel(
+                &app,
+                Some(("toast", "Выполняю — подтвердите запрос Windows…")),
+            );
+            tauri::async_runtime::spawn(async move {
+                let text = match server_action(app.clone(), action.clone()).await {
+                    Ok(_) if action == "restart" => "Сервер перезапущен".to_owned(),
+                    Ok(_) => "VPN включён. Не забудьте перенаправить порт на роутере.".to_owned(),
+                    Err(e) => e,
+                };
+                connections::to_panel(&app, Some(("toast", &text)));
+            });
+        }
+        // Остановка затронет всех сотрудников — подтверждение на панели.
+        "stop" => connections::to_panel(app, Some(("confirm", "stop"))),
+        "reset-owner" => {
+            std::thread::spawn(|| {
+                if let Err(e) = server_ctl::reset_owner_password_console() {
+                    eprintln!("CRM: {e}");
+                }
+            });
+        }
+        "quit" => app.exit(0),
+        _ => {}
+    }
+}
+
 async fn current_status() -> Status {
     let service = tauri::async_runtime::spawn_blocking(server_ctl::service_state)
         .await
@@ -110,6 +169,36 @@ async fn server_action(app: AppHandle, action: String) -> Result<Status, String>
     Ok(refresh(&app).await)
 }
 
+#[derive(serde::Serialize)]
+struct Autostart {
+    /// Служба сервера стартует с Windows (`None` — сервера на этом компьютере нет).
+    server: Option<bool>,
+    /// Значок CRM появляется в трее при входе в Windows.
+    app: bool,
+}
+
+#[tauri::command]
+fn get_autostart(app: AppHandle) -> Autostart {
+    Autostart {
+        server: server_ctl::service_autostart(),
+        app: app.autolaunch().is_enabled().unwrap_or(false),
+    }
+}
+
+#[tauri::command]
+fn set_app_autostart(app: AppHandle, on: bool) -> Result<(), String> {
+    let a = app.autolaunch();
+    if on { a.enable() } else { a.disable() }.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_server_autostart(on: bool) -> Result<(), String> {
+    let action = if on { "autostart-on" } else { "autostart-off" };
+    tauri::async_runtime::spawn_blocking(move || server_ctl::elevated(action))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn create_owner(
     app: AppHandle,
@@ -124,6 +213,7 @@ async fn create_owner(
 // ---------- Трей ----------
 
 fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
+    let panel = MenuItem::with_id(app, "panel", "Панель управления", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Открыть CRM", true, None::<&str>)?;
     let servers = MenuItem::with_id(app, "servers", "Мои серверы", true, None::<&str>)?;
     let browser = MenuItem::with_id(app, "browser", "Открыть CRM в браузере", true, None::<&str>)?;
@@ -155,6 +245,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
     let menu = Menu::with_items(
         app,
         &[
+            &panel,
             &open,
             &servers,
             &browser,
@@ -177,54 +268,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
         .tooltip("CRM")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => show_main(app),
-            "servers" => connections::back_to_list(app),
-            "update" => {
-                if let Err(e) = server_ctl::open_browser(updates::RELEASES) {
-                    eprintln!("CRM: {e}");
-                }
-            }
-            "browser" => {
-                let url = format!("https://localhost:{}", server_ctl::PORT);
-                if let Err(e) = server_ctl::open_browser(&url) {
-                    eprintln!("CRM: {e}");
-                }
-            }
-            "vpn-apply" => {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let result = server_action(app.clone(), "vpn-apply".into()).await;
-                    let text = match result {
-                        Ok(_) => {
-                            "VPN включён. Не забудьте перенаправить порт на роутере.".to_owned()
-                        }
-                        Err(e) => e,
-                    };
-                    let _ = app.emit("toast", text);
-                });
-            }
-            "restart" => {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = server_action(app, "restart".into()).await;
-                });
-            }
-            // Остановка затронет всех сотрудников — подтверждение в окне.
-            "stop" => {
-                show_main(app);
-                let _ = app.emit("confirm-stop", ());
-            }
-            "reset-owner" => {
-                std::thread::spawn(|| {
-                    if let Err(e) = server_ctl::reset_owner_password_console() {
-                        eprintln!("CRM: {e}");
-                    }
-                });
-            }
-            "quit" => app.exit(0),
-            _ => {}
-        })
+        .on_menu_event(|app, event| on_menu(app, event.id.as_ref()))
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -260,6 +304,9 @@ fn main() {
             addresses,
             server_action,
             create_owner,
+            get_autostart,
+            set_app_autostart,
+            set_server_autostart,
             connections::servers,
             connections::key_needs_pin,
             connections::server_add,
@@ -271,9 +318,20 @@ fn main() {
         .setup(move |app| {
             build_tray(app)?;
             // Запуск вместе с Windows — свёрнутым в трей (по умолчанию включено).
+            // Значок в трее при входе в Windows включается один раз, при первом запуске;
+            // дальше — как выбрал пользователь (переключатель на панели).
             let autostart = app.autolaunch();
-            if !autostart.is_enabled().unwrap_or(false) {
+            let marker = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("autostart-chosen"))
+                .ok();
+            if marker.as_ref().is_some_and(|m| !m.exists()) {
                 let _ = autostart.enable();
+                if let Some(m) = &marker {
+                    let _ = m.parent().map(std::fs::create_dir_all);
+                    let _ = std::fs::write(m, b"1");
+                }
             }
             // Главное окно создаётся здесь, чтобы встроить в страницы CRM
             // кнопку «Мои серверы» и объяснение вместо белого экрана.

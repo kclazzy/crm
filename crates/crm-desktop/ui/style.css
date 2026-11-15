@@ -92,3 +92,9 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .back { align-self: flex-start; background: none; border: none; box-shadow: none; color: var(--muted); padding: 6px 10px 6px 0; margin-bottom: 8px; font-weight: 550; }
 .back:hover { color: var(--accent); background: none; }
 .center-text .back { display: block; }
+
+.autostart { margin: 0 0 18px; gap: 10px; }
+.autostart h3 { margin: 0; }
+label.check { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; font-weight: 550; cursor: pointer; }
+label.check input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); }
+label.check small { grid-column: 2; color: var(--muted); font-weight: 400; }

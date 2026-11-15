@@ -7,7 +7,7 @@ import { AuthProvider, useAuth } from './auth';
 import { Shell } from './components/Shell';
 import { LiveProvider } from './live';
 import { ClientCard, Clients } from './pages/Clients';
-import { TaskList, TaskPage } from './pages/Tasks';
+import { Archive, TaskList, TaskPage } from './pages/Tasks';
 import { Messenger } from './pages/Messenger';
 import { ImportClients } from './pages/ImportClients';
 import { Trash } from './pages/Trash';
@@ -41,7 +41,7 @@ createRoot(document.getElementById('root')!).render(
           <Route element={<Gate><LiveProvider><Shell /></LiveProvider></Gate>}>
             <Route index element={<TaskList mode="mine" />} />
             <Route path="tasks" element={<TaskList mode="all" />} />
-            <Route path="archive" element={<TaskList mode="archive" />} />
+            <Route path="archive" element={<Archive />} />
             <Route path="tasks/:id" element={<TaskPage />} />
             <Route path="clients" element={<Clients />} />
             <Route path="clients/import" element={<ImportClients />} />

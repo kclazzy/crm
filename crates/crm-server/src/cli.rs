@@ -8,6 +8,8 @@ pub const USAGE: &str = "\
   crm-server service install        установить и запустить службу Windows (от администратора)
   crm-server service uninstall      остановить и удалить службу (данные сохраняются)
   crm-server service start|stop|restart|status
+  crm-server service autostart-on   запускать сервер при включении компьютера (по умолчанию)
+  crm-server service autostart-off  не запускать сам — только вручную
   crm-server service vpn-apply      включить VPN WireGuard по настройкам из админ-панели (от администратора)
   crm-server reset-owner-password   сбросить забытый пароль владельца (от администратора, на сервере)
   crm-server restore ИСТОЧНИК       восстановить данные: файл копии .db.zst, папка копий
@@ -43,6 +45,8 @@ pub enum ServiceCmd {
     Run,
     /// Включить VPN WireGuard по файлу из админ-панели.
     VpnApply,
+    /// Запуск службы вместе с Windows: да или нет.
+    Autostart(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -80,6 +84,8 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 "status" => ServiceCmd::Status,
                 "run" => ServiceCmd::Run,
                 "vpn-apply" => ServiceCmd::VpnApply,
+                "autostart-on" => ServiceCmd::Autostart(true),
+                "autostart-off" => ServiceCmd::Autostart(false),
                 _ => return Err(bad()),
             };
             Ok(Command::Service(cmd))
@@ -128,6 +134,10 @@ mod tests {
             Ok(Command::Service(ServiceCmd::Status))
         );
         assert_eq!(p("service run"), Ok(Command::Service(ServiceCmd::Run)));
+        assert_eq!(
+            p("service autostart-off"),
+            Ok(Command::Service(ServiceCmd::Autostart(false)))
+        );
         assert_eq!(
             p("service vpn-apply"),
             Ok(Command::Service(ServiceCmd::VpnApply))

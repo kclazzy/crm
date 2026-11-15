@@ -16,7 +16,8 @@
   window.addEventListener('unhandledrejection', function (e) {
     errors.push('Promise: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
   });
-  function back() { location.href = APP + '?screen=servers'; }
+  // Назад в программу: у владельца — панель сервера, у сотрудника — «Мои серверы».
+  function back() { location.href = APP; }
   function el(tag, css, text) {
     var n = document.createElement(tag);
     n.style.cssText = css;
@@ -26,9 +27,9 @@
   var btnCss = 'font:600 13px Segoe UI,system-ui,sans-serif;border-radius:999px;padding:7px 14px;cursor:pointer;';
   function addBack() {
     if (document.getElementById('crm-app-back') || !document.body) return;
-    var b = el('button', btnCss + 'position:fixed;left:12px;bottom:12px;z-index:2147483647;border:1px solid #cbd5e1;background:rgba(255,255,255,.92);color:#334155;box-shadow:0 2px 8px rgba(0,0,0,.12);', '← Мои серверы');
+    var b = el('button', btnCss + 'position:fixed;left:12px;bottom:12px;z-index:2147483647;border:1px solid #cbd5e1;background:rgba(255,255,255,.92);color:#334155;box-shadow:0 2px 8px rgba(0,0,0,.12);', '← В программу CRM');
     b.id = 'crm-app-back';
-    b.title = 'Вернуться к списку серверов';
+    b.title = 'Панель управления или список серверов';
     b.onclick = back;
     document.body.appendChild(b);
   }
@@ -50,7 +51,7 @@
     var row = el('div', 'display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;');
     var r = el('button', btnCss + 'border:none;background:#4f46e5;color:#fff;', 'Обновить');
     r.onclick = function () { location.reload(); };
-    var b = el('button', btnCss + 'border:1px solid #cbd5e1;background:#fff;color:#334155;', '← Мои серверы');
+    var b = el('button', btnCss + 'border:1px solid #cbd5e1;background:#fff;color:#334155;', '← В программу CRM');
     b.onclick = back;
     row.appendChild(r);
     row.appendChild(b);

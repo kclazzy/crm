@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { AlertTriangle, CheckCircle2, Circle, Flag, MessageCircle, PlayCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Flag, Hourglass, MessageCircle, PauseCircle, PlayCircle } from 'lucide-react';
 import {
   type ClientInput, type Client, dateTime, deadlineText, fromLocalInput, type Group, type Person, type Priority,
   statusName, type Status, type TaskSummary, toLocalInput, work,
@@ -23,15 +23,17 @@ export function PriorityBadge({ p }: { p: Priority }) {
   );
 }
 
-const statusIcon: Record<Status, ReactNode> = {
-  new: <Circle className="size-3.5" />,
+export const statusIcon: Record<Status, ReactNode> = {
+  waiting: <Hourglass className="size-3.5" />,
   in_progress: <PlayCircle className="size-3.5" />,
+  postponed: <PauseCircle className="size-3.5" />,
   completed: <CheckCircle2 className="size-3.5" />,
 };
 
-const statusStyle: Record<Status, string> = {
-  new: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+export const statusStyle: Record<Status, string> = {
+  waiting: 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
   in_progress: 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-100',
+  postponed: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
   completed: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
 };
 
@@ -41,7 +43,7 @@ export function StatusBadge({ s }: { s: Status }) {
 
 /** Полоса слева у карточки задачи — цвет срока, но всегда рядом есть текст. */
 export function deadlineBar(t: TaskSummary) {
-  if (t.status === 'new' && t.deadline_state === 'ok') return 'border-l-slate-300 dark:border-l-slate-600';
+  if ((t.status === 'waiting' || t.status === 'postponed') && t.deadline_state === 'ok') return 'border-l-slate-300 dark:border-l-slate-600';
   return {
     ok: 'border-l-emerald-500',
     due_soon: 'border-l-amber-500',
@@ -293,6 +295,13 @@ export function TaskForm({
   const defaultDeadline = parent?.deadline_at ? Math.min(parent.deadline_at, Date.now() + 2 * 86_400_000) : Date.now() + 2 * 86_400_000;
   const [deadline, setDeadline] = useState(toLocalInput(defaultDeadline));
   const [confirmed, setConfirmed] = useState('');
+  // Создание со страницы задач — клиента выбирают в форме.
+  const [clients, setClients] = useState<Client[]>([]);
+  const [client, setClient] = useState(clientId ?? '');
+  const pickClient = !clientId && !parent;
+  useEffect(() => {
+    if (open && pickClient) work.clients().then((l) => setClients(l.filter((c) => c.access === 'manage'))).catch(() => {});
+  }, [open, pickClient]);
 
   useEffect(() => {
     if (!open) return;
@@ -313,8 +322,9 @@ export function TaskForm({
     setBusy(true);
     setError('');
     try {
+      if (pickClient && !client) throw new Error('Выберите клиента');
       const { id } = await work.createTask({
-        client_id: clientId,
+        client_id: pickClient ? client : clientId,
         parent_id: parent?.id,
         title: String(f.get('title')),
         description: String(f.get('description') ?? ''),
@@ -335,6 +345,16 @@ export function TaskForm({
   return (
     <Modal open={open} onClose={onClose} title={parent ? `Подзадача к «${parent.title}»` : 'Новая задача'} wide>
       <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+        {pickClient && (
+          <div className="sm:col-span-2">
+            <Field label="Клиент" hint={clients.length === 0 ? 'Нет клиентов, где вы можете ставить задачи — заведите клиента в разделе «Клиенты».' : undefined}>
+              <select className="input" value={client} onChange={(e) => setClient(e.target.value)} required>
+                <option value="">— выберите клиента —</option>
+                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </Field>
+          </div>
+        )}
         <div className="sm:col-span-2">
           <Field label="Что нужно сделать"><input name="title" className="input" required maxLength={300} autoFocus /></Field>
         </div>

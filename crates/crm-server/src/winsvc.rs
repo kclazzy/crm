@@ -89,6 +89,23 @@ pub fn handle(cmd: ServiceCmd) -> Result<String, ServiceError> {
             Ok(String::new())
         }
         ServiceCmd::VpnApply => vpn_apply(),
+        ServiceCmd::Autostart(on) => {
+            open(ServiceAccess::QUERY_STATUS)?;
+            run_tool(
+                "sc",
+                [
+                    "config",
+                    SERVICE_NAME,
+                    "start=",
+                    if on { "auto" } else { "demand" },
+                ],
+            )?;
+            Ok(if on {
+                "Сервер будет запускаться вместе с Windows.".into()
+            } else {
+                "Сервер больше не запускается сам — запускайте его из программы CRM.".into()
+            })
+        }
     }
 }
 

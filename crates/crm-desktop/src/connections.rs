@@ -199,6 +199,23 @@ pub fn guard_script() -> String {
         )
 }
 
+/// Вернуться на стартовую панель программы; `param` — что показать: подтверждение или сообщение.
+pub fn to_panel(app: &AppHandle, param: Option<(&str, &str)>) {
+    let saved = app.state::<AppUrl>().0.lock().ok().and_then(|u| u.clone());
+    let mut u = match saved {
+        Some(u) => u,
+        None => match app_index_url().parse() {
+            Ok(u) => u,
+            Err(_) => return,
+        },
+    };
+    u.set_query(None);
+    if let Some((k, v)) = param {
+        u.query_pairs_mut().append_pair(k, v);
+    }
+    let _ = navigate(app, u.as_str());
+}
+
 /// Вернуться из CRM к списку «Мои серверы».
 pub fn back_to_list(app: &AppHandle) {
     let saved = app.state::<AppUrl>().0.lock().ok().and_then(|u| u.clone());

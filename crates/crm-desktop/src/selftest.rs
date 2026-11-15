@@ -41,7 +41,16 @@ pub fn on_navigation(app: &AppHandle, url: &Url) -> bool {
             .unwrap_or_default();
         log(&format!("PAGE {report}"));
         let app = app.clone();
-        tauri::async_runtime::spawn(stop_server(app));
+        tauri::async_runtime::spawn(async move {
+            // Пункты трея, пока в окне открыта CRM: должны вернуть окно на панель.
+            log("TRAY stop");
+            crate::on_menu(&app, "stop");
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            log("TRAY panel");
+            crate::on_menu(&app, "panel");
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            stop_server(app).await;
+        });
         return false;
     }
     log(&format!("NAVIGATE {url}"));

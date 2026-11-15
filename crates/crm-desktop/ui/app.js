@@ -5,7 +5,8 @@ const { listen } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 const screens = ['loading', 'welcome', 'owner', 'dashboard', 'down', 'nolink', 'servers'];
 // Экран списка серверов открыт явно (из трея или кнопкой) — состояние сервера его не перебивает.
-let pinned = new URLSearchParams(location.search).get('screen') === 'servers';
+const query = new URLSearchParams(location.search);
+let pinned = query.get('screen') === 'servers';
 // Экран выбран пользователем (кнопкой «Назад» или «Подключиться») — состояние сервера его не перебивает.
 let chosen = null;
 let lastStatus = null;
@@ -268,3 +269,35 @@ document.querySelectorAll('[data-back]').forEach((b) => {
 });
 // Выбор на приветственном экране снимает «Назад».
 $('install').addEventListener('click', () => { chosen = null; }, true);
+
+// ---------- Автозапуск ----------
+async function loadAutostart() {
+  try {
+    const a = await invoke('get_autostart');
+    $('as-server').checked = !!a.server;
+    $('as-server').disabled = a.server === null;
+    $('as-app').checked = a.app;
+  } catch { /* настройки недоступны — переключатели останутся как есть */ }
+}
+$('as-server').addEventListener('change', async (e) => {
+  const box = e.currentTarget;
+  box.disabled = true;
+  try {
+    await invoke('set_server_autostart', { on: box.checked });
+    toast(box.checked ? 'Сервер будет запускаться вместе с Windows' : 'Сервер больше не запускается сам');
+  } catch (x) {
+    toast(String(x));
+  } finally {
+    await loadAutostart();
+  }
+});
+$('as-app').addEventListener('change', async (e) => {
+  try { await invoke('set_app_autostart', { on: e.currentTarget.checked }); } catch (x) { toast(String(x)); }
+  loadAutostart();
+});
+loadAutostart();
+
+// Пришли из трея: показать подтверждение или итог действия.
+if (query.get('toast')) setTimeout(() => toast(query.get('toast')), 300);
+if (query.get('confirm') === 'stop') setTimeout(() => $('confirm-stop').showModal(), 300);
+if (query.has('toast') || query.has('confirm')) history.replaceState(null, '', location.pathname);

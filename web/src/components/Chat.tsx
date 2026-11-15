@@ -1,17 +1,10 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { CornerUpLeft, FileText, Loader2, Paperclip, Pencil, Send, X } from 'lucide-react';
+import { CornerUpLeft, FileText, Loader2, MessagesSquare, Paperclip, Pencil, Send, X } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
-import { type Attachment, type Message, work } from '../work';
-import { Avatar } from './ui';
+import { type Attachment, type Message, plural, work } from '../work';
 import { Md } from './work';
 import { bytes } from '../api';
-
-function time(ms: number) {
-  const d = new Date(ms);
-  const today = new Date().toDateString() === d.toDateString();
-  return d.toLocaleString('ru-RU', today ? { hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-}
 
 function Files({ files }: { files: Attachment[] }) {
   if (!files.length) return null;
@@ -34,7 +27,37 @@ function Files({ files }: { files: Attachment[] }) {
 }
 
 /** Чат задачи: системные записи, ответы, правка своих 15 минут, файлы, «Новые сообщения». */
-export function Chat({ taskId, canWrite }: { taskId: string; canWrite: boolean }) {
+/** «Четверг, 29 октября» — разделитель дней. */
+function dayLabel(ms: number) {
+  const d = new Date(ms);
+  const s = d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+/** Цвет кружка и имени — по имени, всегда один и тот же. */
+const palette = ['#e5533d', '#7c5cc4', '#2f8fd8', '#1f9d6c', '#d9822b', '#c2417f', '#4b6584'];
+function colorOf(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return palette[h % palette.length];
+}
+
+function Initials({ name }: { name: string }) {
+  const letters = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('');
+  return <span className="grid size-11 shrink-0 place-items-center rounded-full text-[15px] font-semibold text-white" style={{ background: colorOf(name) }}>{letters || '?'}</span>;
+}
+
+/** Системная запись: имена участников подсвечены, как в карточке-уведомлении. */
+function SystemText({ text, names }: { text: string; names: string[] }) {
+  const list = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!list.length) return <>{text}</>;
+  const re = new RegExp(`(${list.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g');
+  return <>{text.split(re).map((part, i) => (list.includes(part) ? <mark key={i} className="rounded bg-amber-100 px-1 text-slate-900 dark:bg-amber-400/30 dark:text-amber-50">{part}</mark> : part))}</>;
+}
+
+export function Chat({ taskId, canWrite, participants = [] }: { taskId: string; canWrite: boolean; participants?: string[] }) {
   const { me } = useAuth();
   const { refreshUnread } = useLive();
   const [messages, setMessages] = useState<Message[] | null>(null);
@@ -123,41 +146,58 @@ export function Chat({ taskId, canWrite }: { taskId: string; canWrite: boolean }
     }
   }
 
+  const allNames = [...participants, ...(messages ?? []).filter((m) => m.kind === 'user').map((m) => m.sender_name)];
+  const people = new Set(allNames.filter(Boolean)).size;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col"
       onDragOver={(e) => { if (canWrite) e.preventDefault(); }}
       onDrop={(e) => { if (canWrite && e.dataTransfer.files.length) { e.preventDefault(); void attach(e.dataTransfer.files); } }}>
-      <div ref={list} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5 dark:border-slate-800 dark:bg-slate-900">
+        <span className="grid size-10 place-items-center rounded-full bg-sky-50 text-sky-600 dark:bg-sky-500/15"><MessagesSquare className="size-5" /></span>
+        <div><p className="font-semibold">Чат задачи</p><p className="text-xs text-slate-500">{people} {plural(people, 'участник', 'участника', 'участников')}</p></div>
+      </div>
+      <div ref={list} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-gradient-to-br from-emerald-100 via-sky-200 to-indigo-300 px-4 py-4 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950">
         {messages === null && <Loader2 className="mx-auto size-5 animate-spin text-slate-400" />}
         {messages?.length === 0 && <p className="m-auto text-sm text-slate-500">Сообщений пока нет.</p>}
-        {messages?.map((m) => (
-          <div key={m.id}>
-            {m.id === firstUnread && (
-              <div className="my-2 flex items-center gap-3 text-xs font-semibold text-brand-600"><span className="h-px flex-1 bg-brand-200 dark:bg-brand-500/30" />Новые сообщения<span className="h-px flex-1 bg-brand-200 dark:bg-brand-500/30" /></div>
-            )}
-            {m.kind === 'system' ? (
-              <p className="text-center text-xs text-slate-500">{m.content} · {time(m.created_at)}</p>
-            ) : (
-              <div className={`group flex gap-2.5 ${m.sender_id === me?.id ? 'flex-row-reverse' : ''}`}>
-                <Avatar name={m.sender_name} size="sm" />
-                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 ${m.sender_id === me?.id ? 'bg-brand-50 dark:bg-brand-500/15' : 'bg-slate-100 dark:bg-slate-800'}`}>
-                  <p className="text-xs font-semibold text-slate-500">{m.sender_name} · {time(m.created_at)}{m.edited_at ? ' · изменено' : ''}</p>
-                  {m.reply_to && (
-                    <p className="mt-1 border-l-2 border-brand-400 pl-2 text-xs text-slate-500"><b>{m.reply_to.sender_name}:</b> {m.reply_to.excerpt}</p>
-                  )}
-                  <Md text={m.content} className="mt-0.5 select-text" />
-                  <Files files={m.attachments} />
-                  {canWrite && (
-                    <div className="mt-1 hidden gap-3 text-xs text-slate-500 group-hover:flex">
-                      <button onClick={() => { setReply(m); setEditing(null); }} className="inline-flex items-center gap-1 hover:text-brand-600"><CornerUpLeft className="size-3" />Ответить</button>
-                      {m.can_edit && <button onClick={() => { setEditing(m); setReply(null); setText(m.content); }} className="inline-flex items-center gap-1 hover:text-brand-600"><Pencil className="size-3" />Исправить</button>}
-                    </div>
-                  )}
+        {messages?.map((m, i) => {
+          const prev = messages[i - 1];
+          const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
+          const mine = m.sender_id === me?.id;
+          return (
+            <div key={m.id} className="flex flex-col gap-3">
+              {newDay && <div className="flex justify-center"><span className="rounded-full bg-slate-500/45 px-3 py-1 text-xs font-medium text-white backdrop-blur">{dayLabel(m.created_at)}</span></div>}
+              {m.id === firstUnread && (
+                <div className="flex items-center gap-3 text-xs font-semibold text-white"><span className="h-px flex-1 bg-white/60" /><span className="rounded-full bg-brand-600 px-3 py-0.5">Новые сообщения</span><span className="h-px flex-1 bg-white/60" /></div>
+              )}
+              {m.kind === 'system' ? (
+                <div className="ml-14 max-w-[85%] self-start rounded-2xl bg-white/70 px-3.5 py-2 text-[15px] text-slate-800 shadow-sm backdrop-blur dark:bg-slate-900/70 dark:text-slate-100">
+                  <SystemText text={m.content} names={allNames} />
+                  <span className="ml-2 align-bottom text-[11px] text-slate-400">{hhmm(m.created_at)}</span>
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
+              ) : (
+                <div className="group flex items-end gap-3">
+                  <Initials name={m.sender_name} />
+                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 shadow-sm ${mine ? 'bg-lime-50 dark:bg-emerald-900/60' : 'bg-white dark:bg-slate-900'}`}>
+                    {!mine && <p className="text-sm font-semibold" style={{ color: colorOf(m.sender_name) }}>{m.sender_name}</p>}
+                    {m.reply_to && (
+                      <p className="mt-1 border-l-2 border-brand-400 pl-2 text-xs text-slate-500"><b>{m.reply_to.sender_name}:</b> {m.reply_to.excerpt}</p>
+                    )}
+                    <Md text={m.content} className="select-text" />
+                    <Files files={m.attachments} />
+                    <p className="mt-0.5 text-right text-[11px] text-slate-400">{m.edited_at ? 'изменено · ' : ''}{hhmm(m.created_at)}</p>
+                    {canWrite && (
+                      <div className="hidden gap-3 text-xs text-slate-500 group-hover:flex">
+                        <button onClick={() => { setReply(m); setEditing(null); }} className="inline-flex items-center gap-1 hover:text-brand-600"><CornerUpLeft className="size-3" />Ответить</button>
+                        {m.can_edit && <button onClick={() => { setEditing(m); setReply(null); setText(m.content); }} className="inline-flex items-center gap-1 hover:text-brand-600"><Pencil className="size-3" />Исправить</button>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div ref={bottom} className="h-px" />
       </div>
       {canWrite ? (

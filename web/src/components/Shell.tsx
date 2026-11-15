@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import {
-  BookOpen, Building2, Clock, DatabaseBackup, Globe, KeyRound, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
+  Archive, BookOpen, Building2, Clock, DatabaseBackup, Globe, KeyRound, LayoutList, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
   Server, Trash2, Users, UsersRound, WifiOff, X,
 } from 'lucide-react';
 import { api, roleName } from '../api';
@@ -15,7 +15,7 @@ function Item({ to, icon: Icon, label, count, onClick }: { to: string; icon: Com
   return (
     <NavLink
       to={to}
-      end={to === '/'}
+      end={to === '/' || to === '/tasks'}
       onClick={onClick}
       className={({ isActive }) =>
         `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${
@@ -87,8 +87,10 @@ export function Shell() {
       </button>
       <nav className="flex flex-col gap-1">
         <Item to="/" icon={ListChecks} label="Мои задачи" onClick={close} />
+        {isManager && <Item to="/tasks" icon={LayoutList} label="Все задачи" onClick={close} />}
         <Item to="/clients" icon={Building2} label="Клиенты" onClick={close} />
         <Item to="/messenger" icon={MessagesSquare} label="Мессенджер" count={unread} onClick={close} />
+        <Item to="/archive" icon={Archive} label="Архив" onClick={close} />
         {isManager && <Item to="/trash" icon={Trash2} label="Корзина" onClick={close} />}
       </nav>
       {isOwner && (
