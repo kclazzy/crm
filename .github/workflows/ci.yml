@@ -176,6 +176,13 @@ jobs:
           if (-not (Select-String -Path $report -Pattern 'TRAY stop' -Context 0,4 | Out-String | Select-String 'LOAD Started http://tauri\.localhost/.*confirm=stop' -Quiet)) { throw "трей «Остановить сервер» не вернул окно на панель" }
           if (-not (Select-String -Path $report -Pattern 'TRAY stop' -Context 0,5 | Out-String | Select-String 'LOAD Finished http://tauri\.localhost/' -Quiet)) { throw "панель после «Остановить сервер» не загрузилась" }
           if (-not (Select-String -Path $report -Pattern 'TRAY panel' -Context 0,2 | Out-String | Select-String 'NAVIGATE http://tauri\.localhost/' -Quiet)) { throw "трей «Панель управления» не открыл панель" }
+          # «Скачать» на странице CRM (файл из памяти страницы, как конфиг VPN) сохраняет файл в «Загрузки».
+          $dl = Select-String -Path $report -Pattern '^DOWNLOAD done ok=true path=(.*crm-selftest[^\\]*\.txt)$' | Select-Object -First 1
+          if (-not $dl) { throw "скачивание со страницы CRM не сработало" }
+          $file = $dl.Matches[0].Groups[1].Value
+          if ((Get-Content $file -Raw) -ne 'CRM selftest') { throw "скачанный файл пустой или чужой: $file" }
+          # Кнопки страницы, которым нужна программа (например, «Включить VPN»), доходят до неё.
+          if (-not (Select-String -Path $report -Pattern '^BRIDGE ping$' -Quiet)) { throw "страница не достучалась до программы" }
           Write-Host "служба: $((Get-Service CRMServer).Status)"
           if ((Get-Service CRMServer).Status -ne 'Running') { & "$dir\crm-server.exe" service start; if ($LASTEXITCODE) { throw "service start" } }
           Write-Host "снова работает: $(Health)"
