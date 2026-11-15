@@ -99,6 +99,7 @@ export class ApiError extends Error {
 
 /** Страница настройки кода из приложения (второй фактор). */
 export const SECURITY_PATH = '/security';
+export const NEED_CODE_EVENT = 'crm:need-code';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -112,6 +113,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     // Организация требует код, а он не настроен: сервер пускает только в профиль.
     if (data.setup_2fa && location.pathname !== SECURITY_PATH) location.assign(SECURITY_PATH);
+    // Сессию открыли без кода, а работаем из интернета: подтвердить кодом (окно в Shell).
+    if (data.need_code && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event(NEED_CODE_EVENT));
     throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`, data);
   }
   return data as T;
@@ -141,6 +144,7 @@ export const api = {
     request<{ user: Me; must_setup_2fa: boolean }>('POST', '/api/auth/login', { username, password, code, ...device() }),
   acceptInvite: (token: string, password: string) =>
     request<{ user: Me; must_setup_2fa: boolean }>('POST', '/api/invites/accept', { token, password, ...device() }),
+  verifyCode: (code: string) => request<void>('POST', '/api/auth/verify', { code }),
   twoFactor: () => request<{ enabled: boolean; backup_left: number; policy: TwoFactorPolicy }>('GET', '/api/me/2fa'),
   twoFactorStart: () => request<{ secret: string; url: string; qr_svg: string }>('POST', '/api/me/2fa/start'),
   twoFactorConfirm: (code: string) => request<{ backup_codes: string[] }>('POST', '/api/me/2fa/confirm', { code }),

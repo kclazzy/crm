@@ -44,6 +44,19 @@ pub struct CurrentUser {
     pub session_id: String,
 }
 
+/// Сессия и её владелец — одной строкой из базы.
+#[derive(sqlx::FromRow)]
+struct SessionRow {
+    session_id: String,
+    id: String,
+    username: String,
+    display_name: String,
+    role: String,
+    last_seen_at: i64,
+    needs_setup: bool,
+    mfa_ok: bool,
+}
+
 impl FromRequestParts<AppState> for CurrentUser {
     type Rejection = ApiError;
 
@@ -52,8 +65,9 @@ impl FromRequestParts<AppState> for CurrentUser {
             .or_else(|| session_cookie(parts))
             .ok_or(ApiError::Unauthorized)?;
         let now = now_ms();
-        let row: Option<(String, String, String, String, String, i64, bool)> = sqlx::query_as(
-            "SELECT s.id, u.id, u.username, u.display_name, u.role, s.last_seen_at, s.needs_2fa_setup
+        let row: Option<SessionRow> = sqlx::query_as(
+            "SELECT s.id AS session_id, u.id, u.username, u.display_name, u.role, s.last_seen_at,
+                    s.needs_2fa_setup AS needs_setup, s.mfa_ok
              FROM sessions s JOIN users u ON u.id = s.user_id
              WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.is_active = 1",
         )
@@ -61,10 +75,36 @@ impl FromRequestParts<AppState> for CurrentUser {
         .bind(now)
         .fetch_optional(&app.pool)
         .await?;
-        let (session_id, id, username, display_name, role, last_seen, needs_setup) =
-            row.ok_or(ApiError::Unauthorized)?;
-        // Организация требует код, а он ещё не настроен: доступны только профиль и выход.
+        let SessionRow {
+            session_id,
+            id,
+            username,
+            display_name,
+            role,
+            last_seen_at: last_seen,
+            needs_setup,
+            mfa_ok,
+        } = row.ok_or(ApiError::Unauthorized)?;
+        // Вошли в офисе без кода, а запрос пришёл из интернета: та же проверка, что при входе.
         let path = parts.uri.path();
+        if !mfa_ok && path != "/api/auth/verify" && path != "/api/auth/logout" {
+            let from = parts
+                .extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|c| c.0.ip().to_string());
+            if from.is_some_and(|ip| !crm_core::remote::is_office_addr(&ip)) {
+                match crm_core::totp::login_rule(
+                    crate::two_factor::policy(&app.pool).await?,
+                    crate::two_factor::enrolled(&app.pool, &id).await?,
+                    false,
+                ) {
+                    Login::Allow => {}
+                    Login::NeedCode => return Err(ApiError::NeedCode),
+                    Login::Setup | Login::Refuse => return Err(ApiError::TwoFactorInOffice),
+                }
+            }
+        }
+        // Организация требует код, а он ещё не настроен: доступны только профиль и выход.
         if needs_setup
             && !(path == "/api/me" || path.starts_with("/api/me/2fa") || path == "/api/auth/logout")
         {
@@ -444,6 +484,7 @@ pub async fn login(
         crate::two_factor::enrolled(&app.pool, &user.id).await?,
         office,
     );
+    let mut mfa_ok = false;
     let needs_setup = match rule {
         Login::Allow => false,
         Login::Setup => true,
@@ -467,11 +508,44 @@ pub async fn login(
                 audit(&app.pool, None, "login.failed", Some(&key), &ip).await?;
                 return Err(ApiError::BadTwoFactorCode);
             }
+            mfa_ok = true;
             false
         }
     };
     let out = start_session(&app.pool, user, &req.device, &ip, needs_setup).await?;
+    if mfa_ok {
+        sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE token_hash = ?")
+            .bind(token_hash(&out.token))
+            .execute(&app.pool)
+            .await?;
+    }
     Ok(with_cookie(set_cookie(&out.token), Json(out)))
+}
+
+#[derive(Deserialize)]
+pub struct VerifyIn {
+    code: String,
+}
+
+/// Подтвердить кодом уже открытую сессию (вошли в офисе, работаем из дома).
+pub async fn verify(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(req): Json<VerifyIn>,
+) -> Result<StatusCode, ApiError> {
+    let ip = addr.ip().to_string();
+    let key = user.username.clone();
+    ensure_not_locked(&app.pool, "login.failed", &key, &ip).await?;
+    if !crate::two_factor::check_code(&app.pool, &user.id, &req.code).await? {
+        audit(&app.pool, None, "login.failed", Some(&key), &ip).await?;
+        return Err(ApiError::BadTwoFactorCode);
+    }
+    sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE id = ?")
+        .bind(&user.session_id)
+        .execute(&app.pool)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn logout(

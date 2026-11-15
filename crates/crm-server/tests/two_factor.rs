@@ -251,3 +251,59 @@ async fn policy_all_makes_everyone_set_up_code_first() {
         .await;
     assert_eq!(me["enabled"], false);
 }
+
+#[tokio::test]
+async fn office_session_without_code_does_not_work_from_internet() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (secret, _) = enroll(&app, &owner).await;
+    let (_, emp) = app.member(&owner, "ivan", "employee", OFFICE_PC).await;
+    // Сессия, где код вводили при настройке, уже подтверждена; берём обычный вход в офисе.
+    let (_, v) = login(&app, "owner", "очень-надёжный-пароль", OFFICE_PC, None).await;
+    let owner = v["token"].as_str().unwrap().to_owned();
+
+    // Вошли в офисе без кода, ноутбук унесли домой: та же сессия из интернета просит код.
+    let (s, _) = app
+        .call("GET", "/api/clients", OFFICE_PC, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, v) = app
+        .call("GET", "/api/clients", HOME, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "{v}");
+    assert_eq!(v["need_code"], true, "{v}");
+    // Подтвердить кодом прямо в этой сессии — дальше работает и из дома.
+    let (s, _) = app
+        .call(
+            "POST",
+            "/api/auth/verify",
+            HOME,
+            Some(&owner),
+            Some(json!({"code": "000000"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/auth/verify",
+            HOME,
+            Some(&owner),
+            Some(json!({"code": code(&secret, now_step() + 1)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{v}");
+    let (s, _) = app
+        .call("GET", "/api/clients", HOME, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    // Сотрудник без кода: офисная сессия из интернета не пускает совсем.
+    let (s, v) = app.call("GET", "/api/me", HOME, Some(&emp), None).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("в офисе"), "{v}");
+    let (s, _) = app
+        .call("GET", "/api/me", OFFICE_PC, Some(&emp), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+}

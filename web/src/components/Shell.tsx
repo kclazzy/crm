@@ -9,6 +9,7 @@ import { useAuth } from '../auth';
 import { useLive } from '../live';
 import { Avatar } from './ui';
 import { Bell } from './Bell';
+import { StepUp } from './StepUp';
 import { SearchPalette } from './Search';
 
 function Item({ to, icon: Icon, label, count, onClick }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void }) {
@@ -149,6 +150,7 @@ export function Shell() {
         </main>
       </div>
       <BottomNav unread={unread} onSearch={() => setSearch(true)} />
+      <StepUp />
       <SearchPalette open={search} onClose={() => setSearch(false)} />
     </div>
   );

@@ -219,6 +219,11 @@ pub async fn confirm(
         .bind(&user.id)
         .execute(&mut *tx)
         .await?;
+    // Код только что введён в этой сессии — она подтверждена.
+    sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE id = ?")
+        .bind(&user.session_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     audit(
         &app.pool,

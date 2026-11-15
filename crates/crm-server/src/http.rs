@@ -87,6 +87,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/invites/accept", post(auth::accept_invite))
         .route("/api/me", get(auth::me))
+        .route("/api/auth/verify", post(auth::verify))
         .route(
             "/api/me/2fa",
             get(crate::two_factor::status).delete(crate::two_factor::disable),
