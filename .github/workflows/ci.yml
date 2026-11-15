@@ -169,6 +169,18 @@ jobs:
           WaitUntil 'служба после обновления' { (Get-Service CRMServer -ErrorAction SilentlyContinue).Status -eq 'Running' }
           Write-Host "после обновления: $(Health)"
 
+          # Обновление с «Удалить перед установкой» (выбрано по умолчанию в окне установщика):
+          # установщик запускает старый деинсталлятор без /UPDATE. Служба, её автозапуск и данные остаются.
+          & "$dir\crm-server.exe" service autostart-off; if ($LASTEXITCODE) { throw "autostart-off" }
+          Start-Process "$dir\uninstall.exe" -ArgumentList '/S', "_?=$dir" -Wait
+          Remove-Item "$dir\uninstall.exe" -ErrorAction SilentlyContinue
+          Start-Process $setup -ArgumentList '/S' -Wait
+          WaitUntil 'служба после обновления с удалением' { (Get-Service CRMServer -ErrorAction SilentlyContinue).Status -eq 'Running' }
+          $mode = (Get-CimInstance Win32_Service -Filter "Name='CRMServer'").StartMode
+          if ($mode -ne 'Manual') { throw "автозапуск не сохранился: $mode" }
+          Write-Host "после обновления с удалением: $(Health)"
+          & "$dir\crm-server.exe" service autostart-on; if ($LASTEXITCODE) { throw "autostart-on" }
+
           Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait
           WaitUntil 'удаление службы' { -not (Get-Service CRMServer -ErrorAction SilentlyContinue) }
           WaitUntil 'удаление программы' { -not (Test-Path "$dir\CRM.exe") }
