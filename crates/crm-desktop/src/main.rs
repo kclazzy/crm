@@ -334,7 +334,7 @@ fn main() {
                         }
                         !selftest::enabled() || selftest::on_navigation(&handle, url)
                     })
-                    .on_download(|webview, event| bridge::on_download(webview.app_handle(), event))
+                    .on_download(|webview, event| bridge::on_download(&webview, event))
                     .on_page_load(|_, payload| {
                         if selftest::enabled() {
                             selftest::log(&format!("LOAD {:?} {}", payload.event(), payload.url()));

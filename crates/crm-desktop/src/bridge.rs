@@ -6,8 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+use std::sync::Mutex;
+
 use tauri::webview::DownloadEvent;
-use tauri::{AppHandle, Manager, Url};
+use tauri::{Manager, Runtime, Url, Webview};
 
 use crate::selftest;
 
@@ -21,12 +23,24 @@ pub fn intercept(url: &Url) -> bool {
     }
     match url.path().trim_matches('/') {
         "ping" => selftest::log("BRIDGE ping"),
+        "reveal" => {
+            if let Some(p) = LAST_SAVED.lock().ok().and_then(|l| l.clone()) {
+                selftest::log(&format!("REVEAL {}", p.display()));
+                if !selftest::enabled() {
+                    reveal(&p);
+                }
+            }
+        }
         other => selftest::log(&format!("BRIDGE unknown {other}")),
     }
     true
 }
 
-pub fn on_download(app: &AppHandle, event: DownloadEvent<'_>) -> bool {
+/// Последний сохранённый файл — для «Показать в папке».
+static LAST_SAVED: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn on_download<R: Runtime>(webview: &Webview<R>, event: DownloadEvent<'_>) -> bool {
+    let app = webview.app_handle();
     match event {
         DownloadEvent::Requested { destination, .. } => {
             if let Ok(dir) = app.path().download_dir() {
@@ -43,11 +57,18 @@ pub fn on_download(app: &AppHandle, event: DownloadEvent<'_>) -> bool {
                 "DOWNLOAD done ok={success} path={}",
                 shown.map(|p| p.to_string()).unwrap_or_default()
             ));
-            if success && !selftest::enabled() {
-                if let Some(p) = path {
-                    reveal(&p);
+            // Сказать на странице, куда сохранён файл, — проводник откроет кнопка «Показать в папке».
+            let name = path
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned());
+            if success {
+                if let Ok(mut l) = LAST_SAVED.lock() {
+                    l.clone_from(&path);
                 }
             }
+            let info = serde_json::json!({ "ok": success, "name": name });
+            let _ = webview.eval(format!("window.crmApp && window.crmApp.saved({info})"));
             true
         }
         _ => true,
@@ -70,12 +91,15 @@ fn free_name(path: &Path) -> PathBuf {
         .unwrap_or_else(|| path.to_path_buf())
 }
 
-/// Показать скачанный файл в проводнике.
+/// Показать скачанный файл в проводнике. Путь — в кавычках внутри одного аргумента
+/// (`/select,"C:\Users\Олег Нелюбин\…"`): обычная передача берёт в кавычки весь
+/// `/select,…`, и проводник открывает не ту папку.
 fn reveal(path: &Path) {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let _ = std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
+            .raw_arg(format!("/select,\"{}\"", path.display()))
             .spawn();
     }
     #[cfg(not(windows))]

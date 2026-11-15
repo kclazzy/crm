@@ -17,7 +17,32 @@
     errors.push('Promise: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
   });
   // Кнопки страницы, которым нужна программа: window.crmApp.run('ДЕЙСТВИЕ').
-  window.crmApp = { run: function (action) { location.href = 'http://__APP_HOST__/' + action; } };
+  var savedName = '';
+  window.crmApp = {
+    run: function (action) { location.href = 'http://__APP_HOST__/' + action; },
+    // Программа сохранила файл (или не смогла) — сказать, где он.
+    saved: function (info) {
+      var old = document.getElementById('crm-saved');
+      if (old) old.remove();
+      var box = document.createElement('div');
+      box.id = 'crm-saved';
+      box.setAttribute('role', 'status');
+      box.style.cssText = 'position:fixed;right:16px;bottom:80px;z-index:2147483647;max-width:360px;padding:12px 14px;border-radius:14px;font:14px/1.4 "Segoe UI",system-ui,sans-serif;box-shadow:0 10px 30px rgba(15,23,42,.25);color:#fff;background:' + (info.ok ? '#065f46' : '#991b1b');
+      var text = document.createElement('div');
+      text.textContent = info.ok ? 'Файл сохранён в «Загрузки»: ' + (info.name || '') : 'Не удалось сохранить файл — попробуйте ещё раз.';
+      box.appendChild(text);
+      if (info.ok) {
+        savedName = info.name || '';
+        var b = document.createElement('button');
+        b.textContent = 'Показать в папке';
+        b.style.cssText = 'margin-top:8px;padding:6px 10px;border:0;border-radius:8px;background:#fff;color:#065f46;font-weight:600;cursor:pointer';
+        b.onclick = function () { window.crmApp.run('reveal'); };
+        box.appendChild(b);
+      }
+      document.body.appendChild(box);
+      setTimeout(function () { box.remove(); }, 12000);
+    },
+  };
   // Назад в программу: у владельца — панель сервера, у сотрудника — «Мои серверы».
   function back() { location.href = APP; }
   function el(tag, css, text) {
@@ -70,6 +95,7 @@
       root_children: root ? root.childElementCount : -1,
       text: (document.body ? document.body.innerText : '').slice(0, 160),
       errors: errors.slice(0, 8),
+      saved_toast: document.getElementById('crm-saved') ? savedName : '',
       ua: navigator.userAgent,
     });
     location.href = 'http://__REPORT_HOST__/?d=' + encodeURIComponent(d);
@@ -87,6 +113,7 @@
         a.click();
         a.remove();
         setTimeout(function () { window.crmApp.run('ping'); }, 500);
+        setTimeout(function () { window.crmApp.run('reveal'); }, 1500);
       }, 4000);
       setTimeout(report, 8000);
     }
