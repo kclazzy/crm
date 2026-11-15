@@ -73,10 +73,7 @@ pub fn on_menu(app: &AppHandle, id: &str) {
             }
         }
         "browser" => {
-            let url = format!("https://localhost:{}", server_ctl::PORT);
-            if let Err(e) = server_ctl::open_browser(&url) {
-                eprintln!("CRM: {e}");
-            }
+            tauri::async_runtime::spawn(connections::open_in_browser(app.clone()));
         }
         "restart" => {
             let (app, action) = (app.clone(), id.to_owned());
@@ -290,6 +287,7 @@ fn main() {
         ))
         .manage(LastStatus(Mutex::new(None)))
         .manage(connections::Tunnels::default())
+        .manage(connections::LastOpened::default())
         .invoke_handler(tauri::generate_handler![
             get_status,
             addresses,

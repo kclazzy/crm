@@ -15,6 +15,107 @@ use tokio::sync::Mutex;
 #[derive(Default)]
 pub struct Tunnels(pub Mutex<HashMap<String, Tunnel>>);
 
+/// Сервер, открытый последним, — его и показывает «Открыть CRM в браузере».
+#[derive(Default)]
+pub struct LastOpened(pub std::sync::Mutex<Option<String>>);
+
+/// Куда вести браузер: в CRM, открытую в программе (через её подключение — сертификат
+/// ставить не нужно), иначе в сервер на этом компьютере. `localhost` не годится: браузер
+/// пробует IPv6 (::1), а сервер слушает IPv4 — «соединение недоступно».
+pub fn browser_target(
+    tunnel_url: Option<String>,
+    own: crate::status::Health,
+    service: crate::status::Service,
+) -> Result<String, &'static str> {
+    use crate::status::{Health, Service};
+    if let Some(u) = tunnel_url {
+        return Ok(format!("{u}/"));
+    }
+    match (own, service) {
+        (Health::Ok { .. }, _) => Ok(format!("https://127.0.0.1:{}/", crate::server_ctl::PORT)),
+        (Health::Unreachable, Service::Stopped) => {
+            Err("Сервер на этом компьютере остановлен — запустите его в панели управления")
+        }
+        (Health::Unreachable, Service::Running) => {
+            Err("Сервер запускается — попробуйте через минуту")
+        }
+        _ => Err("Сначала откройте CRM: «Мои серверы» → «Подключиться»"),
+    }
+}
+
+/// «Открыть CRM в браузере» из трея.
+pub async fn open_in_browser(app: AppHandle) {
+    let last = app
+        .state::<LastOpened>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|l| l.clone());
+    let tunnel_url = match last {
+        Some(id) => app
+            .state::<Tunnels>()
+            .0
+            .lock()
+            .await
+            .get(&id)
+            .map(Tunnel::url),
+        None => None,
+    };
+    let own = if tunnel_url.is_some() {
+        crate::status::Health::Unreachable
+    } else {
+        crate::server_ctl::health().await
+    };
+    match browser_target(tunnel_url, own, crate::server_ctl::service_state()) {
+        Ok(url) => {
+            if let Err(e) = crate::server_ctl::open_browser(&url) {
+                to_panel(
+                    &app,
+                    Some(("toast", &format!("Не удалось открыть браузер: {e}"))),
+                );
+            }
+        }
+        Err(why) => to_panel(&app, Some(("toast", why))),
+    }
+}
+
+#[cfg(test)]
+mod browser_tests {
+    use super::browser_target;
+    use crate::status::{Health, Service};
+
+    fn up() -> Health {
+        Health::Ok {
+            needs_owner: false,
+            ca_fingerprint: None,
+        }
+    }
+
+    #[test]
+    fn browser_goes_where_crm_actually_is() {
+        // Сотрудник: открыта CRM в программе — браузер идёт через то же подключение.
+        let t = Some("http://127.0.0.1:51234".to_owned());
+        assert_eq!(
+            browser_target(t, Health::Unreachable, Service::NotInstalled).unwrap(),
+            "http://127.0.0.1:51234/"
+        );
+        // Сервер на этом компьютере — по 127.0.0.1, не localhost.
+        assert_eq!(
+            browser_target(None, up(), Service::Running).unwrap(),
+            "https://127.0.0.1:8443/"
+        );
+        // Нет ни подключения, ни своего сервера — понятная подсказка вместо «соединение недоступно».
+        assert!(
+            browser_target(None, Health::Unreachable, Service::NotInstalled)
+                .unwrap_err()
+                .contains("Мои серверы")
+        );
+        assert!(browser_target(None, Health::Unreachable, Service::Stopped)
+            .unwrap_err()
+            .contains("остановлен"));
+    }
+}
+
 fn store(app: &AppHandle) -> Result<Store, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(Store::new(dir.join("servers.json")))
@@ -145,6 +246,9 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
             }
         }
     };
+    if let Ok(mut last) = app.state::<LastOpened>().0.lock() {
+        *last = Some(id.clone());
+    }
     let path = match invite {
         Some(token) => format!("/invite?code={}", urlencode(&token)),
         None => "/".into(),
