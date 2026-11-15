@@ -7,6 +7,8 @@ pub const USAGE: &str = "\
   crm-server [--config ПУТЬ]        запустить сервер в этом окне
   crm-server service install        установить и запустить службу Windows (от администратора)
   crm-server service uninstall      остановить и удалить службу (данные сохраняются)
+  crm-server service park           для установщика: удалить службу, запомнив её и автозапуск
+  crm-server service unpark         для установщика: вернуть запомненную службу (если была)
   crm-server service start|stop|restart|status
   crm-server service autostart-on   запускать сервер при включении компьютера (по умолчанию)
   crm-server service autostart-off  не запускать сам — только вручную
@@ -47,6 +49,10 @@ pub enum ServiceCmd {
     VpnApply,
     /// Запуск службы вместе с Windows: да или нет.
     Autostart(bool),
+    /// Деинсталлятор: удалить службу, запомнив, что она была (и её автозапуск).
+    Park,
+    /// Установщик: вернуть службу, если её запомнили при удалении.
+    Unpark,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -86,6 +92,8 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 "vpn-apply" => ServiceCmd::VpnApply,
                 "autostart-on" => ServiceCmd::Autostart(true),
                 "autostart-off" => ServiceCmd::Autostart(false),
+                "park" => ServiceCmd::Park,
+                "unpark" => ServiceCmd::Unpark,
                 _ => return Err(bad()),
             };
             Ok(Command::Service(cmd))
@@ -141,6 +149,11 @@ mod tests {
         assert_eq!(
             p("service vpn-apply"),
             Ok(Command::Service(ServiceCmd::VpnApply))
+        );
+        assert_eq!(p("service park"), Ok(Command::Service(ServiceCmd::Park)));
+        assert_eq!(
+            p("service unpark"),
+            Ok(Command::Service(ServiceCmd::Unpark))
         );
         assert!(p("service").is_err());
         assert!(p("service install extra").is_err());

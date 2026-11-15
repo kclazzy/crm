@@ -89,6 +89,8 @@ pub fn handle(cmd: ServiceCmd) -> Result<String, ServiceError> {
             Ok(String::new())
         }
         ServiceCmd::VpnApply => vpn_apply(),
+        ServiceCmd::Park => park(),
+        ServiceCmd::Unpark => unpark(),
         ServiceCmd::Autostart(on) => {
             open(ServiceAccess::QUERY_STATUS)?;
             run_tool(
@@ -329,6 +331,64 @@ fn uninstall() -> Result<String, ServiceError> {
         "Служба удалена. Данные сохранены в {}",
         config::default_data_root().display()
     ))
+}
+
+// ---------- Обновление программы ----------
+//
+// Установщик при обновлении может сначала запустить старый деинсталлятор как обычное
+// удаление (вариант «Удалить перед установкой» выбран по умолчанию). Отличить это от
+// настоящего удаления деинсталлятор не может, поэтому служба не забывается: рядом с данными
+// остаётся отметка, и следующая установка возвращает службу с теми же данными и автозапуском.
+
+/// Отметка «служба была»: `auto` или `demand` — как она запускалась.
+fn parked_path() -> PathBuf {
+    config::default_data_root().join("service.parked")
+}
+
+fn park() -> Result<String, ServiceError> {
+    let auto = match open(ServiceAccess::QUERY_CONFIG) {
+        Ok(s) => s.query_config()?.start_type == ServiceStartType::AutoStart,
+        Err(ServiceError::NotInstalled) => return Ok("Службы нет — запоминать нечего.".into()),
+        Err(e) => return Err(e),
+    };
+    let path = parked_path();
+    std::fs::write(&path, if auto { "auto" } else { "demand" })
+        .map_err(|source| ServiceError::Io { path, source })?;
+    uninstall()
+}
+
+fn unpark() -> Result<String, ServiceError> {
+    let path = parked_path();
+    let auto = match std::fs::read_to_string(&path) {
+        Ok(s) => s.trim() != "demand",
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Деинсталляторы до 0.2.2 удаляли службу без отметки. Служба есть или
+            // базы сервера нет — значит, возвращать нечего.
+            let cfg = Config::load(&config::default_config_path())?;
+            let had_server = cfg.storage.db_dir.join(crate::db::DB_FILE).exists();
+            match open(ServiceAccess::QUERY_STATUS) {
+                Err(ServiceError::NotInstalled) if had_server => true,
+                Ok(_) | Err(ServiceError::NotInstalled) => {
+                    return Ok(
+                        "Служба на месте или не была установлена — возвращать нечего.".into(),
+                    );
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(source) => return Err(ServiceError::Io { path, source }),
+    };
+    let done = install()?;
+    if !auto {
+        handle(ServiceCmd::Autostart(false))?;
+    }
+    // Отметку убираем последней: если установка оборвётся, следующий запуск повторит её.
+    match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => return Err(ServiceError::Io { path, source }),
+    }
+    Ok(done)
 }
 
 /// Разрешить входящие подключения к серверу только в частных и доменных сетях.

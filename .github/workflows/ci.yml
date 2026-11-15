@@ -82,6 +82,22 @@ jobs:
           if (Get-Service CRMServer -ErrorAction SilentlyContinue) { throw "служба не удалена" }
           if (Get-NetFirewallRule -DisplayName 'CRM Server' -ErrorAction SilentlyContinue) { throw "правило брандмауэра осталось" }
           if (-not (Test-Path C:\ProgramData\CRM\data\crm.db)) { throw "данные удалены, а не должны" }
+
+          # Служба удалена старым деинсталлятором (без отметки), база осталась — установщик возвращает её.
+          & $exe service unpark; if ($LASTEXITCODE) { throw "unpark без отметки" }
+          if ((Get-Service CRMServer).Status -ne 'Running') { throw "служба не вернулась" }
+          Write-Host "вернулась: $(Health)"
+          # Деинсталлятор запоминает службу и её автозапуск, установщик возвращает как было.
+          & $exe service autostart-off; if ($LASTEXITCODE) { throw "autostart-off" }
+          & $exe service park; if ($LASTEXITCODE) { throw "park" }
+          if (Get-Service CRMServer -ErrorAction SilentlyContinue) { throw "park не удалил службу" }
+          & $exe service unpark; if ($LASTEXITCODE) { throw "unpark" }
+          $mode = (Get-CimInstance Win32_Service -Filter "Name='CRMServer'").StartMode
+          if ($mode -ne 'Manual') { throw "автозапуск не сохранился: $mode" }
+          if (Test-Path C:\ProgramData\CRM\service.parked) { throw "отметка осталась" }
+          & $exe service unpark; if ($LASTEXITCODE) { throw "повторный unpark" }
+          Write-Host "после park/unpark: $(Health)"
+          & $exe service uninstall; if ($LASTEXITCODE) { throw "uninstall 2" }
           Write-Host "OK"
   desktop:
     # Приложение в трее + установщик CRM-Setup.exe, затем настоящая установка/обновление/удаление.
@@ -185,6 +201,10 @@ jobs:
           WaitUntil 'удаление службы' { -not (Get-Service CRMServer -ErrorAction SilentlyContinue) }
           WaitUntil 'удаление программы' { -not (Test-Path "$dir\CRM.exe") }
           if (-not (Test-Path C:\ProgramData\CRM\data\crm.db)) { throw "данные удалены без согласия" }
+          # Повторная установка после удаления возвращает сервер с прежними данными.
+          Start-Process $setup -ArgumentList '/S' -Wait
+          WaitUntil 'служба после повторной установки' { (Get-Service CRMServer -ErrorAction SilentlyContinue).Status -eq 'Running' }
+          Write-Host "после повторной установки: $(Health)"
           Write-Host "OK"
       - uses: actions/upload-artifact@v4
         with:

@@ -7,7 +7,11 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Обновление: если служба была установлена — запускаем её снова.
+  ; Обновление с «Удалить перед установкой»: возвращаем службу, удалённую старым деинсталлятором,
+  ; с теми же данными и автозапуском. Если её не было — команда ничего не делает.
+  nsExec::Exec '"$INSTDIR\crm-server.exe" service unpark'
+  Pop $0
+  ; Обновление поверх: если служба установлена — запускаем её снова.
   ; На чистой установке службы нет, команда просто завершится с ошибкой — это нормально.
   nsExec::Exec '"$INSTDIR\crm-server.exe" service start'
   Pop $0
@@ -15,8 +19,10 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   ; При обновлении старый деинсталлятор запускается с /UPDATE — службу не трогаем.
+  ; Без /UPDATE это может быть и обновление («Удалить перед установкой»), и удаление:
+  ; служба удаляется, но запоминается — следующая установка вернёт её (service unpark).
   ${If} $UpdateMode <> 1
-    nsExec::Exec '"$INSTDIR\crm-server.exe" service uninstall'
+    nsExec::Exec '"$INSTDIR\crm-server.exe" service park'
     Pop $0
   ${EndIf}
 !macroend
