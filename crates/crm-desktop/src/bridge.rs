@@ -15,7 +15,7 @@ use crate::selftest;
 pub const APP_HOST: &str = "crm-app.invalid";
 
 /// Переход на `APP_HOST` — это команда, а не страница. `true` — переход перехвачен.
-pub fn intercept(app: &AppHandle, url: &Url) -> bool {
+pub fn intercept(url: &Url) -> bool {
     if url.host_str() != Some(APP_HOST) {
         return false;
     }

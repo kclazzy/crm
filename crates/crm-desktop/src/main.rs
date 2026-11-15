@@ -331,7 +331,7 @@ fn main() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?
                     .initialization_script(connections::guard_script())
                     .on_navigation(move |url| {
-                        if bridge::intercept(&handle, url) {
+                        if bridge::intercept(url) {
                             return false;
                         }
                         !selftest::enabled() || selftest::on_navigation(&handle, url)
