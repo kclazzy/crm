@@ -1,11 +1,12 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { AlertTriangle, CheckCircle2, Flag, Hourglass, MessageCircle, PauseCircle, PlayCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Flag, Hourglass, MessageCircle, PauseCircle, PlayCircle, Plus } from 'lucide-react';
 import {
   type ClientInput, type Client, dateTime, deadlineText, fromLocalInput, type Group, type Person, type Priority,
   statusName, type Status, type TaskSummary, toLocalInput, work,
 } from '../work';
 import { Button, ErrorText, Field, Modal } from './ui';
+import { useAuth } from '../auth';
 
 // ---------- Метки ----------
 
@@ -299,9 +300,16 @@ export function TaskForm({
   const [clients, setClients] = useState<Client[]>([]);
   const [client, setClient] = useState(clientId ?? '');
   const pickClient = !clientId && !parent;
+  const { me } = useAuth();
+  const canAddClient = me?.role !== 'employee';
+  const [addingClient, setAddingClient] = useState(false);
+  const loadClients = useCallback(
+    () => work.clients().then((l) => setClients(l.filter((c) => c.access === 'manage'))).catch(() => {}),
+    [],
+  );
   useEffect(() => {
-    if (open && pickClient) work.clients().then((l) => setClients(l.filter((c) => c.access === 'manage'))).catch(() => {});
-  }, [open, pickClient]);
+    if (open && pickClient) void loadClients();
+  }, [open, pickClient, loadClients]);
 
   useEffect(() => {
     if (!open) return;
@@ -347,12 +355,26 @@ export function TaskForm({
       <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
         {pickClient && (
           <div className="sm:col-span-2">
-            <Field label="Клиент" hint={clients.length === 0 ? 'Нет клиентов, где вы можете ставить задачи — заведите клиента в разделе «Клиенты».' : undefined}>
-              <select className="input" value={client} onChange={(e) => setClient(e.target.value)} required>
-                <option value="">— выберите клиента —</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+            <Field label="Клиент или компания" hint={clients.length === 0 && !canAddClient ? 'Нет клиентов, где вы можете ставить задачи — попросите руководителя завести клиента.' : undefined}>
+              <div className="flex gap-2">
+                <select className="input min-w-0 flex-1" value={client} onChange={(e) => setClient(e.target.value)} required>
+                  <option value="">— выберите клиента —</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {canAddClient && (
+                  <Button type="button" variant="secondary" className="shrink-0" onClick={() => setAddingClient(true)}>
+                    <Plus className="size-4" />Новый
+                  </Button>
+                )}
+              </div>
             </Field>
+            {addingClient && (
+              <ClientForm open onClose={() => setAddingClient(false)} onSaved={async (id) => {
+                await loadClients();
+                setClient(id);
+                setAddingClient(false);
+              }} />
+            )}
           </div>
         )}
         <div className="sm:col-span-2">
