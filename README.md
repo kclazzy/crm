@@ -80,3 +80,20 @@ packaging/linux     unit systemd
 migrations/         схема БД (единственный источник правды)
 docs/               ТЗ и ревью
 ```
+
+## Сборка установщика на своём компьютере
+
+На Windows 10/11, один раз поставьте инструменты (PowerShell):
+
+```powershell
+winget install Git.Git Rustlang.Rustup OpenJS.NodeJS.LTS
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+Перезапустите PowerShell, затем в папке проекта:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
+```
+
+Установщик появится в `target\release\bundle\nsis\CRM_…_x64-setup.exe`. Первая сборка — 20–40 минут, следующие — несколько минут.
