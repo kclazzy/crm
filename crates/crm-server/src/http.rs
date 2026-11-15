@@ -132,6 +132,10 @@ pub fn router(state: AppState) -> Router {
             "/api/admin/remote",
             get(crate::remote::info).put(crate::remote::set),
         )
+        .route(
+            "/api/admin/remote/router",
+            post(crate::router::open).delete(crate::router::close),
+        )
         .route("/api/admin/move-out", post(crate::admin::move_out))
         .merge(work_routes())
         .fallback(crate::web::static_or_index)
@@ -317,6 +321,9 @@ pub enum ApiError {
     /// Конфликт с подробностями (сколько задач, кто).
     #[error("{0}")]
     ConflictWith(String),
+    /// Не ответило внешнее устройство (роутер) — с подсказкой, что сделать.
+    #[error("{0}")]
+    Upstream(String),
     #[error("слишком много неудачных попыток, попробуйте через 15 минут")]
     TooManyAttempts,
     #[error("данные перенесены в новое место — перезапустите сервер (меню трея → «Перезапустить сервер»)")]
@@ -353,6 +360,7 @@ impl IntoResponse for ApiError {
             }
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) | Self::ConflictWith(_) => StatusCode::CONFLICT,
+            Self::Upstream(_) => StatusCode::BAD_GATEWAY,
             Self::TooManyAttempts => StatusCode::TOO_MANY_REQUESTS,
             Self::Frozen => StatusCode::SERVICE_UNAVAILABLE,
             Self::Failed(why) => {

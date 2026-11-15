@@ -192,3 +192,28 @@ async fn phone_links_give_qr_for_certificate_and_office() {
         .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn router_one_click_explains_what_to_do_when_router_is_silent() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (_, emp) = app.member(&owner, "olga", "employee", "10.0.0.3").await;
+    let (s, _) = app
+        .call("POST", "/api/admin/remote/router", LOCAL, Some(&emp), None)
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    // В тестах роутера нет: ответ быстрый и с подсказкой, а не «внутренняя ошибка».
+    let started = std::time::Instant::now();
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/admin/remote/router",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("UPnP"), "{v}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+}

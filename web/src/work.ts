@@ -246,6 +246,8 @@ export const work = {
   connectionKey: (user_id: string | null, pin: string | null) =>
     req<{ key: string; with_pin: boolean; invite_expires_at: number | null; addrs: string[] }>('POST', '/api/admin/connection-key', { user_id, pin }),
   remote: () => req<RemoteInfo>('GET', '/api/admin/remote'),
+  routerOpen: () => req<{ external_ip: string | null; public: boolean; local_ip: string; port: number; address: string | null }>('POST', '/api/admin/remote/router'),
+  routerClose: () => req<void>('DELETE', '/api/admin/remote/router'),
   setRemote: (address: string) => req<RemoteInfo>('PUT', '/api/admin/remote', { address }),
   phone: () => req<{ kind: 'cert' | 'office' | 'internet'; url: string; qr_svg: string }[]>('GET', '/api/admin/phone'),
   restore: (name: string | null, dir: string | null) =>

@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, KeyRound, Plus, Trash2, UsersRound } from 'lucide-react';
+import { Check, Copy, KeyRound, Plus, Trash2, UsersRound, Wand2 } from 'lucide-react';
 import { api, type TwoFactorPolicy } from '../api';
 import { type Group, type OrgSettings, type RemoteInfo, work } from '../work';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
@@ -208,6 +208,40 @@ function TwoFactorPolicyCard() {
   );
 }
 
+/** Открыть порт на роутере по UPnP — без входа в его настройки. */
+function RouterOneClick({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<Awaited<ReturnType<typeof work.routerOpen>> | null>(null);
+  return (
+    <div className="mt-2 rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button busy={busy} onClick={async () => {
+          setBusy(true);
+          setError('');
+          setResult(null);
+          try { setResult(await work.routerOpen()); onDone(); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
+        }}><Wand2 className="size-4" />Настроить роутер автоматически</Button>
+        {result && <Button variant="ghost" onClick={async () => { await work.routerClose(); setResult(null); }}>Убрать правило</Button>}
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Нужен включённый UPnP на роутере. Правило продлевается само, пока сервер работает.</p>
+      <ErrorText>{error}</ErrorText>
+      {result && (
+        <div className="mt-3 text-sm">
+          <p className="text-emerald-700 dark:text-emerald-300">Готово: роутер ведёт порт {result.port} на этот компьютер ({result.local_ip}).</p>
+          {result.external_ip && !result.public && (
+            <p className="mt-1 text-amber-700 dark:text-amber-300">
+              Но роутер получил от провайдера «серый» адрес {result.external_ip} — из интернета до офиса не достучаться.
+              Попросите у провайдера «белый» (статический или динамический) IP.
+            </p>
+          )}
+          {result.public && <p className="mt-1">Внешний адрес офиса: <b>{result.external_ip}</b>{result.address === result.external_ip && ' — записан в шаг 1'}.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Доступ через интернет: внешний адрес офиса, переадресация порта, сотрудники и телефоны. */
 export function AdminRemote() {
   const [info, setInfo] = useState<RemoteInfo | null>(null);
@@ -238,7 +272,7 @@ export function AdminRemote() {
               setSaved('Сохранено. Сертификат сервера обновлён — перезапуск не нужен.');
             } catch (x) { setError((x as Error).message); }
           }}>
-            <input name="address" className="input min-w-60 flex-1" placeholder="85.12.34.56 или office.keenetic.pro" defaultValue={info.address ?? ''} />
+            <input key={info.address ?? ""} name="address" className="input min-w-60 flex-1" placeholder="85.12.34.56 или office.keenetic.pro" defaultValue={info.address ?? ""} />
             <Button type="submit">Сохранить</Button>
           </form>
           {saved && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{saved}</p>}
@@ -246,8 +280,9 @@ export function AdminRemote() {
         </section>
         <section className="card p-5">
           <h2 className="mb-1 font-semibold">2. Роутер: переадресация порта</h2>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            В настройках роутера (обычно 192.168.1.1 или 192.168.0.1) создайте правило «Переадресация портов» / «Port forwarding»:
+          <RouterOneClick onDone={load} />
+          <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
+            Не получилось автоматически — вручную: в настройках роутера (обычно 192.168.1.1 или 192.168.0.1) создайте правило «Переадресация портов» / «Port forwarding»:
           </p>
           <ul className="mt-2 list-disc pl-5 text-sm">
             <li>протокол <b>TCP</b>, внешний и внутренний порт <b>{info.port}</b>;</li>

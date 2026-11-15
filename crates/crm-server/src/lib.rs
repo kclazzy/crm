@@ -20,6 +20,7 @@ pub mod org;
 pub mod recovery;
 pub mod remote;
 pub mod restore;
+pub mod router;
 pub mod search;
 pub mod secrets;
 pub mod server;
