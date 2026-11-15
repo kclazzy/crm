@@ -128,6 +128,10 @@ pub enum RuleError {
     NotYourTask,
     #[error("в архив можно убрать только завершённую задачу")]
     NotCompleted,
+    #[error("исполнителя меняют постановщик, исполнитель, руководитель или владелец")]
+    NotReassigner,
+    #[error("нужен хотя бы один исполнитель")]
+    NoAssignee,
     #[error("в архив убирает исполнитель или владелец")]
     NotArchiver,
     #[error("родительская задача завершена — сначала верните в работу родительскую задачу")]
@@ -190,6 +194,18 @@ pub fn check_status_change(who: Involvement) -> Result<(), RuleError> {
     } else {
         Err(RuleError::NotYourTask)
     }
+}
+
+/// Сменить исполнителя: постановщик, исполнитель (передать задачу), владелец
+/// или руководитель, который ведёт задачу. Хотя бы один исполнитель остаётся.
+pub fn check_reassign(who: Involvement, manages: bool, count: usize) -> Result<(), RuleError> {
+    if !(manages || who.is_owner || who.is_creator || who.is_assignee) {
+        return Err(RuleError::NotReassigner);
+    }
+    if count == 0 {
+        return Err(RuleError::NoAssignee);
+    }
+    Ok(())
 }
 
 /// В архив (и обратно) — только завершённую, только исполнитель или владелец.
@@ -399,6 +415,22 @@ mod tests {
             ..nobody
         };
         assert_eq!(check_status_change(nobody), Err(RuleError::NotYourTask));
+        assert_eq!(
+            check_reassign(nobody, false, 1),
+            Err(RuleError::NotReassigner)
+        );
+        assert_eq!(
+            check_reassign(nobody, true, 1),
+            Ok(()),
+            "руководитель группы"
+        );
+        assert_eq!(
+            check_reassign(assignee, false, 0),
+            Err(RuleError::NoAssignee)
+        );
+        for w in [creator, assignee, owner] {
+            assert_eq!(check_reassign(w, false, 1), Ok(()));
+        }
         for w in [creator, assignee, owner] {
             assert_eq!(check_status_change(w), Ok(()));
         }

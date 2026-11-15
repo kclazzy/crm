@@ -49,6 +49,7 @@ export interface TaskCard extends TaskSummary {
   parent_deadline_at: number | null;
   can_trash: boolean;
   can_change_status: boolean;
+  can_reassign: boolean;
   can_archive: boolean;
   archived_by: string | null;
 }
@@ -194,6 +195,7 @@ export const work = {
   }) => req<{ id: string }>('POST', '/api/tasks', t),
   updateTask: (id: string, p: Partial<{ title: string; description: string; priority: Priority; deadline_at: number; assignees: string[] }>) =>
     req<void>('PATCH', `/api/tasks/${id}`, p),
+  reassign: (id: string, assignees: string[]) => req<void>('PUT', `/api/tasks/${id}/assignees`, { assignees }),
   setStatus: (id: string, status: Status) => req<{ open_stages: number }>('POST', `/api/tasks/${id}/status`, { status }),
   trashTask: (id: string) => req<void>('DELETE', `/api/tasks/${id}`),
   restoreTask: (id: string) => req<void>('POST', `/api/tasks/${id}/restore`),
@@ -282,10 +284,9 @@ export const statusName: Record<Status, string> = {
 
 /** Действия над статусом — те же правила, что на сервере (crm_core::task::check_transition). */
 export const statusActions: { to: Status; label: string; from: Status[] }[] = [
-  { to: 'in_progress', label: 'Начать выполнение', from: ['waiting', 'postponed'] },
+  { to: 'in_progress', label: 'Начать выполнение', from: ['waiting', 'postponed', 'completed'] },
   { to: 'completed', label: 'Завершить', from: ['waiting', 'in_progress', 'postponed'] },
   { to: 'postponed', label: 'Отложить', from: ['waiting', 'in_progress'] },
-  { to: 'in_progress', label: 'Вернуть в работу', from: ['completed'] },
 ];
 
 /** «Осталось 3 дня», «Осталось 5 ч», «Просрочено на 2 ч». */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
-  Archive, ArchiveRestore, CalendarDays, ChevronDown, ChevronRight, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, X,
+  Archive, ArchiveRestore, CalendarDays, ChevronDown, ChevronRight, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, UserRoundCog, X,
 } from 'lucide-react';
 import { useLiveReload } from '../live';
 import { dateTime, fromLocalInput, type Priority, statusActions, statusName, type Status, type TaskCard, toLocalInput, work } from '../work';
@@ -122,6 +122,29 @@ function EditTask({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; o
   );
 }
 
+/** Сменить исполнителя — и у задачи в работе: статус, этапы и чат остаются. */
+function Reassign({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; onSaved: () => void }) {
+  const people = usePeople();
+  const [ids, setIds] = useState((t.assignees ?? []).map((a) => a.id));
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal open onClose={onClose} title="Сменить исполнителя">
+      <form className="flex flex-col gap-4" onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError('');
+        try { await work.reassign(t.id, ids); onSaved(); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
+      }}>
+        <p className="text-sm text-slate-600 dark:text-slate-300">Статус{t.status ? ` «${statusName[t.status]}»` : ""}, этапы и чат сохранятся. Новый исполнитель увидит задачу сразу.</p>
+        <PeoplePicker people={people} value={ids} onChange={setIds} />
+        <ErrorText>{error}</ErrorText>
+        <Button type="submit" busy={busy} disabled={!ids.length}>Сохранить</Button>
+      </form>
+    </Modal>
+  );
+}
+
 const longDate = (ms: number) => new Date(ms).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 
 export function TaskPage() {
@@ -131,6 +154,7 @@ export function TaskPage() {
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [editing, setEditing] = useState(false);
+  const [reassigning, setReassigning] = useState(false);
   const [sub, setSub] = useState(false);
   const [trash, setTrash] = useState(false);
 
@@ -182,6 +206,11 @@ export function TaskPage() {
               {t.assignees?.length ? (
                 <span className="flex flex-col gap-1.5">{t.assignees.map((a) => <span key={a.id} className="flex items-center gap-2"><Avatar name={a.name} size="sm" />{a.name}</span>)}</span>
               ) : <span className="text-slate-400">не назначен</span>}
+              {t.can_reassign && !archived && (
+                <button className="mt-1.5 flex items-center gap-1 text-sm text-brand-600 hover:underline" onClick={() => setReassigning(true)}>
+                  <UserRoundCog className="size-4" />Сменить исполнителя
+                </button>
+              )}
             </Row>
             <Row label="Крайний срок">
               <span className="flex flex-wrap items-center gap-2"><CalendarDays className="size-4 text-brand-500" />{t.deadline_at && longDate(t.deadline_at)}<DeadlineText t={t} /></span>
@@ -223,7 +252,7 @@ export function TaskPage() {
 
         {/* Нижняя панель действий — как кнопки «Начать / Завершить / ⋯» */}
         <div className="sticky bottom-0 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 dark:border-slate-800 dark:bg-slate-900">
-          {primary && <Button onClick={() => setStatus(primary.to)}>{status === 'completed' ? 'Вернуть в работу' : primary.to === 'in_progress' ? 'Начать' : 'Завершить'}</Button>}
+          {primary && <Button onClick={() => setStatus(primary.to)}>{primary.to === 'in_progress' ? 'Начать' : 'Завершить'}</Button>}
           {secondary.map((a) => <Button key={a.to} variant="secondary" onClick={() => setStatus(a.to)}>Завершить</Button>)}
           {archived && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.unarchive(t.id), 'Задача восстановлена из архива.')}><ArchiveRestore className="size-4" />Восстановить</Button>}
           {archived && t.can_archive && t.can_change_status && (
@@ -249,6 +278,7 @@ export function TaskPage() {
           participants={[t.created_by.name, ...(t.assignees ?? []).map((a) => a.name)]} />
       </section>
 
+      {reassigning && <Reassign t={t} onClose={() => setReassigning(false)} onSaved={() => { setReassigning(false); load(); }} />}
       {editing && <EditTask t={t} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />}
       <TaskForm open={sub} onClose={() => setSub(false)} parent={{ id: t.id, deadline_at: t.deadline_at, title: t.title }} onCreated={(nid) => { setSub(false); navigate(`/tasks/${nid}`); }} />
       <Modal open={trash} onClose={() => setTrash(false)} title="Убрать задачу в корзину?">

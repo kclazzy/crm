@@ -338,7 +338,7 @@ async fn subtask_rules_and_path_only_parents() {
         )
         .await;
     assert!(
-        chat.to_string().contains("вернул(а) задачу в работу"),
+        chat.to_string().contains("начал(а) выполнение задачи"),
         "{chat}"
     );
 }
@@ -410,6 +410,103 @@ async fn fixed_statuses_for_creator_and_assignee_only() {
         text.contains("отложил(а) задачу") && text.contains("Статус: «Завершена»"),
         "{text}"
     );
+}
+
+#[tokio::test]
+async fn assignee_changes_while_task_is_in_progress() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (emp_id, emp) = app.member(&owner, "ivan", "employee", "10.0.0.2").await;
+    let (petr_id, petr) = app.member(&owner, "petr", "employee", "10.0.0.4").await;
+    let (_, outsider) = app.member(&owner, "olga", "employee", "10.0.0.5").await;
+    let c = client(&app, &owner, "Клиент").await;
+    let t = new_task(
+        &app,
+        &owner,
+        json!({"client_id": c, "title": "Отчёт", "priority": 2, "deadline_at": soon(3), "assignees": [emp_id]}),
+    )
+    .await;
+    let url = format!("/api/tasks/{t}");
+    let (s, _) = app
+        .call(
+            "POST",
+            &format!("{url}/status"),
+            LOCAL,
+            Some(&emp),
+            Some(json!({"status": "in_progress"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&emp), None).await;
+    assert_eq!(
+        card["can_reassign"], true,
+        "исполнитель может передать задачу"
+    );
+
+    let reassign = |tok: String, ids: Value| {
+        let (app, url) = (&app, url.clone());
+        async move {
+            app.call(
+                "PUT",
+                &format!("{url}/assignees"),
+                LOCAL,
+                Some(&tok),
+                Some(json!({"assignees": ids})),
+            )
+            .await
+        }
+    };
+    let (s, _) = reassign(outsider.clone(), json!([petr_id])).await;
+    assert!(
+        s == StatusCode::NOT_FOUND || s == StatusCode::FORBIDDEN,
+        "посторонний не меняет: {s}"
+    );
+    let (s, v) = reassign(emp.clone(), json!([])).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "без исполнителя нельзя: {v}");
+
+    // Исполнитель передаёт задачу в работе — статус и чат сохраняются.
+    let (s, v) = reassign(emp.clone(), json!([petr_id])).await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{v}");
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&petr), None).await;
+    assert_eq!(card["status"], "in_progress");
+    assert_eq!(card["assignees"][0]["id"], petr_id.as_str());
+    assert_eq!(
+        card["can_change_status"], true,
+        "новый исполнитель ведёт задачу"
+    );
+    let (_, chat) = app
+        .call("GET", &format!("{url}/messages"), LOCAL, Some(&petr), None)
+        .await;
+    let text = chat.to_string();
+    assert!(
+        text.contains("Сотрудник сменил(а) исполнителя: Сотрудник → Сотрудник"),
+        "{text}"
+    );
+
+    // Прежний исполнитель больше не участник; постановщик может сменить обратно.
+    let (s, _) = app.call("GET", &url, LOCAL, Some(&emp), None).await;
+    assert!(
+        s == StatusCode::NOT_FOUND || s == StatusCode::FORBIDDEN,
+        "{s}"
+    );
+    let (s, _) = reassign(owner.clone(), json!([emp_id, petr_id])).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+
+    // В архиве не меняется.
+    for to in ["completed"] {
+        app.call(
+            "POST",
+            &format!("{url}/status"),
+            LOCAL,
+            Some(&petr),
+            Some(json!({"status": to})),
+        )
+        .await;
+    }
+    app.call("POST", &format!("{url}/archive"), LOCAL, Some(&petr), None)
+        .await;
+    let (s, _) = reassign(owner.clone(), json!([petr_id])).await;
+    assert_eq!(s, StatusCode::CONFLICT);
 }
 
 #[tokio::test]

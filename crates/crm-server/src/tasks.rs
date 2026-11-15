@@ -9,9 +9,9 @@ use chrono::{Duration, TimeZone, Utc};
 use crm_core::access::{ClientAccess, TaskAccess};
 use crm_core::auth::Role;
 use crm_core::task::{
-    check_archive, check_can_complete, check_reopen, check_status_change, check_subtask_deadline,
-    check_transition, completed_at_after, deadline_state, parse_title, DeadlineState, Involvement,
-    Priority, TaskStatus,
+    check_archive, check_can_complete, check_reassign, check_reopen, check_status_change,
+    check_subtask_deadline, check_transition, completed_at_after, deadline_state, parse_title,
+    DeadlineState, Involvement, Priority, TaskStatus,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -285,6 +285,8 @@ pub struct TaskCard {
     can_trash: bool,
     /// Можно нажимать «Начать / Завершить / Отложить».
     can_change_status: bool,
+    /// Можно сменить исполнителя (не в архиве).
+    can_reassign: bool,
     /// Можно убрать в архив или вернуть из него.
     can_archive: bool,
     archived_by: Option<String>,
@@ -352,6 +354,7 @@ pub async fn get(
         access.can_manage() && (scope.actor.role == Role::Host || by_id_user == user.id);
     let who = involvement(&app.pool, &id, &user).await?;
     let can_change_status = check_status_change(who).is_ok();
+    let can_reassign = check_reassign(who, access.can_manage(), 1).is_ok();
     let can_archive = who.is_owner || who.is_assignee;
     let archived_by: Option<String> = sqlx::query_scalar(
         "SELECT u.display_name FROM tasks t JOIN users u ON u.id = t.archived_by WHERE t.id = ?",
@@ -372,6 +375,7 @@ pub async fn get(
         parent_deadline_at,
         can_trash,
         can_change_status,
+        can_reassign,
         can_archive,
         archived_by,
     }))
@@ -761,6 +765,51 @@ pub async fn update(
 }
 
 #[derive(Deserialize)]
+pub struct AssigneesIn {
+    assignees: Vec<String>,
+}
+
+/// Сменить исполнителя — в том числе у задачи в работе: статус, этапы и чат сохраняются.
+pub async fn reassign(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+    Json(req): Json<AssigneesIn>,
+) -> Result<StatusCode, ApiError> {
+    let scope = Scope::load(&app.pool, &user).await?;
+    let access = scope.task_or_404(&id)?;
+    let mut ids = req.assignees;
+    ids.sort();
+    ids.dedup();
+    let who = involvement(&app.pool, &id, &user).await?;
+    check_reassign(who, access.can_manage(), ids.len())
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    if current(&app.pool, &id).await?.archived_at.is_some() {
+        return Err(ApiError::Conflict("задача в архиве — сначала верните её"));
+    }
+    let before: Vec<String> =
+        sqlx::query_scalar("SELECT user_id FROM task_assignees WHERE task_id = ? ORDER BY user_id")
+            .bind(&id)
+            .fetch_all(&app.pool)
+            .await?;
+    if before == ids {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let text = format!(
+        "{} сменил(а) исполнителя: {} → {}",
+        user.display_name,
+        names(&app.pool, &before).await?,
+        names(&app.pool, &ids).await?
+    );
+    let mut tx = app.pool.begin().await?;
+    set_assignees(&mut tx, &id, &ids).await?;
+    system(&mut tx, &id, &user.id, &text).await?;
+    tx.commit().await?;
+    task_changed(&app, &id, "updated").await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
 pub struct StatusIn {
     status: TaskStatus,
 }
@@ -794,9 +843,9 @@ async fn involvement(
 }
 
 /// «Иван Петров начал выполнение» — запись в чат при смене статуса.
-fn status_phrase(from: TaskStatus, to: TaskStatus) -> &'static str {
+/// Одинаково для любого пути, в том числе для завершённой и возвращённой из архива задачи.
+fn status_phrase(to: TaskStatus) -> &'static str {
     match to {
-        TaskStatus::InProgress if from == TaskStatus::Completed => "вернул(а) задачу в работу",
         TaskStatus::InProgress => "начал(а) выполнение задачи",
         TaskStatus::Completed => "завершил(а) задачу",
         TaskStatus::Postponed => "отложил(а) задачу",
@@ -867,7 +916,7 @@ pub async fn set_status(
             &format!(
                 "{} {}. Статус: «{}»",
                 user.display_name,
-                status_phrase(from, req.status),
+                status_phrase(req.status),
                 req.status.label()
             ),
         )
