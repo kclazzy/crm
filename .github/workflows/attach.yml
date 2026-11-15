@@ -1,0 +1,30 @@
+name: Attach installer
+# Прикрепляет уже собранный установщик (артефакт CRM-Setup успешной сборки
+# того же коммита, что и тег) к существующему релизу. Запуск вручную:
+# Actions → Attach installer → Run workflow → тег.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег релиза (например 0.2.3)'
+        required: true
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      R: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Найти сборку коммита тега
+        run: |
+          sha=$(gh api "repos/$R/commits/$TAG" -q .sha)
+          id=$(gh api "repos/$R/actions/runs?head_sha=$sha&status=success&per_page=20" \
+            -q '[.workflow_runs[] | select(.name=="CI")][0].id')
+          test -n "$id" && test "$id" != "null" || { echo "нет успешной сборки для $sha"; exit 1; }
+          echo "RUN=$id" >> "$GITHUB_ENV"
+      - run: gh run download "$RUN" -R "$R" -n CRM-Setup -D out
+      - run: gh release upload "$TAG" out/*-setup.exe -R "$R" --clobber
