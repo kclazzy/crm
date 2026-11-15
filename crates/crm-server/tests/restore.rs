@@ -201,3 +201,161 @@ async fn move_package_carries_data_files_and_freezes_old_server() {
         b"%PDF data"
     );
 }
+
+/// Копия сервера «Старый офис» — путь к файлу копии.
+async fn backup_of(app: &App, owner: &str) -> std::path::PathBuf {
+    let backups = app.dir().join("backups");
+    app.call(
+        "PUT",
+        "/api/admin/backup",
+        LOCAL,
+        Some(owner),
+        Some(json!({"dirs": [backups]})),
+    )
+    .await;
+    let (s, b) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    backups.join(b["name"].as_str().unwrap())
+}
+
+#[tokio::test]
+async fn import_db_merges_into_existing_server_without_duplicates() {
+    // Старый сервер: Иван ведёт задачу клиента «ООО Старое».
+    let old = App::new().await;
+    let old_owner = old.owner().await;
+    let (old_ivan, ivan_tok) = old.member(&old_owner, "ivan", "employee", "10.0.0.2").await;
+    let (s, c) = old
+        .call(
+            "POST",
+            "/api/clients",
+            LOCAL,
+            Some(&old_owner),
+            Some(json!({"kind": "company", "name": "ООО Старое", "tags": ["VIP"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED);
+    let deadline = chrono::Utc::now().timestamp_millis() + 86_400_000;
+    let (s, t) = old
+        .call("POST", "/api/tasks", LOCAL, Some(&old_owner), Some(json!({
+            "client_id": c["id"], "title": "Перенести архив", "priority": 2, "deadline_at": deadline, "assignees": [old_ivan]
+        })))
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{t}");
+    let task = t["id"].as_str().unwrap().to_owned();
+    old.call(
+        "POST",
+        &format!("/api/tasks/{task}/messages"),
+        LOCAL,
+        Some(&ivan_tok),
+        Some(json!({"content": "Начал перенос"})),
+    )
+    .await;
+    let file = backup_of(&old, &old_owner).await;
+
+    // Новый сервер: свой владелец, свой Иван (тот же логин) и Пётр, клиент «ООО Новое».
+    let new = App::new().await;
+    let owner = new.owner().await;
+    let (ivan, _) = new.member(&owner, "ivan", "employee", "10.0.0.2").await;
+    new.member(&owner, "petr", "employee", "10.0.0.4").await;
+    add_client(&new, &owner, "ООО Новое").await;
+
+    let body = json!({"source": file, "mode": "merge"});
+    let (_, emp) = new.member(&owner, "olga", "employee", "10.0.0.5").await;
+    let (s, _) = new
+        .call(
+            "POST",
+            "/api/admin/import-db",
+            LOCAL,
+            Some(&emp),
+            Some(body.clone()),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, r) = new
+        .call(
+            "POST",
+            "/api/admin/import-db",
+            LOCAL,
+            Some(&owner),
+            Some(body.clone()),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["added"]["clients"], 1, "{r}");
+    assert_eq!(r["added"]["tasks"], 1, "{r}");
+    assert_eq!(r["merged_users"], 2, "владелец и Иван совпали: {r}");
+
+    // Клиенты обоих серверов; задача у «нашего» Ивана; сообщение на месте; владелец один.
+    assert_eq!(names(&new.pool).await, ["ООО Новое", "ООО Старое"]);
+    let (_, card) = new
+        .call(
+            "GET",
+            &format!("/api/tasks/{task}"),
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(card["assignees"][0]["id"], ivan.as_str(), "{card}");
+    let (_, chat) = new
+        .call(
+            "GET",
+            &format!("/api/tasks/{task}/messages"),
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert!(chat.to_string().contains("Начал перенос"), "{chat}");
+    let hosts: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE role = 'host'")
+        .fetch_one(&new.pool)
+        .await
+        .unwrap();
+    assert_eq!(hosts, 1);
+    let ivans: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE username = 'ivan'")
+        .fetch_one(&new.pool)
+        .await
+        .unwrap();
+    assert_eq!(ivans, 1);
+
+    // Повтор ничего не добавляет.
+    let (s, r) = new
+        .call(
+            "POST",
+            "/api/admin/import-db",
+            LOCAL,
+            Some(&owner),
+            Some(body),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["added"]["clients"], 0, "{r}");
+    assert_eq!(names(&new.pool).await, ["ООО Новое", "ООО Старое"]);
+}
+
+#[tokio::test]
+async fn import_db_replace_stages_like_restore() {
+    let old = App::new().await;
+    let old_owner = old.owner().await;
+    add_client(&old, &old_owner, "Только на старом").await;
+    let file = backup_of(&old, &old_owner).await;
+    let new = App::new().await;
+    let owner = new.owner().await;
+    let (s, r) = new
+        .call(
+            "POST",
+            "/api/admin/import-db",
+            LOCAL,
+            Some(&owner),
+            Some(json!({"source": file, "mode": "replace"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["restart"], true, "{r}");
+    assert!(
+        new.dir().join("data").join("crm.db.restore").exists() || r["staged"].is_object(),
+        "{r}"
+    );
+}

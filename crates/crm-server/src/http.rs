@@ -123,6 +123,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/backups", get(crate::admin::backups))
         .route("/api/admin/security", get(crate::admin::security))
         .route("/api/admin/restore", post(crate::admin::restore))
+        .route("/api/admin/import-db", post(crate::merge::import_db))
         .route(
             "/api/admin/connection-key",
             post(crate::connect::connection_key),

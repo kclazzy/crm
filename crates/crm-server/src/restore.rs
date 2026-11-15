@@ -228,7 +228,7 @@ fn walk(dir: &Path) -> Vec<(String, PathBuf)> {
 }
 
 /// Распаковка пакета. Имена внутри — недоверенные: только безопасные относительные пути.
-fn unzip(pack: &Path, to: &Path) -> Result<(), RestoreError> {
+pub(crate) fn unzip(pack: &Path, to: &Path) -> Result<(), RestoreError> {
     let f = std::fs::File::open(pack).map_err(io(pack))?;
     let mut z = zip::ZipArchive::new(f).map_err(|e| RestoreError::Zip(e.to_string()))?;
     for i in 0..z.len() {

@@ -16,6 +16,7 @@ pub mod folders;
 pub mod http;
 pub mod limits;
 pub mod logging;
+pub mod merge;
 pub mod notify;
 pub mod org;
 pub mod recovery;
