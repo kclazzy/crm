@@ -170,6 +170,8 @@ fn work_routes() -> Router<AppState> {
         .route("/api/tasks/{id}/status", post(tasks::set_status))
         .route("/api/tasks/{id}/restore", post(tasks::restore))
         .route("/api/tasks/{id}/unarchive", post(tasks::unarchive))
+        .route("/api/tasks/{id}/archive", post(tasks::archive))
+        .route("/api/tasks/{id}/purge", delete(tasks::purge))
         .route("/api/tasks/{id}/stages", post(tasks::add_stage))
         .route(
             "/api/stages/{id}",

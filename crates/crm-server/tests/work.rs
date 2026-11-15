@@ -298,7 +298,7 @@ async fn subtask_rules_and_path_only_parents() {
             .await;
         assert_eq!(s, StatusCode::OK, "{v}");
     }
-    let (s, _) = app
+    let (s, v) = app
         .call(
             "POST",
             &format!("/api/tasks/{sub}/status"),
@@ -307,7 +307,84 @@ async fn subtask_rules_and_path_only_parents() {
             Some(json!({"status": "in_progress"})),
         )
         .await;
-    assert_eq!(s, StatusCode::CONFLICT);
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "завершённая задача дальше — только в архив"
+    );
+    assert!(
+        v["error"].as_str().unwrap().contains("нельзя перейти"),
+        "{v}"
+    );
+}
+
+#[tokio::test]
+async fn fixed_statuses_for_creator_and_assignee_only() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (emp_id, emp) = app.member(&owner, "ivan", "employee", "10.0.0.2").await;
+    let (_, mgr) = app.member(&owner, "manager1", "manager", "10.0.0.3").await;
+    let c = client(&app, &owner, "Клиент").await;
+    let t = new_task(
+        &app,
+        &owner,
+        json!({"client_id": c, "title": "Запрос", "priority": 2, "deadline_at": soon(3), "assignees": [emp_id]}),
+    )
+    .await;
+    let (_, card) = app
+        .call("GET", &format!("/api/tasks/{t}"), LOCAL, Some(&emp), None)
+        .await;
+    assert_eq!(
+        card["status"], "waiting",
+        "после создания — «Ждёт выполнения»"
+    );
+    assert_eq!(card["can_change_status"], true);
+
+    let status = |tok: String, to: &'static str| {
+        let (app, t) = (&app, t.clone());
+        async move {
+            app.call(
+                "POST",
+                &format!("/api/tasks/{t}/status"),
+                LOCAL,
+                Some(&tok),
+                Some(json!({"status": to})),
+            )
+            .await
+        }
+    };
+    // Руководитель группы видит задачу, но не постановщик и не исполнитель.
+    let (s, v) = status(mgr.clone(), "in_progress").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
+    assert!(v["error"]
+        .as_str()
+        .unwrap()
+        .contains("постановщик, исполнитель"));
+    let (s, _) = status(emp.clone(), "waiting").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "в «Ждёт» вручную не вернуть");
+    for (who, to) in [
+        (emp.clone(), "in_progress"),
+        (owner.clone(), "postponed"),
+        (emp.clone(), "in_progress"),
+        (emp.clone(), "completed"),
+    ] {
+        let (s, v) = status(who, to).await;
+        assert_eq!(s, StatusCode::OK, "{to}: {v}");
+    }
+    let (_, chat) = app
+        .call(
+            "GET",
+            &format!("/api/tasks/{t}/messages"),
+            LOCAL,
+            Some(&emp),
+            None,
+        )
+        .await;
+    let text = chat.to_string();
+    assert!(
+        text.contains("отложил(а) задачу") && text.contains("Статус: «Завершена»"),
+        "{text}"
+    );
 }
 
 #[tokio::test]

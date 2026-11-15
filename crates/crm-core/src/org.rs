@@ -1,4 +1,4 @@
-//! Настройки организации: рабочее время, порог «скоро дедлайн», автоархив (ТЗ §4.3–4.5).
+//! Настройки организации: рабочее время и порог «скоро дедлайн» (ТЗ §4.3, §4.5).
 
 use chrono::{NaiveDate, NaiveTime, Weekday};
 use serde::{Deserialize, Serialize};
@@ -32,8 +32,6 @@ pub struct RawOrg {
     pub holidays: Vec<NaiveDate>,
     /// За сколько часов до дедлайна задача становится «скоро».
     pub warn_hours: u32,
-    /// Через сколько дней после завершения задача уходит в архив.
-    pub archive_after_days: u32,
 }
 
 impl Default for RawOrg {
@@ -45,7 +43,6 @@ impl Default for RawOrg {
             work_end: "19:00".into(),
             holidays: Vec::new(),
             warn_hours: 24,
-            archive_after_days: 7,
         }
     }
 }
@@ -60,8 +57,6 @@ pub enum OrgError {
     Day(u8),
     #[error("порог «скоро дедлайн»: от 1 до 168 часов")]
     WarnHours,
-    #[error("автоархив: от 1 до 365 дней")]
-    ArchiveDays,
     #[error("{0}")]
     Schedule(#[from] ScheduleError),
 }
@@ -71,9 +66,6 @@ impl TryFrom<RawOrg> for OrgSettings {
     fn try_from(raw: RawOrg) -> Result<Self, OrgError> {
         if !(1..=168).contains(&raw.warn_hours) {
             return Err(OrgError::WarnHours);
-        }
-        if !(1..=365).contains(&raw.archive_after_days) {
-            return Err(OrgError::ArchiveDays);
         }
         let schedule = build_schedule(&raw)?;
         Ok(Self { raw, schedule })
@@ -128,10 +120,6 @@ impl OrgSettings {
     pub fn warn_hours(&self) -> i64 {
         i64::from(self.raw.warn_hours)
     }
-
-    pub fn archive_after_days(&self) -> i64 {
-        i64::from(self.raw.archive_after_days)
-    }
 }
 
 #[cfg(test)]
@@ -161,7 +149,6 @@ mod tests {
         assert!(parse(r#"{"work_days":[]}"#).is_err());
         assert!(parse(r#"{"work_start":"19:00","work_end":"09:00"}"#).is_err());
         assert!(parse(r#"{"warn_hours":0}"#).is_err());
-        assert!(parse(r#"{"archive_after_days":0}"#).is_err());
     }
 
     #[test]

@@ -9,8 +9,9 @@ use chrono::{Duration, TimeZone, Utc};
 use crm_core::access::{ClientAccess, TaskAccess};
 use crm_core::auth::Role;
 use crm_core::task::{
-    check_can_complete, check_subtask_deadline, completed_at_after, deadline_state, parse_title,
-    DeadlineState, Priority, TaskStatus,
+    check_archive, check_can_complete, check_status_change, check_subtask_deadline,
+    check_transition, completed_at_after, deadline_state, parse_title, DeadlineState, Involvement,
+    Priority, TaskStatus,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -190,6 +191,15 @@ pub struct ListQuery {
     archived: bool,
     #[serde(default)]
     priority: Option<i64>,
+    /// `assignee` — я исполнитель, `creator` — я постановщик.
+    #[serde(default)]
+    role: Option<String>,
+    /// Поиск по названию задачи и клиента.
+    #[serde(default)]
+    q: Option<String>,
+    /// Только просроченные.
+    #[serde(default)]
+    overdue: bool,
 }
 
 pub async fn list(
@@ -199,16 +209,42 @@ pub async fn list(
 ) -> Result<Json<Vec<TaskSummary>>, ApiError> {
     let scope = Scope::load(&app.pool, &user).await?;
     let mine = q.view.as_deref() == Some("mine");
+    let created: std::collections::HashSet<String> = if q.role.as_deref() == Some("creator") {
+        sqlx::query_scalar("SELECT id FROM tasks WHERE created_by = ?")
+            .bind(&user.id)
+            .fetch_all(&app.pool)
+            .await?
+            .into_iter()
+            .collect()
+    } else {
+        Default::default()
+    };
+    let needle =
+        q.q.as_deref()
+            .map(str::to_lowercase)
+            .filter(|s| !s.trim().is_empty());
     let out = summaries(&app, &scope, &user.id)
         .await?
         .into_iter()
         .filter(|t| {
             let Some(d) = &t.details else { return false };
+            let is_assignee = d.assignees.iter().any(|a| a.id == user.id);
+            let role_ok = match q.role.as_deref() {
+                Some("assignee") => is_assignee,
+                Some("creator") => created.contains(&t.id),
+                _ => true,
+            };
             (d.archived_at.is_some() == q.archived)
-                && (!mine || d.assignees.iter().any(|a| a.id == user.id))
+                && (!mine || is_assignee)
+                && role_ok
+                && (!q.overdue || d.deadline_state == DeadlineState::Overdue)
                 && q.status.is_none_or(|s| d.status == s)
                 && q.priority.is_none_or(|p| i64::from(d.priority) == p)
                 && q.client_id.as_ref().is_none_or(|c| *c == t.client_id)
+                && needle.as_ref().is_none_or(|n| {
+                    t.title.to_lowercase().contains(n.as_str())
+                        || t.client_name.to_lowercase().contains(n.as_str())
+                })
         })
         .collect();
     Ok(Json(out))
@@ -244,6 +280,11 @@ pub struct TaskCard {
     subtasks: Vec<TaskSummary>,
     parent_deadline_at: Option<i64>,
     can_trash: bool,
+    /// Можно нажимать «Начать / Завершить / Отложить».
+    can_change_status: bool,
+    /// Можно убрать в архив или вернуть из него.
+    can_archive: bool,
+    archived_by: Option<String>,
 }
 
 async fn stages(pool: &SqlitePool, task: &str) -> Result<Vec<Stage>, ApiError> {
@@ -306,6 +347,15 @@ pub async fn get(
     .await?;
     let can_trash =
         access.can_manage() && (scope.actor.role == Role::Host || by_id_user == user.id);
+    let who = involvement(&app.pool, &id, &user).await?;
+    let can_change_status = check_status_change(who).is_ok();
+    let can_archive = who.is_owner || who.is_assignee;
+    let archived_by: Option<String> = sqlx::query_scalar(
+        "SELECT u.display_name FROM tasks t JOIN users u ON u.id = t.archived_by WHERE t.id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&app.pool)
+    .await?;
     Ok(Json(TaskCard {
         summary,
         description: description.unwrap_or_default(),
@@ -318,6 +368,9 @@ pub async fn get(
         subtasks,
         parent_deadline_at,
         can_trash,
+        can_change_status,
+        can_archive,
+        archived_by,
     }))
 }
 
@@ -459,7 +512,7 @@ pub async fn create(
     sqlx::query(
         "INSERT INTO tasks(id, client_id, parent_task_id, title, description, priority, status,
                            created_by, created_at, deadline_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?)",
     )
     .bind(&id)
     .bind(&client_id)
@@ -561,6 +614,28 @@ pub(crate) fn fmt_time(tz: chrono_tz::Tz, t: i64) -> String {
         .to_string()
 }
 
+/// «5 ноября 2026, 07:00» — как в записях чата.
+pub(crate) fn fmt_long(tz: chrono_tz::Tz, t: i64) -> String {
+    const MONTHS: [&str; 12] = [
+        "января",
+        "февраля",
+        "марта",
+        "апреля",
+        "мая",
+        "июня",
+        "июля",
+        "августа",
+        "сентября",
+        "октября",
+        "ноября",
+        "декабря",
+    ];
+    use chrono::Datelike;
+    let d = ms(t).with_timezone(&tz);
+    let month = MONTHS.get(d.month0() as usize).copied().unwrap_or("");
+    format!("{} {month} {}, {}", d.day(), d.year(), d.format("%H:%M"))
+}
+
 fn priority_label(p: i64) -> &'static str {
     match p {
         1 => "P1 высокий",
@@ -659,9 +734,8 @@ pub async fn update(
                 &id,
                 &user.id,
                 &format!(
-                    "{who} изменил дедлайн: {} → {}",
-                    fmt_time(tz, cur.deadline_at),
-                    fmt_time(tz, d)
+                    "{who} изменил(а) крайний срок задачи на {}",
+                    fmt_long(tz, d)
                 ),
             )
             .await?;
@@ -694,11 +768,35 @@ pub struct StatusOut {
     open_stages: i64,
 }
 
-fn status_label(s: TaskStatus) -> &'static str {
-    match s {
-        TaskStatus::New => "Новая",
-        TaskStatus::InProgress => "В работе",
-        TaskStatus::Completed => "Завершена",
+/// Кто пользователь для этой задачи: постановщик, исполнитель, владелец.
+async fn involvement(
+    pool: &SqlitePool,
+    task: &str,
+    user: &CurrentUser,
+) -> Result<Involvement, ApiError> {
+    let (creator, assignee): (String, bool) = sqlx::query_as(
+        "SELECT created_by, EXISTS (SELECT 1 FROM task_assignees WHERE task_id = t.id AND user_id = ?)
+         FROM tasks t WHERE id = ?",
+    )
+    .bind(&user.id)
+    .bind(task)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    Ok(Involvement {
+        is_owner: user.role == Role::Host,
+        is_creator: creator == user.id,
+        is_assignee: assignee,
+    })
+}
+
+/// «Иван Петров начал выполнение» — запись в чат при смене статуса.
+fn status_phrase(to: TaskStatus) -> &'static str {
+    match to {
+        TaskStatus::InProgress => "начал(а) выполнение задачи",
+        TaskStatus::Completed => "завершил(а) задачу",
+        TaskStatus::Postponed => "отложил(а) задачу",
+        TaskStatus::Waiting => "вернул(а) задачу в ожидание",
     }
 }
 
@@ -709,9 +807,9 @@ pub async fn set_status(
     Json(req): Json<StatusIn>,
 ) -> Result<Json<StatusOut>, ApiError> {
     let scope = Scope::load(&app.pool, &user).await?;
-    if !scope.task_or_404(&id)?.can_work() {
-        return Err(ApiError::Forbidden);
-    }
+    scope.task_or_404(&id)?;
+    check_status_change(involvement(&app.pool, &id, &user).await?)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     let cur = current(&app.pool, &id).await?;
     if cur.archived_at.is_some() {
         return Err(ApiError::Conflict("задача в архиве — сначала верните её"));
@@ -720,6 +818,7 @@ pub async fn set_status(
         .status
         .parse()
         .map_err(|_| ApiError::Corrupt(format!("статус «{}»", cur.status)))?;
+    check_transition(from, req.status)?;
     let open_children: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM tasks WHERE parent_task_id = ? AND deleted_at IS NULL AND status <> 'completed'",
     )
@@ -730,15 +829,6 @@ pub async fn set_status(
         req.status,
         usize::try_from(open_children).unwrap_or(usize::MAX),
     )?;
-    if from == TaskStatus::Completed && req.status != TaskStatus::Completed {
-        if let Some(p) = &cur.parent_task_id {
-            if parent_of(&app.pool, p).await?.status == TaskStatus::Completed.as_str() {
-                return Err(ApiError::Conflict(
-                    "родительская задача завершена — сначала переоткройте её",
-                ));
-            }
-        }
-    }
     let open_stages: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM task_stages WHERE task_id = ? AND completed_at IS NULL",
     )
@@ -759,10 +849,10 @@ pub async fn set_status(
             &id,
             &user.id,
             &format!(
-                "{} сменил статус: {} → {}",
+                "{} {}. Статус: «{}»",
                 user.display_name,
-                status_label(from),
-                status_label(req.status)
+                status_phrase(req.status),
+                req.status.label()
             ),
         )
         .await?;
@@ -949,26 +1039,116 @@ pub async fn restore(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Вернуть из архива задачу, её подзадачи и родителей.
+/// Проверка прав на архив: задача видна, завершена, пользователь — исполнитель или владелец.
+async fn archive_check(app: &AppState, user: &CurrentUser, id: &str) -> Result<Current, ApiError> {
+    let scope = Scope::load(&app.pool, user).await?;
+    scope.task_or_404(id)?;
+    let cur = current(&app.pool, id).await?;
+    let status: TaskStatus = cur
+        .status
+        .parse()
+        .map_err(|_| ApiError::Corrupt(format!("статус «{}»", cur.status)))?;
+    check_archive(involvement(&app.pool, id, user).await?, status)?;
+    Ok(cur)
+}
+
+/// В архив: завершённая задача вместе с подзадачами. Убирает исполнитель или владелец.
+pub async fn archive(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let cur = archive_check(&app, &user, &id).await?;
+    if cur.archived_at.is_some() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let mut tx = app.pool.begin().await?;
+    sqlx::query(
+        "WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN down ON t.parent_task_id = down.id)
+         UPDATE tasks SET archived_at = ?, archived_by = ?
+         WHERE id IN (SELECT id FROM down) AND status = 'completed' AND archived_at IS NULL",
+    )
+    .bind(&id)
+    .bind(now_ms())
+    .bind(&user.id)
+    .execute(&mut *tx)
+    .await?;
+    system(
+        &mut tx,
+        &id,
+        &user.id,
+        &format!("{} убрал(а) задачу в архив", user.display_name),
+    )
+    .await?;
+    tx.commit().await?;
+    task_changed(&app, &id, "archived").await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Восстановить из архива: задача, её подзадачи и родители, если они тоже в архиве.
 pub async fn unarchive(
     State(app): State<AppState>,
     user: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
-    scope.require_manage_task(&id)?;
+    archive_check(&app, &user, &id).await?;
+    let mut tx = app.pool.begin().await?;
     sqlx::query(
         "WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN down ON t.parent_task_id = down.id),
               up(id, parent) AS (SELECT id, parent_task_id FROM tasks WHERE id = ?
                                  UNION SELECT t.id, t.parent_task_id FROM tasks t JOIN up ON t.id = up.parent)
-         UPDATE tasks SET archived_at = NULL
+         UPDATE tasks SET archived_at = NULL, archived_by = NULL
          WHERE id IN (SELECT id FROM down UNION SELECT id FROM up)",
     )
     .bind(&id)
     .bind(&id)
-    .execute(&app.pool)
+    .execute(&mut *tx)
     .await?;
+    system(
+        &mut tx,
+        &id,
+        &user.id,
+        &format!("{} восстановил(а) задачу из архива", user.display_name),
+    )
+    .await?;
+    tx.commit().await?;
     task_changed(&app, &id, "unarchived").await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Удалить из архива навсегда (с подзадачами, чатом и файлами) — только владелец.
+pub async fn purge(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    if user.role != Role::Host {
+        return Err(ApiError::Forbidden);
+    }
+    let cur = current(&app.pool, &id).await?;
+    if cur.archived_at.is_none() {
+        return Err(ApiError::Conflict(
+            "удалить навсегда можно только задачу из архива",
+        ));
+    }
+    let to = crate::access::audience(&app.pool, &id).await?;
+    sqlx::query("DELETE FROM tasks WHERE id = ?")
+        .bind(&id)
+        .execute(&app.pool)
+        .await?;
+    crate::attachments::collect_garbage(&app).await?;
+    crate::auth::audit(
+        &app.pool,
+        Some(&user.id),
+        "task.purged",
+        Some(&cur.title),
+        "local",
+    )
+    .await?;
+    app.rt.hub.send(
+        to,
+        serde_json::json!({ "type": "task", "task_id": id, "what": "deleted" }),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -1,4 +1,4 @@
-//! Фоновые работы: напоминания о дедлайнах, автоархив, уборка вложений,
+//! Фоновые работы: напоминания о дедлайнах (и запись в чат задачи), уборка вложений,
 //! снимки диска и тревоги владельцу (ТЗ §2.7, §4.4–4.5, §5).
 
 use std::collections::HashMap;
@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use crm_core::reminders::{due, plan, ReminderKind};
-use crm_core::task::{archive_candidates, ArchiveNode, Priority};
+use crm_core::task::Priority;
 
 use crate::auth::now_ms;
 use crate::http::{ApiError, AppState};
@@ -33,9 +33,6 @@ pub async fn run(app: AppState) {
 }
 
 pub async fn hourly(app: &AppState) {
-    if let Err(e) = archive(app).await {
-        tracing::error!(error = %e, "автоархив");
-    }
     if let Err(e) = crate::attachments::collect_garbage(app).await {
         tracing::error!(error = %e, "уборка вложений");
     }
@@ -74,7 +71,7 @@ pub async fn reminders(app: &AppState) -> Result<usize, ApiError> {
                 t.priority, t.deadline_at
          FROM tasks t JOIN clients c ON c.id = t.client_id
          JOIN task_assignees a ON a.task_id = t.id JOIN users u ON u.id = a.user_id
-         WHERE t.status <> 'completed' AND t.archived_at IS NULL AND t.deleted_at IS NULL
+         WHERE t.status IN ('waiting', 'in_progress') AND t.archived_at IS NULL AND t.deleted_at IS NULL
            AND c.deleted_at IS NULL AND u.is_active = 1",
     )
     .fetch_all(&app.pool)
@@ -138,44 +135,62 @@ pub async fn reminders(app: &AppState) -> Result<usize, ApiError> {
                 }),
             )
             .await?;
+            chat_alert(app, &r.task_id, d.send).await?;
             delivered += 1;
         }
     }
     Ok(delivered)
 }
 
-/// Автоархив завершённых задач старше N дней (всё поддерево).
-pub async fn archive(app: &AppState) -> Result<usize, ApiError> {
-    let org = crate::org::load(&app.pool).await?;
-    let rows: Vec<(String, Option<String>, Option<i64>)> = sqlx::query_as(
-        "SELECT id, parent_task_id, completed_at FROM tasks WHERE deleted_at IS NULL AND archived_at IS NULL",
+/// Запись о сроке в чат задачи — одна на задачу, вид и срок.
+/// «Анна Иванова, задача почти просрочена. Крайний срок задачи 3 ноября 2026, 07:00».
+async fn chat_alert(app: &AppState, task: &str, kind: ReminderKind) -> Result<(), ApiError> {
+    let tag = if kind == ReminderKind::Overdue {
+        "overdue"
+    } else {
+        "soon"
+    };
+    let (deadline, creator): (i64, String) =
+        sqlx::query_as("SELECT deadline_at, created_by FROM tasks WHERE id = ?")
+            .bind(task)
+            .fetch_one(&app.pool)
+            .await?;
+    let fresh = sqlx::query(
+        "INSERT OR IGNORE INTO task_alerts(task_id, kind, deadline_at) VALUES (?, ?, ?)",
     )
+    .bind(task)
+    .bind(tag)
+    .bind(deadline)
+    .execute(&app.pool)
+    .await?
+    .rows_affected()
+        > 0;
+    if !fresh {
+        return Ok(());
+    }
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT u.display_name FROM task_assignees a JOIN users u ON u.id = a.user_id
+         WHERE a.task_id = ? ORDER BY u.display_name",
+    )
+    .bind(task)
     .fetch_all(&app.pool)
     .await?;
-    let nodes: Vec<ArchiveNode> = rows
-        .into_iter()
-        .map(|(id, parent, completed_at)| ArchiveNode {
-            id,
-            parent,
-            completed_at,
-        })
-        .collect();
-    let older_than = now_ms() - org.archive_after_days() * 24 * HOUR_MS;
-    let ids = archive_candidates(&nodes, older_than);
-    let now = now_ms();
+    let who = if names.is_empty() {
+        "Исполнитель не назначен".to_owned()
+    } else {
+        names.join(", ")
+    };
+    let tz = crate::org::load(&app.pool).await?.tz();
+    let when = crate::tasks::fmt_long(tz, deadline);
+    let text = if kind == ReminderKind::Overdue {
+        format!("{who}, задача просрочена {when}. Завершите её как можно скорее или измените крайний срок")
+    } else {
+        format!("{who}, задача почти просрочена. Крайний срок задачи {when}")
+    };
     let mut tx = app.pool.begin().await?;
-    for id in &ids {
-        sqlx::query("UPDATE tasks SET archived_at = ? WHERE id = ? AND archived_at IS NULL AND status = 'completed'")
-            .bind(now)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-    }
+    crate::chat::system(&mut tx, task, &creator, &text).await?;
     tx.commit().await?;
-    if !ids.is_empty() {
-        tracing::info!(count = ids.len(), "задачи ушли в архив");
-    }
-    Ok(ids.len())
+    crate::events::task_changed(app, task, "message").await
 }
 
 async fn owners(app: &AppState) -> Result<Vec<String>, ApiError> {

@@ -89,72 +89,109 @@ async fn reminder_comes_once_and_restarts_after_deadline_change() {
 }
 
 #[tokio::test]
-async fn completed_tasks_go_to_archive_and_come_back() {
+async fn archive_is_manual_restorable_and_purged_only_by_owner() {
     let app = App::new().await;
-    let (owner, _, _, client) = setup(&app).await;
-    let (_, t) = app
-        .call(
-            "POST",
-            "/api/tasks",
-            LOCAL,
-            Some(&owner),
-            Some(json!({
-                "client_id": client, "title": "Старая", "priority": 3, "deadline_at": now() + HOUR
-            })),
-        )
+    let (owner, emp_id, emp, client) = setup(&app).await;
+    let (_, mgr) = app.member(&owner, "manager1", "manager", "10.0.0.6").await;
+    // Постановщик — руководитель, исполнитель — сотрудник.
+    let (s, t) = app
+        .call("POST", "/api/tasks", LOCAL, Some(&mgr), Some(json!({
+            "client_id": client, "title": "Отчёт", "priority": 3, "deadline_at": now() + HOUR, "assignees": [emp_id]
+        })))
         .await;
+    assert_eq!(s, StatusCode::CREATED, "{t}");
     let t = t["id"].as_str().unwrap().to_owned();
+    let arch = |tok: String| {
+        let (app, t) = (&app, t.clone());
+        async move {
+            app.call(
+                "POST",
+                &format!("/api/tasks/{t}/archive"),
+                LOCAL,
+                Some(&tok),
+                None,
+            )
+            .await
+        }
+    };
+    let (s, v) = arch(emp.clone()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "не завершена: {v}");
     app.call(
         "POST",
         &format!("/api/tasks/{t}/status"),
         LOCAL,
-        Some(&owner),
+        Some(&emp),
         Some(json!({"status": "completed"})),
     )
     .await;
+    let (s, v) = arch(mgr.clone()).await;
     assert_eq!(
-        crm_server::workers::archive(&app.state).await.unwrap(),
-        0,
-        "ещё свежая"
+        s,
+        StatusCode::BAD_REQUEST,
+        "постановщик не убирает в архив: {v}"
     );
-    sqlx::query("UPDATE tasks SET completed_at = completed_at - 8 * 24 * 3600 * 1000")
-        .execute(&app.pool)
-        .await
-        .unwrap();
-    assert_eq!(crm_server::workers::archive(&app.state).await.unwrap(), 1);
+    assert!(v["error"]
+        .as_str()
+        .unwrap()
+        .contains("исполнитель или владелец"));
+    let (s, _) = arch(emp.clone()).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
 
     let (_, list) = app
         .call("GET", "/api/tasks", LOCAL, Some(&owner), None)
         .await;
-    assert!(list.as_array().unwrap().is_empty());
+    assert!(
+        list.as_array().unwrap().is_empty(),
+        "в обычных списках архива нет"
+    );
     let (_, list) = app
-        .call("GET", "/api/tasks?archived=true", LOCAL, Some(&owner), None)
+        .call("GET", "/api/tasks?archived=true", LOCAL, Some(&emp), None)
         .await;
     assert_eq!(list.as_array().unwrap().len(), 1);
-    let (s, _) = app
-        .call(
-            "POST",
-            &format!("/api/tasks/{t}/status"),
-            LOCAL,
-            Some(&owner),
-            Some(json!({"status": "in_progress"})),
-        )
+    let (_, card) = app
+        .call("GET", &format!("/api/tasks/{t}"), LOCAL, Some(&emp), None)
         .await;
-    assert_eq!(s, StatusCode::CONFLICT, "из архива сначала вернуть");
+    assert_eq!(card["archived_by"], "Сотрудник");
+
     let (s, _) = app
         .call(
             "POST",
             &format!("/api/tasks/{t}/unarchive"),
+            LOCAL,
+            Some(&emp),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "восстановить может исполнитель");
+    arch(owner.clone()).await;
+    let (s, _) = app
+        .call(
+            "DELETE",
+            &format!("/api/tasks/{t}/purge"),
+            LOCAL,
+            Some(&mgr),
+            None,
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::FORBIDDEN,
+        "удаляет из архива только владелец"
+    );
+    let (s, _) = app
+        .call(
+            "DELETE",
+            &format!("/api/tasks/{t}/purge"),
             LOCAL,
             Some(&owner),
             None,
         )
         .await;
     assert_eq!(s, StatusCode::NO_CONTENT);
-    let (_, list) = app
-        .call("GET", "/api/tasks", LOCAL, Some(&owner), None)
+    let (s, _) = app
+        .call("GET", &format!("/api/tasks/{t}"), LOCAL, Some(&owner), None)
         .await;
-    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(s, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

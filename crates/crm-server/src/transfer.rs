@@ -737,12 +737,7 @@ pub async fn export_tasks(
             Some(vec![
                 t.client_name.clone(),
                 path(&t.id),
-                match d.status {
-                    crm_core::task::TaskStatus::New => "Новая",
-                    crm_core::task::TaskStatus::InProgress => "В работе",
-                    crm_core::task::TaskStatus::Completed => "Завершена",
-                }
-                .into(),
+                d.status.label().into(),
                 format!("P{}", i64::from(d.priority)),
                 d.assignees
                     .iter()

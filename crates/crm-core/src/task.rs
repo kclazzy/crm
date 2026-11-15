@@ -42,20 +42,29 @@ impl From<Priority> for i64 {
     }
 }
 
-/// Бизнес-статус задачи. Архив и просрочка статусами не являются.
+/// Статус задачи. Архив и просрочка статусами не являются.
+///
+/// Переходы фиксированы (см. [`check_transition`]): после создания задача
+/// «Ждёт выполнения»; дальше — «Начать выполнение», «Завершить», «Отложить».
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
-    New,
+    /// Ждёт выполнения.
+    Waiting,
+    /// Выполняется.
     InProgress,
+    /// Отложена.
+    Postponed,
+    /// Завершена.
     Completed,
 }
 
 impl TaskStatus {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::New => "new",
+            Self::Waiting => "waiting",
             Self::InProgress => "in_progress",
+            Self::Postponed => "postponed",
             Self::Completed => "completed",
         }
     }
@@ -65,8 +74,9 @@ impl std::str::FromStr for TaskStatus {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "new" => Ok(Self::New),
+            "waiting" => Ok(Self::Waiting),
             "in_progress" => Ok(Self::InProgress),
+            "postponed" => Ok(Self::Postponed),
             "completed" => Ok(Self::Completed),
             other => Err(ParseError::Status(other.to_owned())),
         }
@@ -109,6 +119,76 @@ pub enum RuleError {
     OpenSubtasks(usize),
     #[error("название не может быть пустым и длиннее 300 символов")]
     BadTitle,
+    #[error("из статуса «{from}» нельзя перейти в «{to}»")]
+    Transition {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[error("менять статус может постановщик, исполнитель или владелец")]
+    NotYourTask,
+    #[error("в архив можно убрать только завершённую задачу")]
+    NotCompleted,
+    #[error("в архив убирает исполнитель или владелец")]
+    NotArchiver,
+}
+
+impl TaskStatus {
+    /// Название для людей: «Ждёт выполнения».
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Waiting => "Ждёт выполнения",
+            Self::InProgress => "Выполняется",
+            Self::Postponed => "Отложена",
+            Self::Completed => "Завершена",
+        }
+    }
+}
+
+/// Разрешённые переходы статуса. Завершённая задача дальше идёт только в архив.
+pub fn check_transition(from: TaskStatus, to: TaskStatus) -> Result<(), RuleError> {
+    use TaskStatus::{Completed, InProgress, Postponed, Waiting};
+    let ok = matches!(
+        (from, to),
+        (Waiting | Postponed, InProgress)
+            | (Waiting | InProgress | Postponed, Completed)
+            | (Waiting | InProgress, Postponed)
+    );
+    if ok {
+        Ok(())
+    } else {
+        Err(RuleError::Transition {
+            from: from.label(),
+            to: to.label(),
+        })
+    }
+}
+
+/// Кто вовлечён в задачу — для правил статуса и архива.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Involvement {
+    pub is_owner: bool,
+    pub is_creator: bool,
+    pub is_assignee: bool,
+}
+
+/// Статус меняют постановщик, исполнитель или владелец.
+pub fn check_status_change(who: Involvement) -> Result<(), RuleError> {
+    if who.is_owner || who.is_creator || who.is_assignee {
+        Ok(())
+    } else {
+        Err(RuleError::NotYourTask)
+    }
+}
+
+/// В архив (и обратно) — только завершённую, только исполнитель или владелец.
+pub fn check_archive(who: Involvement, status: TaskStatus) -> Result<(), RuleError> {
+    if !(who.is_owner || who.is_assignee) {
+        return Err(RuleError::NotArchiver);
+    }
+    if status != TaskStatus::Completed {
+        return Err(RuleError::NotCompleted);
+    }
+    Ok(())
 }
 
 /// Дедлайн подзадачи ≤ дедлайна родителя.
@@ -146,54 +226,6 @@ pub fn completed_at_after(to: TaskStatus, before: Option<i64>, now: i64) -> Opti
     }
 }
 
-/// Задача глазами автоархива.
-#[derive(Debug, Clone)]
-pub struct ArchiveNode {
-    pub id: String,
-    pub parent: Option<String>,
-    pub completed_at: Option<i64>,
-}
-
-/// Что отправить в архив (ТЗ §4.4): завершённая давнее `older_than` задача, у которой
-/// всё поддерево завершено, уходит в архив целиком — вместе с поддеревом.
-pub fn archive_candidates(nodes: &[ArchiveNode], older_than: i64) -> Vec<String> {
-    use std::collections::{HashMap, HashSet};
-    let mut children: HashMap<&str, Vec<&ArchiveNode>> = HashMap::new();
-    for n in nodes {
-        if let Some(p) = &n.parent {
-            children.entry(p.as_str()).or_default().push(n);
-        }
-    }
-    fn subtree<'a>(
-        n: &'a ArchiveNode,
-        children: &HashMap<&str, Vec<&'a ArchiveNode>>,
-        seen: &mut HashSet<&'a str>,
-        out: &mut Vec<&'a ArchiveNode>,
-    ) {
-        if !seen.insert(n.id.as_str()) {
-            return;
-        }
-        out.push(n);
-        for c in children.get(n.id.as_str()).into_iter().flatten() {
-            subtree(c, children, seen, out);
-        }
-    }
-    let mut picked: HashSet<&str> = HashSet::new();
-    for n in nodes {
-        if !n.completed_at.is_some_and(|at| at < older_than) {
-            continue;
-        }
-        let mut all = Vec::new();
-        subtree(n, &children, &mut HashSet::new(), &mut all);
-        if all.iter().all(|t| t.completed_at.is_some()) {
-            picked.extend(all.iter().map(|t| t.id.as_str()));
-        }
-    }
-    let mut out: Vec<String> = picked.into_iter().map(str::to_owned).collect();
-    out.sort();
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,7 +247,7 @@ mod tests {
     #[test]
     fn status_round_trips_through_text() {
         for s in [
-            TaskStatus::New,
+            TaskStatus::Waiting,
             TaskStatus::InProgress,
             TaskStatus::Completed,
         ] {
@@ -294,30 +326,65 @@ mod tests {
         assert_eq!(parse_title(&"я".repeat(301)), Err(RuleError::BadTitle));
     }
 
-    fn an(id: &str, parent: Option<&str>, done: Option<i64>) -> ArchiveNode {
-        ArchiveNode {
-            id: id.into(),
-            parent: parent.map(Into::into),
-            completed_at: done,
+    #[test]
+    fn fixed_transitions() {
+        use TaskStatus::*;
+        for (f, t) in [
+            (Waiting, InProgress),
+            (Waiting, Postponed),
+            (Waiting, Completed),
+            (InProgress, Completed),
+            (InProgress, Postponed),
+            (Postponed, InProgress),
+            (Postponed, Completed),
+        ] {
+            assert_eq!(check_transition(f, t), Ok(()), "{f:?} → {t:?}");
         }
+        for (f, t) in [
+            (Completed, InProgress),
+            (Completed, Waiting),
+            (InProgress, Waiting),
+            (Postponed, Postponed),
+            (InProgress, InProgress),
+        ] {
+            assert!(check_transition(f, t).is_err(), "{f:?} → {t:?}");
+        }
+        assert_eq!(
+            check_transition(Completed, InProgress)
+                .unwrap_err()
+                .to_string(),
+            "из статуса «Завершена» нельзя перейти в «Выполняется»"
+        );
     }
 
     #[test]
-    fn archive_takes_old_completed_subtrees_only() {
-        let nodes = vec![
-            an("old", None, Some(1)),
-            an("old.child", Some("old"), Some(50)), // свежий, но родитель забирает
-            an("blocked", None, Some(1)),
-            an("blocked.open", Some("blocked"), None),
-            an("fresh", None, Some(90)),
-            an("open", None, None),
-        ];
-        assert_eq!(archive_candidates(&nodes, 10), ["old", "old.child"]);
-    }
-
-    #[test]
-    fn archive_survives_cycles() {
-        let nodes = vec![an("a", Some("b"), Some(1)), an("b", Some("a"), Some(1))];
-        assert_eq!(archive_candidates(&nodes, 10), ["a", "b"]);
+    fn who_changes_status_and_archives() {
+        let nobody = Involvement::default();
+        let creator = Involvement {
+            is_creator: true,
+            ..nobody
+        };
+        let assignee = Involvement {
+            is_assignee: true,
+            ..nobody
+        };
+        let owner = Involvement {
+            is_owner: true,
+            ..nobody
+        };
+        assert_eq!(check_status_change(nobody), Err(RuleError::NotYourTask));
+        for w in [creator, assignee, owner] {
+            assert_eq!(check_status_change(w), Ok(()));
+        }
+        assert_eq!(
+            check_archive(creator, TaskStatus::Completed),
+            Err(RuleError::NotArchiver)
+        );
+        assert_eq!(
+            check_archive(assignee, TaskStatus::InProgress),
+            Err(RuleError::NotCompleted)
+        );
+        assert_eq!(check_archive(assignee, TaskStatus::Completed), Ok(()));
+        assert_eq!(check_archive(owner, TaskStatus::Completed), Ok(()));
     }
 }
