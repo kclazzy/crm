@@ -5,6 +5,7 @@ import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
 import { childrenOf, dateTime, statusName, type TaskSummary, work } from '../work';
 import { Button, ErrorText, Modal } from '../components/ui';
+import { ExportMenu } from '../components/ExportMenu';
 import { TaskForm, TaskRow, deadlineBar, deadlineLegend, statusIcon, statusStyle } from '../components/work';
 
 export { TaskPage } from './TaskPage';
@@ -62,6 +63,7 @@ function Header({ title, baseRole, onCreate }: { title: string; baseRole?: Role;
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по задачам и клиентам" className="input py-2 pl-9 pr-9" />
           {q && <button onClick={() => setQ('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" aria-label="Очистить"><X className="size-4" /></button>}
         </div>
+        <ExportMenu url="/api/export/tasks" />
         {onCreate && <Button onClick={onCreate}><Plus className="size-4" />Создать</Button>}
       </div>
       {/* Одна строка фильтров; на телефоне листается вбок, а не съедает пол-экрана. */}

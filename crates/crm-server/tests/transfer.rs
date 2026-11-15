@@ -221,6 +221,15 @@ async fn exports_open_in_excel_and_respect_access() {
         "сотруднику — только своё"
     );
 
+    // Задачи — тоже в CSV (для больших объёмов и других программ).
+    let (s, csv) = app.get_bytes(&owner, "/api/export/tasks?format=csv").await;
+    assert_eq!(s, StatusCode::OK);
+    let text = String::from_utf8(csv).unwrap();
+    assert!(
+        text.starts_with('\u{feff}') && text.lines().next().unwrap().contains("Клиент;"),
+        "{text}"
+    );
+
     let (s, tpl) = app.get_bytes(&owner, "/api/import/clients/template").await;
     assert_eq!(s, StatusCode::OK);
     let (s, parsed) = app

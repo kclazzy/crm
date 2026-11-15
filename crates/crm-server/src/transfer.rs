@@ -568,6 +568,23 @@ fn xlsx_err(e: rust_xlsxwriter::XlsxError) -> ApiError {
 }
 
 /// Лист Excel из заголовков и строк.
+/// Строк данных на лист: в Excel лист вмещает 1 048 576 строк, одна — заголовок.
+const SHEET_ROWS: usize = 1_048_575;
+
+/// Названия листов для `n` строк: «Задачи», «Задачи (2)», … — больше листа не влезает.
+fn sheet_names(title: &str, n: usize, per_sheet: usize) -> Vec<String> {
+    let sheets = n.div_ceil(per_sheet).max(1);
+    (1..=sheets)
+        .map(|i| {
+            if i == 1 {
+                title.to_owned()
+            } else {
+                format!("{title} ({i})")
+            }
+        })
+        .collect()
+}
+
 pub fn add_sheet(
     wb: &mut Workbook,
     title: &str,
@@ -575,21 +592,48 @@ pub fn add_sheet(
     rows: &[Vec<String>],
 ) -> Result<(), ApiError> {
     let bold = Format::new().set_bold();
-    let ws = wb.add_worksheet();
-    ws.set_name(title).map_err(xlsx_err)?;
-    for (c, h) in headers.iter().enumerate() {
-        ws.write_string_with_format(0, c as u16, *h, &bold)
-            .map_err(xlsx_err)?;
-    }
-    for (r, row) in rows.iter().enumerate() {
-        for (c, v) in row.iter().enumerate() {
-            ws.write_string(r as u32 + 1, c as u16, v)
+    let names = sheet_names(title, rows.len(), SHEET_ROWS);
+    let chunks: Vec<&[Vec<String>]> = if rows.is_empty() {
+        vec![rows]
+    } else {
+        rows.chunks(SHEET_ROWS).collect()
+    };
+    for (name, part) in names.iter().zip(chunks) {
+        let ws = wb.add_worksheet();
+        ws.set_name(name).map_err(xlsx_err)?;
+        for (c, h) in headers.iter().enumerate() {
+            ws.write_string_with_format(0, c as u16, *h, &bold)
                 .map_err(xlsx_err)?;
         }
+        for (r, row) in part.iter().enumerate() {
+            for (c, v) in row.iter().enumerate() {
+                ws.write_string(r as u32 + 1, c as u16, v)
+                    .map_err(xlsx_err)?;
+            }
+        }
+        ws.set_freeze_panes(1, 0).map_err(xlsx_err)?;
+        // Подбор ширины на миллионе строк занимает минуты — только для небольших листов.
+        if part.len() <= 10_000 {
+            ws.autofit();
+        }
     }
-    ws.set_freeze_panes(1, 0).map_err(xlsx_err)?;
-    ws.autofit();
     Ok(())
+}
+
+#[cfg(test)]
+mod sheet_tests {
+    use super::sheet_names;
+
+    #[test]
+    fn rows_over_excel_limit_go_to_next_sheets() {
+        assert_eq!(sheet_names("Задачи", 0, 1_048_575), ["Задачи"]);
+        assert_eq!(sheet_names("Задачи", 1_048_575, 1_048_575), ["Задачи"]);
+        assert_eq!(
+            sheet_names("Задачи", 1_048_576, 1_048_575),
+            ["Задачи", "Задачи (2)"]
+        );
+        assert_eq!(sheet_names("К", 7, 3), ["К", "К (2)", "К (3)"]);
+    }
 }
 
 #[derive(Deserialize)]
@@ -715,7 +759,7 @@ pub async fn template(_: CurrentUser) -> Result<Response, ApiError> {
     ))
 }
 
-/// Задачи (по клиенту или все доступные) в Excel.
+/// Задачи (по клиенту или все доступные): `.xlsx` или `.csv` (`?format=csv`).
 pub async fn export_tasks(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -752,22 +796,25 @@ pub async fn export_tasks(
             ])
         })
         .collect();
+    const HEADERS: [&str; 8] = [
+        "Клиент",
+        "Задача",
+        "Статус",
+        "Приоритет",
+        "Исполнители",
+        "Дедлайн",
+        "Завершена",
+        "Этапы",
+    ];
+    if q.format.as_deref() == Some("csv") {
+        return Ok(download(
+            to_csv(&HEADERS, &table)?,
+            "text/csv; charset=utf-8",
+            "tasks.csv",
+        ));
+    }
     let mut wb = Workbook::new();
-    add_sheet(
-        &mut wb,
-        "Задачи",
-        &[
-            "Клиент",
-            "Задача",
-            "Статус",
-            "Приоритет",
-            "Исполнители",
-            "Дедлайн",
-            "Завершена",
-            "Этапы",
-        ],
-        &table,
-    )?;
+    add_sheet(&mut wb, "Задачи", &HEADERS, &table)?;
     Ok(download(
         wb.save_to_buffer().map_err(xlsx_err)?,
         XLSX,

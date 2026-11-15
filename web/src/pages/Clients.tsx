@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { AlertTriangle, Building2, ChevronRight, Download, FileUp, Mail, Pencil, Phone, Plus, Search, Trash2, User } from 'lucide-react';
+import { AlertTriangle, Building2, ChevronRight, FileUp, Mail, Pencil, Phone, Plus, Search, Trash2, User } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLiveReload } from '../live';
 import { childrenOf, type Client, type ClientCardT, type TaskSummary, work } from '../work';
 import { BackButton, Badge, Button, ErrorText, Modal, PageHeader } from '../components/ui';
 import { ClientForm, Md, TaskForm, TaskRow, UnreadDot } from '../components/work';
+import { ExportMenu } from '../components/ExportMenu';
 
 function TagChip({ name, color }: { name: string; color: string }) {
   return (
@@ -51,9 +52,7 @@ export function Clients() {
         subtitle={list ? `${list.length} в списке` : 'Загрузка…'}
         action={
           <div className="flex flex-wrap gap-2">
-            <a href="/api/export/clients" className="inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
-              <Download className="size-4" />Excel
-            </a>
+            <ExportMenu url="/api/export/clients" />
             {canCreate && (
               <>
                 <Link to="/clients/import" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold hover:border-brand-500 dark:border-slate-700 dark:bg-slate-900">
@@ -202,7 +201,7 @@ export function ClientCard() {
             <h2 className="font-semibold">Задачи</h2>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-1.5 text-sm text-slate-500"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />Завершённые</label>
-              <a href={`/api/export/tasks?client_id=${c.id}`} className="text-sm text-slate-500 hover:text-brand-600"><Download className="inline size-4" /> Excel</a>
+              <ExportMenu compact url={`/api/export/tasks?client_id=${c.id}`} />
               {manage && <Button className="px-3 py-1.5" onClick={() => setAdding(true)}><Plus className="size-4" />Задача</Button>}
             </div>
           </div>
