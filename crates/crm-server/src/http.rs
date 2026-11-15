@@ -109,6 +109,7 @@ pub fn router(state: AppState) -> Router {
             "/api/admin/connection-key",
             post(crate::connect::connection_key),
         )
+        .route("/api/admin/phone", get(crate::connect::phone_links))
         .route(
             "/api/admin/vpn",
             get(crate::vpn::info).put(crate::vpn::setup),

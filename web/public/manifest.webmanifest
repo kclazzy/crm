@@ -1,0 +1,10 @@
+{
+  "name": "CRM",
+  "short_name": "CRM",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "lang": "ru",
+  "icons": [{ "src": "/logo.png", "sizes": "128x128", "type": "image/png", "purpose": "any" }]
+}

@@ -99,3 +99,56 @@ pub async fn connection_key(
         addrs,
     }))
 }
+
+#[derive(Serialize)]
+pub struct PhoneLink {
+    /// «cert», «office», «vpn».
+    kind: &'static str,
+    url: String,
+    qr_svg: String,
+}
+
+fn qr(text: &str) -> Result<String, ApiError> {
+    Ok(qrcode::QrCode::new(text.as_bytes())
+        .map_err(|e| ApiError::Failed(format!("QR-код: {e}")))?
+        .render::<qrcode::render::svg::Color>()
+        .min_dimensions(200, 200)
+        .build())
+}
+
+/// Ссылки и QR-коды для телефона: установить сертификат, открыть CRM в офисе и через VPN.
+/// На телефонах имя компьютера часто не находится — поэтому IP-адреса.
+pub async fn phone_links(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+) -> Result<Json<Vec<PhoneLink>>, ApiError> {
+    let port = app.rt.config().listen.port();
+    let office = server_addrs(&app).into_iter().find(|a| {
+        a.parse::<std::net::Ipv4Addr>()
+            .is_ok_and(|ip| !crm_core::vpn::is_vpn_ip(ip))
+    });
+    let mut out = Vec::new();
+    if let Some(ip) = &office {
+        let cert = format!("https://{ip}:{port}/api/tls/ca");
+        out.push(PhoneLink {
+            kind: "cert",
+            qr_svg: qr(&cert)?,
+            url: cert,
+        });
+        let url = format!("https://{ip}:{port}/");
+        out.push(PhoneLink {
+            kind: "office",
+            qr_svg: qr(&url)?,
+            url,
+        });
+    }
+    if crate::vpn::is_configured(&app) {
+        let url = format!("https://{}:{port}/", crate::vpn::SERVER_IP);
+        out.push(PhoneLink {
+            kind: "vpn",
+            qr_svg: qr(&url)?,
+            url,
+        });
+    }
+    Ok(Json(out))
+}

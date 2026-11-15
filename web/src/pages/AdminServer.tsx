@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Check, Copy, Download, Globe, ShieldCheck } from 'lucide-react';
+import { Check, Copy, Download, Globe, ShieldCheck, Smartphone } from 'lucide-react';
+import { work } from '../work';
 import { api, type Health, type ServerInfo } from '../api';
 import { Badge, PageHeader } from '../components/ui';
 import { RecoveryCodes } from '../components/RecoveryCodes';
@@ -48,7 +49,57 @@ export function AdminServer() {
           </a>
         </section>
       </div>
+      <PhoneAccess />
       <div className="mt-5 grid gap-5 md:grid-cols-2"><RecoveryCodes /><SecurityPanel /></div>
     </>
+  );
+}
+
+const phoneTitle = {
+  cert: { n: 1, title: 'Установить сертификат', hint: 'Один раз на каждый телефон, в Wi-Fi офиса' },
+  office: { n: 2, title: 'CRM в офисе', hint: 'Телефон в Wi-Fi офиса' },
+  vpn: { n: 3, title: 'CRM из дома', hint: 'Сначала включите WireGuard на телефоне' },
+} as const;
+
+/** Вход с телефона: QR-коды и как поставить сертификат на Android и iPhone. */
+function PhoneAccess() {
+  const [links, setLinks] = useState<Awaited<ReturnType<typeof work.phone>>>([]);
+  useEffect(() => void work.phone().then(setLinks).catch(() => {}), []);
+  if (!links.length) return null;
+  return (
+    <section className="card mt-5 p-6">
+      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500"><Smartphone className="size-4" />Вход с телефона</h3>
+      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Сотрудник наводит камеру телефона на QR-код. Покажите коды с экрана или распечатайте эту страницу (Ctrl+P).</p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        {links.map((l) => (
+          <div key={l.kind} className="flex flex-col items-center rounded-2xl border border-slate-200 p-4 text-center dark:border-slate-700">
+            <p className="font-semibold">{phoneTitle[l.kind].n}. {phoneTitle[l.kind].title}</p>
+            <p className="text-xs text-slate-500">{phoneTitle[l.kind].hint}</p>
+            <img alt={`QR: ${l.url}`} className="mt-3 w-40 rounded-xl bg-white p-2" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(l.qr_svg)}`} />
+            <code className="mt-2 break-all font-mono text-[11px] text-slate-500">{l.url}</code>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 grid gap-4 text-sm text-slate-600 sm:grid-cols-2 dark:text-slate-300">
+        <div>
+          <p className="font-semibold text-slate-800 dark:text-slate-100">Android</p>
+          <ol className="mt-1 list-decimal pl-5">
+            <li>Код 1 → браузер предупредит один раз: «Дополнительно» → «Перейти». Файл <b>crm-ca.crt</b> скачается.</li>
+            <li>Настройки → Безопасность → <b>Шифрование и учётные данные</b> → Установить сертификат → <b>Сертификат ЦС</b> → выбрать crm-ca.crt.</li>
+            <li>Код 2 (или 3 из дома) → вход в CRM. Меню браузера → «Добавить на главный экран».</li>
+          </ol>
+        </div>
+        <div>
+          <p className="font-semibold text-slate-800 dark:text-slate-100">iPhone</p>
+          <ol className="mt-1 list-decimal pl-5">
+            <li>Код 1 в <b>Safari</b> → «Показать подробности» → «посетить веб-сайт» → «Разрешить» загрузку профиля.</li>
+            <li>Настройки → <b>Профиль загружен</b> → Установить.</li>
+            <li>Настройки → Основные → Об этом устройстве → <b>Доверие сертификатам</b> → включить «CRM».</li>
+            <li>Код 2 (или 3 из дома) → вход. «Поделиться» → «На экран „Домой“».</li>
+          </ol>
+        </div>
+      </div>
+      <p className="mt-4 text-xs text-slate-500">Сверьте отпечаток при установке с тем, что указан выше в «Сертификат». Из дома: WireGuard на телефоне — QR-код в разделе «Удалённый доступ».</p>
+    </section>
   );
 }

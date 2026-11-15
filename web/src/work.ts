@@ -242,6 +242,7 @@ export const work = {
   connectionKey: (user_id: string | null, pin: string | null) =>
     req<{ key: string; with_pin: boolean; invite_expires_at: number | null; addrs: string[] }>('POST', '/api/admin/connection-key', { user_id, pin }),
   vpn: () => req<VpnInfo>('GET', '/api/admin/vpn'),
+  phone: () => req<{ kind: 'cert' | 'office' | 'vpn'; url: string; qr_svg: string }[]>('GET', '/api/admin/phone'),
   vpnSetup: (endpoint: string, port: number) => req<void>('PUT', '/api/admin/vpn', { endpoint, port }),
   vpnAdd: (name: string, user_id: string | null) =>
     req<{ id: string; address: string; conf: string; file_name: string; qr_svg: string }>('POST', '/api/admin/vpn/peers', { name, user_id }),

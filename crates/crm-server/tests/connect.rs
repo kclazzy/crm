@@ -200,3 +200,54 @@ async fn vpn_wizard_issues_device_configs_and_revokes_them() {
         .await;
     assert!(info["peers"][0]["last_seen_at"].is_i64(), "{info}");
 }
+
+#[tokio::test]
+async fn phone_links_give_qr_for_certificate_office_and_vpn() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (s, v) = app
+        .call("GET", "/api/admin/phone", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let kinds: Vec<&str> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["kind"].as_str().unwrap())
+        .collect();
+    assert!(!kinds.contains(&"vpn"), "VPN ещё не настроен: {v}");
+    if let Some(cert) = v.as_array().unwrap().iter().find(|l| l["kind"] == "cert") {
+        assert!(cert["url"].as_str().unwrap().ends_with("/api/tls/ca"));
+        assert!(cert["qr_svg"].as_str().unwrap().contains("<svg"));
+    }
+    app.call(
+        "PUT",
+        "/api/admin/vpn",
+        LOCAL,
+        Some(&owner),
+        Some(json!({"endpoint": "office.example.ru"})),
+    )
+    .await;
+    let (_, v) = app
+        .call("GET", "/api/admin/phone", LOCAL, Some(&owner), None)
+        .await;
+    let vpn = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["kind"] == "vpn")
+        .unwrap();
+    assert!(
+        vpn["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://10.77.0.1:"),
+        "{v}"
+    );
+
+    let (_, emp) = app.member(&owner, "olga", "employee", "10.0.0.3").await;
+    let (s, _) = app
+        .call("GET", "/api/admin/phone", LOCAL, Some(&emp), None)
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+}
