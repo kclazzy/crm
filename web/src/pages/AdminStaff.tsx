@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, KeyRound, RotateCcw, UserPlus } from 'lucide-react';
+import { Check, Copy, KeyRound, RotateCcw, Smartphone, UserPlus } from 'lucide-react';
 import { ConnectionKey } from './AdminWork';
 import { api, type Invite, type Role, roleName, type StaffMember } from '../api';
 import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
@@ -109,12 +109,21 @@ export function AdminStaff() {
                 </td>
                 <td className="px-5 py-3.5">{m.role === 'host' ? <Badge tone="brand">{roleName[m.role]}</Badge> : roleName[m.role]}</td>
                 <td className="px-5 py-3.5">
-                  <div className="flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.reset_requested && <Badge tone="amber">Просит сбросить пароль</Badge>}</div>
+                  <div className="flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.reset_requested && <Badge tone="amber">Просит сбросить пароль</Badge>}{m.two_factor && <Badge tone="green">код ✓</Badge>}</div>
                 </td>
                 <td className="px-5 py-3.5 text-right">
                   {m.state === 'invited' && (
                     <Button variant="ghost" className="px-3 py-1.5 text-xs" onClick={() => setKeyFor(m)} title="Ключ для программы CRM со встроенным приглашением">
                       <KeyRound className="size-3.5" />Ключ
+                    </Button>
+                  )}
+                  {m.role !== 'host' && m.two_factor && (
+                    <Button variant="ghost" className="px-3 py-1.5 text-xs" title="Потерял телефон: код настроит заново в офисе" onClick={async () => {
+                      if (!confirm(`Сбросить код для входа у «${m.display_name}»? Новый код он настроит в офисе.`)) return;
+                      await api.twoFactorReset(m.id);
+                      void load();
+                    }}>
+                      <Smartphone className="size-3.5" />Сбросить код
                     </Button>
                   )}
                   {m.role !== 'host' && (

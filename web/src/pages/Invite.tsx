@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { api } from '../api';
+import { api, SECURITY_PATH } from '../api';
 import { AuthLayout } from '../components/AuthLayout';
 import { Button, ErrorText, Field } from '../components/ui';
 import { useAuth } from '../auth';
@@ -19,9 +19,9 @@ export function Invite() {
     setBusy(true);
     setError('');
     try {
-      const { user } = await api.acceptInvite(String(f.get('code')).trim(), String(f.get('password')));
+      const { user, must_setup_2fa } = await api.acceptInvite(String(f.get('code')).trim(), String(f.get('password')));
       setMe(user);
-      navigate('/', { replace: true });
+      navigate(must_setup_2fa ? SECURITY_PATH : '/', { replace: true });
     } catch (x) {
       setError((x as Error).message);
     } finally {

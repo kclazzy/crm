@@ -26,6 +26,7 @@ pub mod server;
 pub mod tasks;
 pub mod tls;
 pub mod transfer;
+pub mod two_factor;
 pub mod web;
 #[cfg(windows)]
 pub mod winsvc;

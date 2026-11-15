@@ -130,6 +130,33 @@ async fn guessing_codes_is_blocked() {
 async fn reset_on_server_machine_sets_password_and_closes_sessions() {
     let app = App::new().await;
     let owner = app.owner().await;
+    // Код из приложения включён и обязателен везде, а телефон потерян.
+    let (_, v) = app
+        .call("POST", "/api/me/2fa/start", LOCAL, Some(&owner), None)
+        .await;
+    let secret = crm_core::totp::base32_decode(v["secret"].as_str().unwrap()).unwrap();
+    let step = u64::try_from(chrono::Utc::now().timestamp()).unwrap() / 30;
+    let code = format!("{:06}", crm_core::totp::code_at(&secret, step));
+    let (s, _) = app
+        .call(
+            "POST",
+            "/api/me/2fa/confirm",
+            LOCAL,
+            Some(&owner),
+            Some(json!({"code": code})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = app
+        .call(
+            "PUT",
+            "/api/admin/2fa",
+            LOCAL,
+            Some(&owner),
+            Some(json!({"policy": "all"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
     let storage = common::config_in(app.dir()).storage;
     assert!(
         crm_server::recovery::reset_owner_password(&storage, "короткий")
@@ -147,7 +174,10 @@ async fn reset_on_server_machine_sets_password_and_closes_sessions() {
             .0,
         StatusCode::UNAUTHORIZED
     );
-    app.login("owner", NEW_PW, OFFICE_PC).await;
+    // Сброс на сервере снимает и код: владелец входит паролем и настраивает код заново.
+    let (s, v) = app.try_login("owner", NEW_PW, OFFICE_PC).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["must_setup_2fa"], true, "{v}");
 }
 
 #[tokio::test]

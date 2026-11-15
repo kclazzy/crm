@@ -20,6 +20,7 @@ import { AdminSessions } from './pages/AdminSessions';
 import { AdminServer } from './pages/AdminServer';
 import { AdminStorage } from './pages/AdminStorage';
 import { AdminHelp, UserHelp } from './pages/Help';
+import { Security } from './pages/Security';
 
 function Gate({ children, owner = false }: { children: ReactNode; owner?: boolean }) {
   const { me, loading } = useAuth();
@@ -57,6 +58,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="admin/server" element={<Gate owner><AdminServer /></Gate>} />
             <Route path="admin/help" element={<Gate owner><AdminHelp /></Gate>} />
             <Route path="help" element={<UserHelp />} />
+            <Route path="security" element={<Security />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

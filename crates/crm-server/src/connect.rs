@@ -105,7 +105,7 @@ pub struct PhoneLink {
     qr_svg: String,
 }
 
-fn qr(text: &str) -> Result<String, ApiError> {
+pub(crate) fn qr(text: &str) -> Result<String, ApiError> {
     Ok(qrcode::QrCode::new(text.as_bytes())
         .map_err(|e| ApiError::Failed(format!("QR-код: {e}")))?
         .render::<qrcode::render::svg::Color>()

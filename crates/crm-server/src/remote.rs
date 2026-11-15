@@ -32,9 +32,10 @@ pub struct Info {
 }
 
 async fn info_of(app: &AppState) -> Result<Info, ApiError> {
-    let office_ip = crate::connect::server_addrs(app).await?.into_iter().find(|a| {
-        a.parse::<std::net::Ipv4Addr>().is_ok() && crm_core::remote::is_office_addr(a)
-    });
+    let office_ip = crate::connect::server_addrs(app)
+        .await?
+        .into_iter()
+        .find(|a| a.parse::<std::net::Ipv4Addr>().is_ok() && crm_core::remote::is_office_addr(a));
     Ok(Info {
         office_ip,
         address: address(&app.pool).await?,

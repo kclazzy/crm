@@ -88,6 +88,20 @@ pub fn router(state: AppState) -> Router {
         .route("/api/invites/accept", post(auth::accept_invite))
         .route("/api/me", get(auth::me))
         .route(
+            "/api/me/2fa",
+            get(crate::two_factor::status).delete(crate::two_factor::disable),
+        )
+        .route("/api/me/2fa/start", post(crate::two_factor::start))
+        .route("/api/me/2fa/confirm", post(crate::two_factor::confirm))
+        .route(
+            "/api/admin/2fa",
+            get(crate::two_factor::get_policy).put(crate::two_factor::set_policy),
+        )
+        .route(
+            "/api/admin/users/{id}/2fa/reset",
+            post(crate::two_factor::reset),
+        )
+        .route(
             "/api/admin/users",
             post(auth::create_user).get(auth::list_users),
         )
@@ -281,6 +295,17 @@ pub enum ApiError {
     BadCode,
     #[error("недостаточно прав")]
     Forbidden,
+    /// Пароль верный, нужен код из приложения.
+    #[error("введите код из приложения-аутентификатора")]
+    NeedCode,
+    #[error("код не подошёл — введите новый из приложения или резервный код")]
+    BadTwoFactorCode,
+    /// Из интернета — только с кодом, а он ещё не настроен.
+    #[error("из интернета вход только с кодом из приложения — настройте его в офисе: «Профиль → Код для входа», или спросите владельца")]
+    TwoFactorInOffice,
+    /// Сессия есть, но до настройки кода работать нельзя.
+    #[error("сначала настройте код для входа: «Профиль → Код для входа»")]
+    SetupTwoFactor,
     #[error("не найдено")]
     NotFound,
     #[error("{0}")]
@@ -310,10 +335,15 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = match &self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
-            Self::Unauthorized | Self::BadCredentials | Self::BadInvite | Self::BadCode => {
-                StatusCode::UNAUTHORIZED
+            Self::Unauthorized
+            | Self::BadCredentials
+            | Self::BadInvite
+            | Self::BadCode
+            | Self::NeedCode
+            | Self::BadTwoFactorCode => StatusCode::UNAUTHORIZED,
+            Self::Forbidden | Self::TwoFactorInOffice | Self::SetupTwoFactor => {
+                StatusCode::FORBIDDEN
             }
-            Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyAttempts => StatusCode::TOO_MANY_REQUESTS,
@@ -335,10 +365,12 @@ impl IntoResponse for ApiError {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         };
-        (
-            status,
-            Json(serde_json::json!({ "error": self.to_string() })),
-        )
-            .into_response()
+        let mut body = serde_json::json!({ "error": self.to_string() });
+        match self {
+            Self::NeedCode | Self::BadTwoFactorCode => body["need_code"] = true.into(),
+            Self::SetupTwoFactor => body["setup_2fa"] = true.into(),
+            _ => {}
+        }
+        (status, Json(body)).into_response()
     }
 }

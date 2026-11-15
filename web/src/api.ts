@@ -17,7 +17,10 @@ export interface StaffMember {
   state: 'active' | 'invited' | 'disabled';
   created_at: number;
   reset_requested: boolean;
+  two_factor: boolean;
 }
+
+export type TwoFactorPolicy = 'off' | 'remote' | 'all';
 
 export interface Session {
   id: string;
@@ -89,10 +92,13 @@ export interface BackupStatus {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public data: { need_code?: boolean; setup_2fa?: boolean } = {}) {
     super(message);
   }
 }
+
+/** Страница настройки кода из приложения (второй фактор). */
+export const SECURITY_PATH = '/security';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -103,7 +109,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`);
+  if (!res.ok) {
+    // Организация требует код, а он не настроен: сервер пускает только в профиль.
+    if (data.setup_2fa && location.pathname !== SECURITY_PATH) location.assign(SECURITY_PATH);
+    throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`, data);
+  }
   return data as T;
 }
 
@@ -127,10 +137,17 @@ function device() {
 
 export const api = {
   me: () => request<Me>('GET', '/api/me'),
-  login: (username: string, password: string) =>
-    request<{ user: Me }>('POST', '/api/auth/login', { username, password, ...device() }),
+  login: (username: string, password: string, code?: string) =>
+    request<{ user: Me; must_setup_2fa: boolean }>('POST', '/api/auth/login', { username, password, code, ...device() }),
   acceptInvite: (token: string, password: string) =>
-    request<{ user: Me }>('POST', '/api/invites/accept', { token, password, ...device() }),
+    request<{ user: Me; must_setup_2fa: boolean }>('POST', '/api/invites/accept', { token, password, ...device() }),
+  twoFactor: () => request<{ enabled: boolean; backup_left: number; policy: TwoFactorPolicy }>('GET', '/api/me/2fa'),
+  twoFactorStart: () => request<{ secret: string; url: string; qr_svg: string }>('POST', '/api/me/2fa/start'),
+  twoFactorConfirm: (code: string) => request<{ backup_codes: string[] }>('POST', '/api/me/2fa/confirm', { code }),
+  twoFactorDisable: () => request<void>('DELETE', '/api/me/2fa'),
+  twoFactorReset: (id: string) => request<void>('POST', `/api/admin/users/${id}/2fa/reset`),
+  twoFactorPolicy: () => request<{ policy: TwoFactorPolicy }>('GET', '/api/admin/2fa'),
+  setTwoFactorPolicy: (policy: TwoFactorPolicy) => request<{ policy: TwoFactorPolicy }>('PUT', '/api/admin/2fa', { policy }),
   logout: () => request<void>('POST', '/api/auth/logout'),
   forgot: (username: string) => request<{ ok: boolean }>('POST', '/api/auth/forgot', { username }),
   recover: (username: string, code: string, new_password: string) =>

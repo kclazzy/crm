@@ -2,7 +2,7 @@ import { useEffect, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import {
   Archive, BookOpen, Building2, Clock, DatabaseBackup, Globe, KeyRound, LayoutList, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
-  Server, Trash2, Users, UsersRound, WifiOff, X,
+  Server, ShieldCheck, Trash2, Users, UsersRound, WifiOff, X,
 } from 'lucide-react';
 import { api, roleName } from '../api';
 import { useAuth } from '../auth';
@@ -109,6 +109,7 @@ export function Shell() {
         </>
       )}
       <nav className="mb-2 mt-auto flex flex-col gap-1 pt-6">
+        <Item to="/security" icon={ShieldCheck} label="Код для входа" onClick={close} />
         <Item to="/help" icon={LifeBuoy} label="Справка" onClick={close} />
       </nav>
       <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">

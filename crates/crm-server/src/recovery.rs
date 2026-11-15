@@ -217,7 +217,7 @@ pub enum ResetError {
     Secret(#[from] SecretError),
 }
 
-/// Сброс пароля владельца прямо в базе — команда `crm-server reset-owner-password`
+/// Сброс пароля (и кода из приложения) владельца прямо в базе — команда `crm-server reset-owner-password`
 /// на самом сервере. Открыть базу может только администратор Windows (права на
 /// папку данных), поэтому отдельная проверка не нужна. Возвращает логин владельца.
 pub async fn reset_owner_password(
@@ -234,6 +234,17 @@ pub async fn reset_owner_password(
     let hash = hash_password(new_password.to_owned()).await?;
     let mut tx = pool.begin().await?;
     set_password_and_close_sessions(&mut tx, &id, &hash).await?;
+    // Телефон с кодом тоже мог потеряться: код настраивается заново после входа.
+    sqlx::query(
+        "UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_last_step = NULL WHERE id = ?",
+    )
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM totp_backup WHERE user_id = ?")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     sqlx::query("INSERT INTO audit_log(id, actor_id, action, entity, entity_id, ip, created_at) VALUES (?, ?, 'owner.reset_on_server', 'user', ?, 'local', ?)")
         .bind(new_id())

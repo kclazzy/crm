@@ -15,6 +15,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use crate::http::{ApiError, AppState};
 use crate::secrets::{hash_password, new_token, token_hash, verify_password};
+use crm_core::totp::Login;
 
 pub const INVITE_TTL: Duration = Duration::hours(72);
 pub const SESSION_TTL: Duration = Duration::days(30);
@@ -51,8 +52,8 @@ impl FromRequestParts<AppState> for CurrentUser {
             .or_else(|| session_cookie(parts))
             .ok_or(ApiError::Unauthorized)?;
         let now = now_ms();
-        let row: Option<(String, String, String, String, String, i64)> = sqlx::query_as(
-            "SELECT s.id, u.id, u.username, u.display_name, u.role, s.last_seen_at
+        let row: Option<(String, String, String, String, String, i64, bool)> = sqlx::query_as(
+            "SELECT s.id, u.id, u.username, u.display_name, u.role, s.last_seen_at, s.needs_2fa_setup
              FROM sessions s JOIN users u ON u.id = s.user_id
              WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.is_active = 1",
         )
@@ -60,8 +61,15 @@ impl FromRequestParts<AppState> for CurrentUser {
         .bind(now)
         .fetch_optional(&app.pool)
         .await?;
-        let (session_id, id, username, display_name, role, last_seen) =
+        let (session_id, id, username, display_name, role, last_seen, needs_setup) =
             row.ok_or(ApiError::Unauthorized)?;
+        // Организация требует код, а он ещё не настроен: доступны только профиль и выход.
+        let path = parts.uri.path();
+        if needs_setup
+            && !(path == "/api/me" || path.starts_with("/api/me/2fa") || path == "/api/auth/logout")
+        {
+            return Err(ApiError::SetupTwoFactor);
+        }
 
         if now - last_seen > TOUCH_EVERY.num_milliseconds() {
             sqlx::query("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?")
@@ -165,6 +173,8 @@ impl Device {
 pub struct SessionOut {
     token: String,
     user: CurrentUser,
+    /// До настройки кода из приложения доступен только профиль.
+    must_setup_2fa: bool,
 }
 
 /// Не больше [`LOCKOUT_LIMIT`] неудач действия `action` для пары «логин + IP» за [`LOCKOUT_WINDOW`].
@@ -237,6 +247,7 @@ async fn start_session(
     user: CurrentUser,
     device: &Device,
     ip: &str,
+    needs_2fa_setup: bool,
 ) -> Result<SessionOut, ApiError> {
     let token = new_token()?;
     let now = now_ms();
@@ -250,8 +261,8 @@ async fn start_session(
     .execute(pool)
     .await?;
     sqlx::query(
-        "INSERT INTO sessions(id, user_id, token_hash, device_id, device_name, ip, created_at, last_seen_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sessions(id, user_id, token_hash, device_id, device_name, ip, created_at, last_seen_at, expires_at, needs_2fa_setup)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(new_id())
     .bind(&user.id)
@@ -262,10 +273,15 @@ async fn start_session(
     .bind(now)
     .bind(now)
     .bind(now + SESSION_TTL.num_milliseconds())
+    .bind(needs_2fa_setup)
     .execute(pool)
     .await?;
     audit(pool, Some(&user.id), "login.ok", Some(&user.username), ip).await?;
-    Ok(SessionOut { token, user })
+    Ok(SessionOut {
+        token,
+        user,
+        must_setup_2fa: needs_2fa_setup,
+    })
 }
 
 #[derive(Serialize)]
@@ -380,6 +396,9 @@ pub async fn setup_status(State(app): State<AppState>) -> Result<Json<SetupStatu
 pub struct LoginIn {
     username: String,
     password: String,
+    /// Код из приложения или резервный — когда сервер его попросил.
+    #[serde(default)]
+    code: Option<String>,
     #[serde(flatten)]
     device: Device,
 }
@@ -412,14 +431,46 @@ pub async fn login(
     let (id, display_name, role, _) = row.ok_or(ApiError::BadCredentials)?;
     let user = CurrentUser {
         id,
-        username: key,
+        username: key.clone(),
         display_name,
         role: role
             .parse()
             .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
         session_id: String::new(),
     };
-    let out = start_session(&app.pool, user, &req.device, &ip).await?;
+    let office = crm_core::remote::is_office_addr(&ip);
+    let rule = crm_core::totp::login_rule(
+        crate::two_factor::policy(&app.pool).await?,
+        crate::two_factor::enrolled(&app.pool, &user.id).await?,
+        office,
+    );
+    let needs_setup = match rule {
+        Login::Allow => false,
+        Login::Setup => true,
+        Login::Refuse => {
+            audit(
+                &app.pool,
+                Some(&user.id),
+                "login.refused_no_2fa",
+                Some(&key),
+                &ip,
+            )
+            .await?;
+            return Err(ApiError::TwoFactorInOffice);
+        }
+        Login::NeedCode => {
+            let Some(code) = req.code.as_deref().filter(|c| !c.trim().is_empty()) else {
+                return Err(ApiError::NeedCode);
+            };
+            if !crate::two_factor::check_code(&app.pool, &user.id, code).await? {
+                // Неверный код — та же блокировка, что и для пароля.
+                audit(&app.pool, None, "login.failed", Some(&key), &ip).await?;
+                return Err(ApiError::BadTwoFactorCode);
+            }
+            false
+        }
+    };
+    let out = start_session(&app.pool, user, &req.device, &ip, needs_setup).await?;
     Ok(with_cookie(set_cookie(&out.token), Json(out)))
 }
 
@@ -495,7 +546,16 @@ pub async fn accept_invite(
             .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
         session_id: String::new(),
     };
-    let out = start_session(&app.pool, user, &req.device, &addr.ip().to_string()).await?;
+    let ip = addr.ip().to_string();
+    // Приглашение — личная одноразовая ссылка: оно и есть второе доказательство.
+    // Если организация требует код, его настраивают сразу после пароля — и не только в офисе.
+    let required = match crate::two_factor::policy(&app.pool).await? {
+        crm_core::totp::Policy::All => true,
+        crm_core::totp::Policy::Remote => !crm_core::remote::is_office_addr(&ip),
+        crm_core::totp::Policy::Off => false,
+    };
+    let needs_setup = required && !crate::two_factor::enrolled(&app.pool, &user.id).await?;
+    let out = start_session(&app.pool, user, &req.device, &ip, needs_setup).await?;
     Ok(with_cookie(set_cookie(&out.token), Json(out)))
 }
 
@@ -656,6 +716,8 @@ pub struct StaffMember {
     created_at: i64,
     /// Сотрудник нажал «Забыли пароль?» за последнюю неделю, а доступ ещё не сброшен.
     reset_requested: bool,
+    /// Код из приложения настроен.
+    two_factor: bool,
 }
 
 /// Список сотрудников для админ-панели владельца.
@@ -675,7 +737,8 @@ pub async fn list_users(
                       AND a.created_at > ?
                       AND a.created_at > COALESCE((SELECT max(b.created_at) FROM audit_log b
                                                    WHERE b.action = 'access.reset' AND b.entity_id = users.username), 0)
-                ) AS reset_requested
+                ) AS reset_requested,
+                totp_secret IS NOT NULL AS two_factor
          FROM users
          ORDER BY role = 'host' DESC, display_name COLLATE NOCASE",
     )

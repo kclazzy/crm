@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { Check, Copy, KeyRound, Plus, Trash2, UsersRound } from 'lucide-react';
+import { api, type TwoFactorPolicy } from '../api';
 import { type Group, type OrgSettings, type RemoteInfo, work } from '../work';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 import { PeoplePicker, usePeople } from '../components/work';
@@ -171,6 +172,42 @@ export function ConnectionKey({ userId, name, onClose }: { userId: string | null
 
 // ---------- Удалённый доступ (через интернет) ----------
 
+const policies: { value: TwoFactorPolicy; title: string; hint: string }[] = [
+  { value: 'remote', title: 'Код при входе из интернета (рекомендуется)', hint: 'Из дома и с мобильного — пароль и код из приложения. В офисе — только пароль.' },
+  { value: 'all', title: 'Код при каждом входе', hint: 'И в офисе, и из интернета. Строже, но код вводят чаще.' },
+  { value: 'off', title: 'Не требовать', hint: 'Код — только у тех, кто включил его сам. Если сервер открыт в интернет, так небезопасно.' },
+];
+
+/** Когда спрашивать код из приложения. Сотрудник без кода из интернета не войдёт — настроит в офисе. */
+function TwoFactorPolicyCard() {
+  const [policy, setPolicy] = useState<TwoFactorPolicy | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => void api.twoFactorPolicy().then((r) => setPolicy(r.policy)).catch((e) => setError(e.message)), []);
+  if (!policy) return <ErrorText>{error}</ErrorText>;
+  return (
+    <section className="card p-5">
+      <h2 className="mb-1 font-semibold">5. Защита входа: код из приложения</h2>
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+        Второй шаг входа — 6 цифр из приложения на телефоне (Яндекс Ключ, Google Authenticator). Каждый настраивает его сам:
+        меню <b>«Код для входа»</b>. Кто не настроил — из интернета не войдёт, только в офисе.
+      </p>
+      <div className="flex flex-col gap-2">
+        {policies.map((p) => (
+          <label key={p.value} className={`flex cursor-pointer gap-3 rounded-xl border p-3 ${policy === p.value ? 'border-brand-500 bg-brand-50/60 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+            <input type="radio" name="policy" className="mt-1" checked={policy === p.value} onChange={async () => {
+              setError('');
+              try { setPolicy((await api.setTwoFactorPolicy(p.value)).policy); } catch (x) { setError((x as Error).message); }
+            }} />
+            <span><b className="text-sm">{p.title}</b><br /><span className="text-sm text-slate-500">{p.hint}</span></span>
+          </label>
+        ))}
+      </div>
+      <ErrorText>{error}</ErrorText>
+      <p className="mt-3 text-sm text-slate-500">Потерял телефон и резервные коды — «Сотрудники» → «Сбросить код». Владелец без кода: на сервере <code>crm-server reset-owner-password</code>.</p>
+    </section>
+  );
+}
+
 /** Доступ через интернет: внешний адрес офиса, переадресация порта, сотрудники и телефоны. */
 export function AdminRemote() {
   const [info, setInfo] = useState<RemoteInfo | null>(null);
@@ -236,9 +273,9 @@ export function AdminRemote() {
             <li>Программа CRM сотрудника узнаёт внешний адрес сама при подключении в офисе — дальше из дома работает без настроек.</li>
             <li>Кто ни разу не подключался в офисе — выдайте новый ключ (<b>Сотрудники → Ключ подключения</b>): адрес уже в нём.</li>
             <li>Телефон: <b>Сервер → Вход с телефона</b> — QR-коды для сертификата и для входа из интернета.</li>
-            <li>Защита входа: включите <b>обязательный код из приложения</b> (<b>Сервер → Безопасность</b>) — без него пароля недостаточно.</li>
           </ul>
         </section>
+        <TwoFactorPolicyCard />
       </div>
     </>
   );
