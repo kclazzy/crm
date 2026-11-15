@@ -9,9 +9,9 @@ use chrono::{Duration, TimeZone, Utc};
 use crm_core::access::{ClientAccess, TaskAccess};
 use crm_core::auth::Role;
 use crm_core::task::{
-    check_archive, check_can_complete, check_reassign, check_reopen, check_status_change,
-    check_subtask_deadline, check_transition, completed_at_after, deadline_state, parse_title,
-    DeadlineState, Involvement, Priority, TaskStatus,
+    check_archive, check_can_complete, check_edit, check_reassign, check_reopen,
+    check_status_change, check_subtask_deadline, check_transition, completed_at_after,
+    deadline_state, parse_title, DeadlineState, Involvement, Priority, TaskStatus,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -294,6 +294,8 @@ pub struct TaskCard {
     can_change_status: bool,
     /// Можно сменить исполнителя (не в архиве).
     can_reassign: bool,
+    /// Можно поменять название, описание, срок, приоритет.
+    can_edit: bool,
     /// Можно убрать в архив или вернуть из него.
     can_archive: bool,
     archived_by: Option<String>,
@@ -366,6 +368,7 @@ pub async fn get(
     let who = involvement(&app.pool, &id, &user).await?;
     let can_change_status = check_status_change(who).is_ok();
     let can_reassign = check_reassign(who, access.can_manage(), 1).is_ok();
+    let can_edit = check_edit(who, access.can_manage()).is_ok();
     let can_archive = who.is_owner || who.is_assignee;
     let lead_id = summary.details.as_ref().and_then(|d| d.lead_id.clone());
     let archived_by: Option<String> = sqlx::query_scalar(
@@ -388,6 +391,7 @@ pub async fn get(
         can_trash,
         can_change_status,
         can_reassign,
+        can_edit,
         can_archive,
         archived_by,
         lead_id,
@@ -679,7 +683,13 @@ pub async fn update(
     Json(req): Json<TaskPatch>,
 ) -> Result<StatusCode, ApiError> {
     let scope = Scope::load(&app.pool, &user).await?;
-    scope.require_manage_task(&id)?;
+    let access = scope.task_or_404(&id)?;
+    let who = involvement(&app.pool, &id, &user).await?;
+    check_edit(who, access.can_manage()).map_err(|_| ApiError::Forbidden)?;
+    // Исполнителей через «Изменить» назначает руководитель; остальные — «Сменить исполнителя».
+    if req.assignees.is_some() && !access.can_manage() {
+        return Err(ApiError::Forbidden);
+    }
     let cur = current(&app.pool, &id).await?;
     if cur.archived_at.is_some() {
         return Err(ApiError::Conflict("задача в архиве — сначала верните её"));
@@ -699,18 +709,31 @@ pub async fn update(
                 &mut tx,
                 &id,
                 &user.id,
-                &format!("{who} переименовал задачу: «{t}»"),
+                &format!("{who} переименовал(а) задачу: «{t}»"),
             )
             .await?;
         }
     }
     if let Some(d) = &req.description {
         check_description(d)?;
-        sqlx::query("UPDATE tasks SET description = ? WHERE id = ?")
-            .bind(d)
+        let before: String = sqlx::query_scalar("SELECT description FROM tasks WHERE id = ?")
             .bind(&id)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
+        if *d != before {
+            sqlx::query("UPDATE tasks SET description = ? WHERE id = ?")
+                .bind(d)
+                .bind(&id)
+                .execute(&mut *tx)
+                .await?;
+            system(
+                &mut tx,
+                &id,
+                &user.id,
+                &format!("{who} изменил(а) описание задачи"),
+            )
+            .await?;
+        }
     }
     if let Some(p) = req.priority {
         let p = i64::from(p);
@@ -725,7 +748,7 @@ pub async fn update(
                 &id,
                 &user.id,
                 &format!(
-                    "{who} изменил приоритет: {} → {}",
+                    "{who} изменил(а) приоритет: {} → {}",
                     priority_label(cur.priority),
                     priority_label(p)
                 ),

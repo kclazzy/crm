@@ -57,6 +57,7 @@ function Stages({ t, reload }: { t: TaskCard; reload: () => void }) {
 
 function EditTask({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; onSaved: () => void }) {
   const people = usePeople();
+  const manage = t.access === 'manage';
   const [assignees, setAssignees] = useState((t.assignees ?? []).map((a) => a.id));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -73,7 +74,8 @@ function EditTask({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; o
             description: String(f.get('description')),
             priority: Number(f.get('priority')) as Priority,
             deadline_at: fromLocalInput(String(f.get('deadline'))),
-            assignees,
+            // Исполнителей здесь назначает руководитель; остальные — «Сменить исполнителя».
+            ...(manage ? { assignees } : {}),
           });
           onSaved();
         } catch (x) {
@@ -82,7 +84,7 @@ function EditTask({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; o
           setBusy(false);
         }
       }}>
-        <label className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Название<input name="title" className="input" defaultValue={t.title} required maxLength={300} /></label>
+        <label className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Наименование задачи<input name="title" className="input" defaultValue={t.title} required maxLength={300} /></label>
         <label className="flex flex-col gap-1.5 text-sm font-medium">Приоритет
           <select name="priority" className="input" defaultValue={t.priority}><option value="1">P1 — высокий</option><option value="2">P2 — средний</option><option value="3">P3 — низкий</option></select>
         </label>
@@ -90,7 +92,8 @@ function EditTask({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; o
           <input name="deadline" type="datetime-local" className="input" defaultValue={toLocalInput(t.deadline_at ?? Date.now())} required />
           {t.parent_deadline_at && <span className="text-xs font-normal text-slate-500">Не позже {dateTime(t.parent_deadline_at)}</span>}
         </label>
-        <div className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Исполнители<PeoplePicker lead people={people} value={assignees} onChange={setAssignees} /><LeadPicker people={people} value={assignees} onChange={setAssignees} /></div>
+        {manage && <div className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Исполнители<PeoplePicker lead people={people} value={assignees} onChange={setAssignees} /><LeadPicker people={people} value={assignees} onChange={setAssignees} /></div>}
+        {t.status && t.status !== 'waiting' && <p className="text-xs text-slate-500 sm:col-span-2">Статус «{statusName[t.status]}» не изменится; в чате появится запись о каждом изменении.</p>}
         <label className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Описание<textarea name="description" className="input min-h-28" defaultValue={t.description} maxLength={50000} /></label>
         <div className="flex flex-col gap-3 sm:col-span-2"><ErrorText>{error}</ErrorText><Button type="submit" busy={busy}>Сохранить</Button></div>
       </form>
@@ -200,7 +203,14 @@ export function TaskPage() {
               </span>
             ))}
           </nav>
-          <h1 className="mb-4 text-2xl font-bold tracking-tight">{t.title}</h1>
+          <div className="mb-4 flex items-start gap-3">
+            <h1 className="min-w-0 flex-1 break-words text-2xl font-bold tracking-tight">{t.title}</h1>
+            {t.can_edit && !archived && (
+              <Button variant="secondary" className="shrink-0 px-3 py-1.5 text-sm" onClick={() => setEditing(true)} title="Наименование, описание, срок, приоритет">
+                <Pencil className="size-4" />Изменить
+              </Button>
+            )}
+          </div>
 
           <div className="card mb-4 px-5 py-3">
             <Row label="Постановщик"><span className="flex items-center gap-2"><Avatar name={t.created_by.name} size="sm" />{t.created_by.name}</span></Row>
@@ -270,7 +280,7 @@ export function TaskPage() {
             {(close) => (
               <>
                 {more.map((a) => <MenuItem key={a.label} icon={statusIcon[a.to]} onClick={() => { close(); void setStatus(a.to); }}>{a.label}</MenuItem>)}
-                {manage && !archived && <MenuItem icon={<Pencil className="size-4" />} onClick={() => { close(); setEditing(true); }}>Изменить</MenuItem>}
+                {t.can_edit && !archived && <MenuItem icon={<Pencil className="size-4" />} onClick={() => { close(); setEditing(true); }}>Изменить</MenuItem>}
                 {t.can_trash && !archived && <MenuItem danger icon={<Trash2 className="size-4" />} onClick={() => { close(); setTrash(true); }}>В корзину</MenuItem>}
                 {!more.length && !(manage && !archived) && !(t.can_trash && !archived) && <p className="px-4 py-2.5 text-sm text-slate-500">Других действий нет</p>}
               </>

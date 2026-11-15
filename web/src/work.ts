@@ -52,6 +52,8 @@ export interface TaskCard extends TaskSummary {
   can_trash: boolean;
   can_change_status: boolean;
   can_reassign: boolean;
+  /** Можно поменять название, описание, срок, приоритет. */
+  can_edit: boolean;
   can_archive: boolean;
   archived_by: string | null;
   /** Сотрудники группы клиента — первыми в выборе исполнителя. */

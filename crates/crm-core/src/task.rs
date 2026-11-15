@@ -128,6 +128,10 @@ pub enum RuleError {
     NotYourTask,
     #[error("в архив можно убрать только завершённую задачу")]
     NotCompleted,
+    #[error(
+        "задачу меняют постановщик, руководитель или владелец — исполнитель может попросить в чате"
+    )]
+    NotEditor,
     #[error("исполнителя меняют постановщик, исполнитель, руководитель или владелец")]
     NotReassigner,
     #[error("нужен хотя бы один исполнитель")]
@@ -196,6 +200,17 @@ pub fn check_status_change(who: Involvement) -> Result<(), RuleError> {
         Ok(())
     } else {
         Err(RuleError::NotYourTask)
+    }
+}
+
+/// Поменять название, описание, срок, приоритет: постановщик, руководитель, который ведёт
+/// задачу, или владелец — в том числе у задачи в работе. Исполнитель — нет: иначе он сам
+/// отодвигал бы себе срок, и просрочки теряли бы смысл.
+pub fn check_edit(who: Involvement, manages: bool) -> Result<(), RuleError> {
+    if manages || who.is_owner || who.is_creator {
+        Ok(())
+    } else {
+        Err(RuleError::NotEditor)
     }
 }
 
@@ -425,6 +440,16 @@ mod tests {
         };
         assert_eq!(check_status_change(co), Err(RuleError::NotYourTask));
         assert_eq!(check_reassign(co, false, 1), Err(RuleError::NotReassigner));
+        assert_eq!(check_edit(co, false), Err(RuleError::NotEditor));
+        assert_eq!(check_edit(nobody, true), Ok(()), "руководитель группы");
+        assert_eq!(
+            check_edit(assignee, false),
+            Err(RuleError::NotEditor),
+            "срок себе не двигает"
+        );
+        for w in [creator, owner] {
+            assert_eq!(check_edit(w, false), Ok(()));
+        }
         assert_eq!(
             check_archive(co, TaskStatus::Completed),
             Err(RuleError::NotArchiver)

@@ -963,3 +963,72 @@ async fn first_assignee_is_responsible_others_help() {
     let (s, _) = status(petr.clone(), "completed").await;
     assert_eq!(s, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn task_fields_are_edited_by_creator_while_in_progress() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (ivan_id, ivan) = app.member(&owner, "ivan", "employee", "10.0.0.2").await;
+    let c = client(&app, &owner, "Клиент").await;
+    let t = new_task(
+        &app,
+        &owner,
+        json!({"client_id": c, "title": "Отчёт", "priority": 2, "deadline_at": soon(3), "assignees": [ivan_id]}),
+    )
+    .await;
+    let url = format!("/api/tasks/{t}");
+    app.call(
+        "POST",
+        &format!("{url}/status"),
+        LOCAL,
+        Some(&ivan),
+        Some(json!({"status": "in_progress"})),
+    )
+    .await;
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&owner), None).await;
+    assert_eq!(card["can_edit"], true, "постановщик: {card}");
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&ivan), None).await;
+    assert_eq!(card["can_edit"], false, "исполнитель: {card}");
+
+    // Постановщик меняет поля задачи в работе — статус остаётся, в чате — записи.
+    let new_deadline = soon(5);
+    let (s, v) = app
+        .call(
+            "PATCH",
+            &url,
+            LOCAL,
+            Some(&owner),
+            Some(json!({
+                "title": "Квартальный отчёт", "description": "Сверка за III квартал",
+                "priority": 1, "deadline_at": new_deadline
+            })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{v}");
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&ivan), None).await;
+    assert_eq!(card["title"], "Квартальный отчёт");
+    assert_eq!(card["description"], "Сверка за III квартал");
+    assert_eq!(card["priority"], 1);
+    assert_eq!(card["deadline_at"], new_deadline);
+    assert_eq!(card["status"], "in_progress", "статус не меняется");
+    let (_, chat) = app
+        .call("GET", &format!("{url}/messages"), LOCAL, Some(&ivan), None)
+        .await;
+    let text = chat.to_string();
+    assert!(
+        text.contains("Квартальный отчёт") && text.contains("крайний срок"),
+        "{text}"
+    );
+
+    // Исполнитель срок себе не двигает.
+    let (s, _) = app
+        .call(
+            "PATCH",
+            &url,
+            LOCAL,
+            Some(&ivan),
+            Some(json!({"deadline_at": soon(9)})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+}

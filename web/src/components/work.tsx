@@ -417,7 +417,7 @@ export function TaskForm({
           </div>
         )}
         <div className="sm:col-span-2">
-          <Field label="Что нужно сделать"><input name="title" className="input" required maxLength={300} autoFocus /></Field>
+          <Field label="Наименование задачи"><input name="title" className="input" required maxLength={300} autoFocus /></Field>
         </div>
         <Field label="Приоритет">
           <select name="priority" className="input" defaultValue="2">
