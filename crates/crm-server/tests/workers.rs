@@ -163,6 +163,27 @@ async fn archive_is_manual_restorable_and_purged_only_by_owner() {
         )
         .await;
     assert_eq!(s, StatusCode::NO_CONTENT, "восстановить может исполнитель");
+    // Восстановленную из архива завершённую задачу можно вернуть в работу.
+    let (s, v) = app
+        .call(
+            "POST",
+            &format!("/api/tasks/{t}/status"),
+            LOCAL,
+            Some(&emp),
+            Some(json!({"status": "in_progress"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v) = app
+        .call(
+            "POST",
+            &format!("/api/tasks/{t}/status"),
+            LOCAL,
+            Some(&emp),
+            Some(json!({"status": "completed"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
     arch(owner.clone()).await;
     let (s, _) = app
         .call(
