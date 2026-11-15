@@ -42,6 +42,10 @@ export function reminderText(n: Note): { title: string; body: string } {
       const when = { h24: 'через сутки', h4: 'через 4 часа', h1: 'через час', overdue: 'просрочена' }[String(p.reminder)] ?? '';
       return { title: p.reminder === 'overdue' ? 'Задача просрочена' : `Дедлайн ${when}`, body: `${p.title} · ${p.client}` };
     }
+    case 'assigned':
+      return { title: 'Вам передали задачу', body: `${p.title} · ${p.client} · от ${p.by}` };
+    case 'reassigned':
+      return { title: 'Исполнитель сменился', body: `${p.title} · ${p.client} · сменил(а) ${p.by}` };
     case 'disk_critical':
       return { title: 'Диск почти заполнен', body: `Том ${p.volume}: освободите место или перенесите данные` };
     case 'disk_warning':

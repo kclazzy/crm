@@ -474,6 +474,24 @@ async fn assignee_changes_while_task_is_in_progress() {
         card["can_change_status"], true,
         "новый исполнитель ведёт задачу"
     );
+    // Новому исполнителю и постановщику — уведомления.
+    let (_, notes) = app
+        .call("GET", "/api/notifications", LOCAL, Some(&petr), None)
+        .await;
+    assert!(
+        notes.to_string().contains("\"assigned\""),
+        "новому исполнителю: {notes}"
+    );
+    let (_, notes) = app
+        .call("GET", "/api/notifications", LOCAL, Some(&owner), None)
+        .await;
+    assert!(
+        notes.to_string().contains("\"reassigned\""),
+        "постановщику: {notes}"
+    );
+    // В карточке — сотрудники группы клиента: их предлагать первыми.
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&petr), None).await;
+    assert!(card["team"].is_array(), "{card}");
     let (_, chat) = app
         .call("GET", &format!("{url}/messages"), LOCAL, Some(&petr), None)
         .await;

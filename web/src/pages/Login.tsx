@@ -19,7 +19,7 @@ export function Login() {
     try {
       const { user, must_setup_2fa } = await api.login(username, password, code);
       setMe(user);
-      navigate(must_setup_2fa ? SECURITY_PATH : user.role === 'host' ? '/admin/staff' : '/', { replace: true });
+      navigate(must_setup_2fa ? SECURITY_PATH : '/', { replace: true });
     } catch (x) {
       if (x instanceof ApiError && x.data.need_code) {
         setCreds({ username, password });

@@ -86,7 +86,7 @@ function Header({ title, baseRole, onCreate }: { title: string; baseRole?: Role;
           Чаты задач{unread > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-bold">{count(unread)}</span>}
         </Link>
         <button className={`${chip} ${overdue ? 'bg-white/30 ring-1 ring-white/60' : ''}`} onClick={() => set('overdue', overdue ? '' : '1')} title="Показать только просроченные">
-          <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-bold">{count(overdueCount)}</span>Просрочены
+          {overdueCount > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-bold">{count(overdueCount)}</span>}Просрочены
         </button>
         {unread > 0 && <button className={chip} onClick={async () => { await work.readAll(); refreshUnread(); }}>Прочитать все</button>}
       </div>
@@ -148,6 +148,12 @@ function ByClients({ tasks }: { tasks: TaskSummary[] }) {
 
 const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
+/** «Ноябрь 2026» — без «г.», который браузер добавляет к месяцу с годом. */
+export function monthTitle(d: Date) {
+  const m = d.toLocaleDateString('ru-RU', { month: 'long' });
+  return `${m[0].toUpperCase()}${m.slice(1)} ${d.getFullYear()}`;
+}
+
 /** Месяц: задачи по дню крайнего срока. */
 function Calendar({ tasks }: { tasks: TaskSummary[] }) {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
@@ -170,7 +176,7 @@ function Calendar({ tasks }: { tasks: TaskSummary[] }) {
     <div className="card overflow-hidden">
       <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
         <button className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => shift(-1)} aria-label="Предыдущий месяц"><ChevronLeft className="size-5" /></button>
-        <p className="min-w-40 text-center font-semibold capitalize">{month.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</p>
+        <p className="min-w-40 text-center font-semibold">{monthTitle(month)}</p>
         <button className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => shift(1)} aria-label="Следующий месяц"><ChevronRight className="size-5" /></button>
         <button className="ml-2 rounded-lg px-2.5 py-1 text-sm text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }}>Сегодня</button>
       </div>
@@ -282,7 +288,7 @@ export function Archive() {
                 <button className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10" title="Восстановить из архива"
                   onClick={() => act(() => work.unarchive(t.id))}><ArchiveRestore className="size-3.5" />Восстановить</button>
                 <button className="rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10" title="Восстановить и сразу вернуть в работу"
-                  onClick={() => act(async () => { await work.unarchive(t.id); await work.setStatus(t.id, 'in_progress'); })}>В работу</button>
+                  onClick={() => act(() => work.unarchive(t.id, true))}>В работу</button>
                 {owner && <button className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" title="Удалить навсегда"
                   onClick={() => setPurging(t)}><Trash2 className="size-4" /></button>}
               </span>

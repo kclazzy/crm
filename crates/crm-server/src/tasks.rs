@@ -290,6 +290,8 @@ pub struct TaskCard {
     /// Можно убрать в архив или вернуть из него.
     can_archive: bool,
     archived_by: Option<String>,
+    /// Сотрудники группы клиента — их предлагать первыми при смене исполнителя.
+    team: Vec<String>,
 }
 
 async fn stages(pool: &SqlitePool, task: &str) -> Result<Vec<Stage>, ApiError> {
@@ -378,6 +380,13 @@ pub async fn get(
         can_reassign,
         can_archive,
         archived_by,
+        team: sqlx::query_scalar(
+            "SELECT gm.user_id FROM tasks t JOIN clients c ON c.id = t.client_id
+             JOIN group_members gm ON gm.group_id = c.group_id WHERE t.id = ?",
+        )
+        .bind(&id)
+        .fetch_all(&app.pool)
+        .await?,
     }))
 }
 
@@ -806,6 +815,20 @@ pub async fn reassign(
     system(&mut tx, &id, &user.id, &text).await?;
     tx.commit().await?;
     task_changed(&app, &id, "updated").await?;
+    // Новым исполнителям — «вам передали задачу»; постановщику — что исполнитель сменился.
+    let (title, client, creator): (String, String, String) = sqlx::query_as(
+        "SELECT t.title, c.name, t.created_by FROM tasks t JOIN clients c ON c.id = t.client_id WHERE t.id = ?",
+    )
+    .bind(&id)
+    .fetch_one(&app.pool)
+    .await?;
+    let payload = serde_json::json!({ "title": title, "client": client, "by": user.display_name });
+    for new in ids.iter().filter(|u| **u != user.id && !before.contains(u)) {
+        crate::notify::push(&app, new, Some(&id), "assigned", payload.clone()).await?;
+    }
+    if creator != user.id && !ids.contains(&creator) {
+        crate::notify::push(&app, &creator, Some(&id), "reassigned", payload).await?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1151,12 +1174,37 @@ pub async fn archive(
 }
 
 /// Восстановить из архива: задача, её подзадачи и родители, если они тоже в архиве.
+#[derive(Deserialize)]
+pub struct UnarchiveQuery {
+    /// Сразу вернуть в работу — одним действием: или всё, или ничего.
+    #[serde(default)]
+    reopen: Option<u8>,
+}
+
 pub async fn unarchive(
     State(app): State<AppState>,
     user: CurrentUser,
     Path(id): Path<String>,
+    Query(q): Query<UnarchiveQuery>,
 ) -> Result<StatusCode, ApiError> {
     archive_check(&app, &user, &id).await?;
+    let reopen = q.reopen.is_some_and(|r| r != 0);
+    if reopen {
+        // Подзадачу под завершённой задачей в работу не вернуть — проверяем до изменений.
+        let cur = current(&app.pool, &id).await?;
+        if let Some(p) = &cur.parent_task_id {
+            let parent: TaskStatus = parent_of(&app.pool, p)
+                .await?
+                .status
+                .parse()
+                .map_err(|_| ApiError::Corrupt("статус родительской задачи".into()))?;
+            check_reopen(TaskStatus::InProgress, Some(parent)).map_err(|_| {
+                ApiError::Conflict(
+                    "родительская задача завершена — сначала верните в работу родительскую задачу",
+                )
+            })?;
+        }
+    }
     let mut tx = app.pool.begin().await?;
     sqlx::query(
         "WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN down ON t.parent_task_id = down.id),
@@ -1169,13 +1217,20 @@ pub async fn unarchive(
     .bind(&id)
     .execute(&mut *tx)
     .await?;
-    system(
-        &mut tx,
-        &id,
-        &user.id,
-        &format!("{} восстановил(а) задачу из архива", user.display_name),
-    )
-    .await?;
+    let text = if reopen {
+        sqlx::query("UPDATE tasks SET status = 'in_progress', completed_at = NULL WHERE id = ?")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await?;
+        format!(
+            "{} вернул(а) задачу из архива в работу. Статус: «{}»",
+            user.display_name,
+            TaskStatus::InProgress.label()
+        )
+    } else {
+        format!("{} восстановил(а) задачу из архива", user.display_name)
+    };
+    system(&mut tx, &id, &user.id, &text).await?;
     tx.commit().await?;
     task_changed(&app, &id, "unarchived").await?;
     Ok(StatusCode::NO_CONTENT)

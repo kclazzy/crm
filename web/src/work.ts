@@ -52,6 +52,8 @@ export interface TaskCard extends TaskSummary {
   can_reassign: boolean;
   can_archive: boolean;
   archived_by: string | null;
+  /** Сотрудники группы клиента — первыми в выборе исполнителя. */
+  team: string[];
 }
 
 export interface Tag { name: string; color: string }
@@ -200,7 +202,7 @@ export const work = {
   trashTask: (id: string) => req<void>('DELETE', `/api/tasks/${id}`),
   restoreTask: (id: string) => req<void>('POST', `/api/tasks/${id}/restore`),
   trashedTasks: () => req<{ id: string; title: string; client_name: string; deleted_at: number }[]>('GET', '/api/tasks/trash'),
-  unarchive: (id: string) => req<void>('POST', `/api/tasks/${id}/unarchive`),
+  unarchive: (id: string, reopen = false) => req<void>('POST', `/api/tasks/${id}/unarchive${reopen ? '?reopen=1' : ''}`),
   archive: (id: string) => req<void>('POST', `/api/tasks/${id}/archive`),
   purgeTask: (id: string) => req<void>('DELETE', `/api/tasks/${id}/purge`),
   addStage: (task: string, title: string) => req<{ id: string }>('POST', `/api/tasks/${task}/stages`, { title }),

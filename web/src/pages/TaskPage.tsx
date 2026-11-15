@@ -137,7 +137,22 @@ function Reassign({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; o
         try { await work.reassign(t.id, ids); onSaved(); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
       }}>
         <p className="text-sm text-slate-600 dark:text-slate-300">Статус{t.status ? ` «${statusName[t.status]}»` : ""}, этапы и чат сохранятся. Новый исполнитель увидит задачу сразу.</p>
-        <PeoplePicker people={people} value={ids} onChange={setIds} />
+        {(() => {
+          const team = people.filter((p) => t.team.includes(p.id));
+          const rest = people.filter((p) => !t.team.includes(p.id));
+          return (
+            <>
+              {team.length > 0 && <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Группа клиента</p>}
+              <PeoplePicker people={team} value={ids} onChange={setIds} />
+              {rest.length > 0 && (
+                <details className="text-sm" open={team.length === 0 || ids.some((i) => rest.some((p) => p.id === i))}>
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Другие сотрудники — увидят этого клиента через задачу</summary>
+                  <div className="mt-2"><PeoplePicker people={rest} value={ids} onChange={setIds} /></div>
+                </details>
+              )}
+            </>
+          );
+        })()}
         <ErrorText>{error}</ErrorText>
         <Button type="submit" busy={busy} disabled={!ids.length}>Сохранить</Button>
       </form>
@@ -256,7 +271,7 @@ export function TaskPage() {
           {secondary.map((a) => <Button key={a.to} variant="secondary" onClick={() => setStatus(a.to)}>Завершить</Button>)}
           {archived && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.unarchive(t.id), 'Задача восстановлена из архива.')}><ArchiveRestore className="size-4" />Восстановить</Button>}
           {archived && t.can_archive && t.can_change_status && (
-            <Button onClick={() => act(async () => { await work.unarchive(t.id); await work.setStatus(t.id, 'in_progress'); }, 'Задача восстановлена и возвращена в работу.')}>Восстановить в работу</Button>
+            <Button onClick={() => act(() => work.unarchive(t.id, true), 'Задача восстановлена и возвращена в работу.')}>Восстановить в работу</Button>
           )}
           {!archived && status === 'completed' && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.archive(t.id), 'Задача убрана в архив.')}><Archive className="size-4" />В архив</Button>}
           <Menu button={(toggle) => <Button variant="ghost" onClick={toggle} title="Ещё"><MoreHorizontal className="size-5" /></Button>}>

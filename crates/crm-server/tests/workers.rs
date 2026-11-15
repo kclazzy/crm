@@ -185,6 +185,46 @@ async fn archive_is_manual_restorable_and_purged_only_by_owner() {
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     arch(owner.clone()).await;
+
+    // «Из архива в работу» — одним действием: вышла из архива и сразу «Выполняется».
+    let (s, v) = app
+        .call(
+            "POST",
+            &format!("/api/tasks/{t}/unarchive?reopen=1"),
+            LOCAL,
+            Some(&emp),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{v}");
+    let (_, card) = app
+        .call("GET", &format!("/api/tasks/{t}"), LOCAL, Some(&emp), None)
+        .await;
+    assert_eq!(card["status"], "in_progress");
+    assert!(card["archived_at"].is_null());
+    let (_, chat) = app
+        .call(
+            "GET",
+            &format!("/api/tasks/{t}/messages"),
+            LOCAL,
+            Some(&emp),
+            None,
+        )
+        .await;
+    assert!(
+        chat.to_string()
+            .contains("вернул(а) задачу из архива в работу"),
+        "{chat}"
+    );
+    app.call(
+        "POST",
+        &format!("/api/tasks/{t}/status"),
+        LOCAL,
+        Some(&emp),
+        Some(json!({"status": "completed"})),
+    )
+    .await;
+    arch(owner.clone()).await;
     let (s, _) = app
         .call(
             "DELETE",
