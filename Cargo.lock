@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "crm-connect"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "crm-core",
  "crm-server",
@@ -958,7 +958,7 @@ dependencies = [
 
 [[package]]
 name = "crm-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -974,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "crm-desktop"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "crm-connect",
  "crm-core",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "crm-server"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "argon2",
  "axum",
