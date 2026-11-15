@@ -257,6 +257,9 @@ export const work = {
   phone: () => req<{ kind: 'cert' | 'office' | 'internet'; url: string; qr_svg: string }[]>('GET', '/api/admin/phone'),
   restore: (name: string | null, dir: string | null) =>
     req<{ name: string; at: number; attachments_copied: number }>('POST', '/api/admin/restore', { name, dir }),
+  importDb: (source: string, mode: 'replace' | 'merge') =>
+    req<{ restart: true; staged: string } | { added: Record<string, number>; merged_users: number; attachments: number }>(
+      'POST', '/api/admin/import-db', { source, mode }),
   moveOut: (dir: string) => req<{ file: string }>('POST', '/api/admin/move-out', { dir }),
 };
 

@@ -15,12 +15,23 @@ const MAX_ENTRIES: usize = 500;
 #[derive(Deserialize)]
 pub struct ListQuery {
     path: Option<String>,
+    /// `backups` — показать и файлы копий CRM (для импорта базы).
+    files: Option<String>,
+}
+
+/// Файл копии CRM: пакет переноса или сжатая база.
+fn is_backup_file(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.ends_with(".crmpack") || n.ends_with(".db.zst")
 }
 
 #[derive(Serialize)]
 pub struct Entry {
     name: String,
     path: PathBuf,
+    /// Файл, а не папка — выбирается сразу.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    file: bool,
 }
 
 #[derive(Serialize)]
@@ -42,6 +53,7 @@ fn roots() -> Vec<Entry> {
             .map(|d| Entry {
                 name: d.clone(),
                 path: PathBuf::from(d),
+                file: false,
             })
             .collect()
     }
@@ -50,6 +62,7 @@ fn roots() -> Vec<Entry> {
         vec![Entry {
             name: "/".into(),
             path: PathBuf::from("/"),
+            file: false,
         }]
     }
 }
@@ -81,18 +94,26 @@ pub async fn list(Owner(_): Owner, Query(q): Query<ListQuery>) -> Result<Json<Li
     }
     let read = std::fs::read_dir(&dir)
         .map_err(|e| ApiError::BadRequest(format!("не открыть папку {}: {e}", dir.display())))?;
+    let with_files = q.files.as_deref() == Some("backups");
     let mut entries: Vec<Entry> = read
         .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            (!hidden(&name)).then(|| Entry {
+            let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+            let show = if is_dir {
+                !hidden(&name)
+            } else {
+                with_files && is_backup_file(&name)
+            };
+            show.then(|| Entry {
                 name,
                 path: e.path(),
+                file: !is_dir,
             })
         })
         .collect();
-    entries.sort_by_key(|e| e.name.to_lowercase());
+    // Сначала папки, потом файлы; внутри — по имени.
+    entries.sort_by_key(|e| (e.file, e.name.to_lowercase()));
     entries.truncate(MAX_ENTRIES);
     Ok(Json(Listing {
         parent: dir.parent().map(Path::to_path_buf),
@@ -129,5 +150,6 @@ pub async fn mkdir(Owner(_): Owner, Json(req): Json<MkdirIn>) -> Result<Json<Ent
     Ok(Json(Entry {
         name: name.to_owned(),
         path,
+        file: false,
     }))
 }

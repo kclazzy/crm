@@ -1,11 +1,23 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, FolderInput, HardDrive, History, RefreshCw, Truck } from 'lucide-react';
+import { AlertTriangle, DatabaseZap, FolderInput, HardDrive, History, RefreshCw, Truck } from 'lucide-react';
 import { api, type BackupFile, type BackupPolicy, type BackupStatus, bytes, type StorageInfo } from '../api';
 import { BackupScheme } from '../components/BackupScheme';
 import { BackupSettings } from '../components/BackupSettings';
 import { PathInput } from '../components/FolderPicker';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 import { work } from '../work';
+
+/** Что показать в отчёте импорта: таблица → подпись. Остальное (служебное) не перечисляем. */
+const importLabels: [string, string][] = [
+  ['clients', 'клиенты'], ['tasks', 'задачи'], ['messages', 'сообщения'], ['attachments', 'файлы'],
+  ['users', 'новые сотрудники'], ['tags', 'новые метки'],
+];
+
+function importReport(r: { added: Record<string, number>; merged_users: number; attachments: number }) {
+  const parts = importLabels.filter(([k]) => r.added[k]).map(([k, l]) => `${l} — ${r.added[k]}`);
+  const what = parts.length ? `Добавлено: ${parts.join(', ')}.` : 'Новых записей нет — всё уже было в этой базе.';
+  return `${what} Сотрудников совпало по логину: ${r.merged_users}, вложений скопировано: ${r.attachments}.`;
+}
 
 const levelColor = { ok: 'bg-emerald-500', warning: 'bg-amber-500', critical: 'bg-red-500' };
 
@@ -55,6 +67,8 @@ export function AdminStorage() {
   const [moving, setMoving] = useState(false);
   const [restoring, setRestoring] = useState<BackupFile | null>(null);
   const [movingOut, setMovingOut] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [done, setDone] = useState('');
 
   const load = useCallback(async () => {
@@ -145,6 +159,15 @@ export function AdminStorage() {
           <Button variant="secondary" className="mt-4" disabled={info.restart_required || info.backup_dirs.length === 0} onClick={() => { setError(''); setMovingOut(true); }}>Подготовить пакет переноса…</Button>
           {info.backup_dirs.length === 0 && <p className="mt-2 text-xs text-slate-500">Сначала выберите папку резервных копий.</p>}
         </section>
+        <section className="card mt-6 p-6">
+          <h2 className="flex items-center gap-2 font-semibold"><DatabaseZap className="size-5 text-brand-600" />Импорт базы с другого сервера</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Перенос данных со старого сервера на этот: укажите пакет переноса (<code className="font-mono">.crmpack</code>), копию
+            (<code className="font-mono">.db.zst</code>) или папку копий — возьмётся самая свежая. Можно <b>заменить</b> базу этого сервера
+            или <b>добавить</b> записи старого к уже существующим.
+          </p>
+          <Button variant="secondary" className="mt-4" disabled={info.restart_required} onClick={() => { setError(''); setImportMode('merge'); setImporting(true); }}>Импортировать базу…</Button>
+        </section>
         {done && <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">{done}</div>}
 
       </div>
@@ -198,6 +221,43 @@ export function AdminStorage() {
             } catch (x) { setError((x as Error).message); } finally { setBusy(''); }
           }}>Восстановить</Button>
         </div>
+      </Modal>
+
+      <Modal open={importing} onClose={() => setImporting(false)} title="Импорт базы">
+        <form className="flex flex-col gap-4" onSubmit={async (e) => {
+          e.preventDefault();
+          const source = String(new FormData(e.currentTarget).get('source'));
+          setBusy('move');
+          setError('');
+          try {
+            const r = await work.importDb(source, importMode);
+            setImporting(false);
+            setDone('restart' in r
+              ? `Копия ${r.staged} проверена и заменит базу после перезапуска сервера (трей → «Перезапустить сервер»).`
+              : importReport(r));
+            load();
+          } catch (x) { setError((x as Error).message); } finally { setBusy(''); }
+        }}>
+          <Field label="Откуда" hint="Файл или папка на компьютере с CRM — флешка, сетевая папка. Копия от более старой версии CRM подойдёт.">
+            <PathInput name="source" placeholder="E:\crm_move_….crmpack" required backups />
+          </Field>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-sm font-medium">Как импортировать</legend>
+            {([
+              ['merge', 'Добавить к существующим', 'Клиенты, задачи, чаты и файлы старого сервера добавятся к данным этого. Сотрудники с тем же логином сольются в одного, владелец — с владельцем. Повторный импорт той же копии ничего не задвоит. Перезапуск не нужен.'],
+              ['replace', 'С заменой', 'База этого сервера будет заменена копией целиком; всё, что сделано здесь, уйдёт из рабочей базы (сохранится рядом как before_restore_….db). Нужен перезапуск сервера.'],
+            ] as const).map(([v, title, hint]) => (
+              <label key={v} className={`flex cursor-pointer gap-3 rounded-xl border p-3 text-sm ${importMode === v ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+                <input type="radio" name="mode" value={v} checked={importMode === v} onChange={() => setImportMode(v)} className="mt-0.5" />
+                <span><b>{title}</b><span className="mt-0.5 block text-slate-500">{hint}</span></span>
+              </label>
+            ))}
+          </fieldset>
+          <ErrorText>{error}</ErrorText>
+          <Button type="submit" variant={importMode === 'replace' ? 'danger' : 'primary'} busy={busy === 'move'}>
+            {importMode === 'replace' ? 'Заменить базу этого сервера' : 'Добавить данные'}
+          </Button>
+        </form>
       </Modal>
 
       <Modal open={movingOut} onClose={() => setMovingOut(false)} title="Пакет переноса">

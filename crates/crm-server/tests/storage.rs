@@ -319,6 +319,25 @@ async fn folder_picker_lists_and_creates_folders_on_the_server() {
     assert_eq!(names, ["Копии"], "{v}");
     assert!(v["parent"].is_string());
 
+    // Для импорта — ещё и файлы копий CRM (с пометкой file), чужие файлы — нет.
+    std::fs::write(base.path().join("crm_move_1.crmpack"), "x").unwrap();
+    std::fs::write(base.path().join("crm_2026.db.zst"), "x").unwrap();
+    let (s, v) = app
+        .call("GET", &format!("{url}&files=backups"), LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let got: Vec<(&str, bool)> = v["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["name"].as_str().unwrap(), e["file"].as_bool().unwrap_or(false)))
+        .collect();
+    assert_eq!(
+        got,
+        [("Копии", false), ("crm_2026.db.zst", true), ("crm_move_1.crmpack", true)],
+        "{v}"
+    );
+
     // Создать папку.
     let (s, v) = app
         .call(
