@@ -181,6 +181,9 @@ jobs:
           if (-not $dl) { throw "скачивание со страницы CRM не сработало" }
           $file = $dl.Matches[0].Groups[1].Value
           if ((Get-Content $file -Raw) -ne 'CRM selftest') { throw "скачанный файл пустой или чужой: $file" }
+          # После скачивания страница говорит, куда сохранён файл, и даёт «Показать в папке».
+          if (-not (Select-String -Path $report -Pattern '^PAGE .*"saved_toast":"[^"]*crm-selftest' -Quiet)) { throw "нет сообщения о сохранённом файле" }
+          if (-not (Select-String -Path $report -Pattern '^REVEAL .*crm-selftest' -Quiet)) { throw "«Показать в папке» не дошло до программы" }
           # Кнопки страницы, которым нужна программа, доходят до неё.
           if (-not (Select-String -Path $report -Pattern '^BRIDGE ping$' -Quiet)) { throw "страница не достучалась до программы" }
           Write-Host "служба: $((Get-Service CRMServer).Status)"
