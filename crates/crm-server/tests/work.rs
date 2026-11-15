@@ -507,7 +507,7 @@ async fn assignee_changes_while_task_is_in_progress() {
         s == StatusCode::NOT_FOUND || s == StatusCode::FORBIDDEN,
         "{s}"
     );
-    let (s, _) = reassign(owner.clone(), json!([emp_id, petr_id])).await;
+    let (s, _) = reassign(owner.clone(), json!([petr_id, emp_id])).await;
     assert_eq!(s, StatusCode::NO_CONTENT);
 
     // В архиве не меняется.
@@ -891,4 +891,75 @@ async fn organisation_hours_are_validated_and_checked() {
         .await;
     assert_eq!(v["working"], false);
     assert!(v["reason"].as_str().unwrap().contains("суббота"), "{v}");
+}
+
+#[tokio::test]
+async fn first_assignee_is_responsible_others_help() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (ivan_id, ivan) = app.member(&owner, "ivan", "employee", "10.0.0.2").await;
+    let (petr_id, petr) = app.member(&owner, "petr", "employee", "10.0.0.4").await;
+    let c = client(&app, &owner, "Клиент").await;
+    let t = new_task(
+        &app,
+        &owner,
+        json!({"client_id": c, "title": "Отчёт", "priority": 2, "deadline_at": soon(3), "assignees": [ivan_id, petr_id]}),
+    )
+    .await;
+    let url = format!("/api/tasks/{t}");
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&petr), None).await;
+    assert_eq!(
+        card["lead_id"],
+        ivan_id.as_str(),
+        "первый выбранный — ответственный: {card}"
+    );
+    assert_eq!(
+        card["can_change_status"], false,
+        "соисполнитель статус не меняет"
+    );
+
+    let status = |tok: String, to: &'static str| {
+        let (app, url) = (&app, url.clone());
+        async move {
+            app.call(
+                "POST",
+                &format!("{url}/status"),
+                LOCAL,
+                Some(&tok),
+                Some(json!({"status": to})),
+            )
+            .await
+        }
+    };
+    let (s, _) = status(petr.clone(), "in_progress").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = status(ivan.clone(), "in_progress").await;
+    assert_eq!(s, StatusCode::OK);
+    // Соисполнитель пишет в чат.
+    let (s, _) = app
+        .call(
+            "POST",
+            &format!("{url}/messages"),
+            LOCAL,
+            Some(&petr),
+            Some(json!({"content": "Помогу с таблицами"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED);
+
+    // Порядок при смене исполнителя задаёт ответственного.
+    let (s, _) = app
+        .call(
+            "PUT",
+            &format!("{url}/assignees"),
+            LOCAL,
+            Some(&ivan),
+            Some(json!({"assignees": [petr_id, ivan_id]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (_, card) = app.call("GET", &url, LOCAL, Some(&petr), None).await;
+    assert_eq!(card["lead_id"], petr_id.as_str(), "{card}");
+    let (s, _) = status(petr.clone(), "completed").await;
+    assert_eq!(s, StatusCode::OK);
 }

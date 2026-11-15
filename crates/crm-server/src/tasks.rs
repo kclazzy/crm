@@ -50,7 +50,9 @@ pub struct Details {
     pub completed_at: Option<i64>,
     pub archived_at: Option<i64>,
     pub created_at: i64,
+    /// Первым в `assignees`; ведёт задачу. Остальные — соисполнители.
     pub assignees: Vec<PersonRef>,
+    pub lead_id: Option<String>,
     pub progress: Progress,
     pub unread: i64,
     pub children: usize,
@@ -113,13 +115,17 @@ pub async fn summaries(
     .fetch_all(&app.pool)
     .await?;
     let mut assignees: HashMap<String, Vec<PersonRef>> = HashMap::new();
-    let pairs: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT a.task_id, u.id, u.display_name FROM task_assignees a JOIN users u ON u.id = a.user_id
-         ORDER BY u.display_name COLLATE NOCASE",
+    let mut leads: HashMap<String, String> = HashMap::new();
+    let pairs: Vec<(String, String, String, bool)> = sqlx::query_as(
+        "SELECT a.task_id, u.id, u.display_name, a.is_lead FROM task_assignees a JOIN users u ON u.id = a.user_id
+         ORDER BY a.is_lead DESC, u.display_name COLLATE NOCASE",
     )
     .fetch_all(&app.pool)
     .await?;
-    for (t, id, name) in pairs {
+    for (t, id, name, lead) in pairs {
+        if lead {
+            leads.insert(t.clone(), id.clone());
+        }
         assignees.entry(t).or_default().push(PersonRef { id, name });
     }
     let mut children: HashMap<String, usize> = HashMap::new();
@@ -152,6 +158,7 @@ pub async fn summaries(
                 archived_at: r.archived_at,
                 created_at: r.created_at,
                 assignees: assignees.remove(&r.id).unwrap_or_default(),
+                lead_id: leads.remove(&r.id),
                 progress: Progress {
                     done: r.stages_done,
                     total: r.stages_total,
@@ -290,6 +297,8 @@ pub struct TaskCard {
     /// Можно убрать в архив или вернуть из него.
     can_archive: bool,
     archived_by: Option<String>,
+    /// Ответственный (ведёт задачу); остальные исполнители — соисполнители.
+    lead_id: Option<String>,
     /// Сотрудники группы клиента — их предлагать первыми при смене исполнителя.
     team: Vec<String>,
 }
@@ -358,6 +367,7 @@ pub async fn get(
     let can_change_status = check_status_change(who).is_ok();
     let can_reassign = check_reassign(who, access.can_manage(), 1).is_ok();
     let can_archive = who.is_owner || who.is_assignee;
+    let lead_id = summary.details.as_ref().and_then(|d| d.lead_id.clone());
     let archived_by: Option<String> = sqlx::query_scalar(
         "SELECT u.display_name FROM tasks t JOIN users u ON u.id = t.archived_by WHERE t.id = ?",
     )
@@ -380,6 +390,7 @@ pub async fn get(
         can_reassign,
         can_archive,
         archived_by,
+        lead_id,
         team: sqlx::query_scalar(
             "SELECT gm.user_id FROM tasks t JOIN clients c ON c.id = t.client_id
              JOIN group_members gm ON gm.group_id = c.group_id WHERE t.id = ?",
@@ -445,11 +456,12 @@ async fn set_assignees(
         .bind(task)
         .execute(&mut **tx)
         .await?;
-    for u in users {
+    for (i, u) in users.iter().enumerate() {
         let n = sqlx::query(
-            "INSERT OR IGNORE INTO task_assignees(task_id, user_id) SELECT ?, id FROM users WHERE id = ? AND is_active = 1",
+            "INSERT OR IGNORE INTO task_assignees(task_id, user_id, is_lead) SELECT ?, id, ? FROM users WHERE id = ? AND is_active = 1",
         )
         .bind(task)
+        .bind(i == 0)
         .bind(u)
         .execute(&mut **tx)
         .await?
@@ -787,9 +799,12 @@ pub async fn reassign(
 ) -> Result<StatusCode, ApiError> {
     let scope = Scope::load(&app.pool, &user).await?;
     let access = scope.task_or_404(&id)?;
-    let mut ids = req.assignees;
-    ids.sort();
-    ids.dedup();
+    let mut ids: Vec<String> = Vec::new();
+    for a in req.assignees {
+        if !ids.contains(&a) {
+            ids.push(a);
+        }
+    }
     let who = involvement(&app.pool, &id, &user).await?;
     check_reassign(who, access.can_manage(), ids.len())
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -801,7 +816,13 @@ pub async fn reassign(
             .bind(&id)
             .fetch_all(&app.pool)
             .await?;
-    if before == ids {
+    let same_set = {
+        let (mut a, mut b) = (before.clone(), ids.clone());
+        a.sort();
+        b.sort();
+        a == b
+    };
+    if same_set && before.first() == ids.first() {
         return Ok(StatusCode::NO_CONTENT);
     }
     let text = format!(
@@ -849,8 +870,8 @@ async fn involvement(
     task: &str,
     user: &CurrentUser,
 ) -> Result<Involvement, ApiError> {
-    let (creator, assignee): (String, bool) = sqlx::query_as(
-        "SELECT created_by, EXISTS (SELECT 1 FROM task_assignees WHERE task_id = t.id AND user_id = ?)
+    let (creator, lead): (String, Option<bool>) = sqlx::query_as(
+        "SELECT created_by, (SELECT is_lead FROM task_assignees WHERE task_id = t.id AND user_id = ?)
          FROM tasks t WHERE id = ?",
     )
     .bind(&user.id)
@@ -861,7 +882,8 @@ async fn involvement(
     Ok(Involvement {
         is_owner: user.role == Role::Host,
         is_creator: creator == user.id,
-        is_assignee: assignee,
+        is_assignee: lead == Some(true),
+        is_co_assignee: lead == Some(false),
     })
 }
 
@@ -1146,9 +1168,42 @@ pub async fn archive(
     user: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let cur = archive_check(&app, &user, &id).await?;
+    archive_one(&app, &user, &id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+pub struct ArchivedOut {
+    archived: usize,
+}
+
+/// «В архив все завершённые» — те, что этот человек вправе убрать.
+pub async fn archive_completed(
+    State(app): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<ArchivedOut>, ApiError> {
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM tasks WHERE status = 'completed' AND archived_at IS NULL AND deleted_at IS NULL
+         ORDER BY parent_task_id IS NOT NULL, created_at",
+    )
+    .fetch_all(&app.pool)
+    .await?;
+    let mut archived = 0;
+    for id in ids {
+        match archive_one(&app, &user, &id).await {
+            Ok(true) => archived += 1,
+            Ok(false) | Err(ApiError::NotFound | ApiError::BadRequest(_)) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(Json(ArchivedOut { archived }))
+}
+
+/// `true` — убрали сейчас; `false` — уже была в архиве (например, вместе с родительской).
+async fn archive_one(app: &AppState, user: &CurrentUser, id: &str) -> Result<bool, ApiError> {
+    let cur = archive_check(app, user, id).await?;
     if cur.archived_at.is_some() {
-        return Ok(StatusCode::NO_CONTENT);
+        return Ok(false);
     }
     let mut tx = app.pool.begin().await?;
     sqlx::query(
@@ -1156,21 +1211,21 @@ pub async fn archive(
          UPDATE tasks SET archived_at = ?, archived_by = ?
          WHERE id IN (SELECT id FROM down) AND status = 'completed' AND archived_at IS NULL",
     )
-    .bind(&id)
+    .bind(id)
     .bind(now_ms())
     .bind(&user.id)
     .execute(&mut *tx)
     .await?;
     system(
         &mut tx,
-        &id,
+        id,
         &user.id,
         &format!("{} убрал(а) задачу в архив", user.display_name),
     )
     .await?;
     tx.commit().await?;
-    task_changed(&app, &id, "archived").await?;
-    Ok(StatusCode::NO_CONTENT)
+    task_changed(app, id, "archived").await?;
+    Ok(true)
 }
 
 /// Восстановить из архива: задача, её подзадачи и родители, если они тоже в архиве.

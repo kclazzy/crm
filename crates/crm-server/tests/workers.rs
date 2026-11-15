@@ -318,3 +318,59 @@ async fn search_finds_only_what_user_may_see() {
         .await;
     assert!(hits.as_array().unwrap().is_empty(), "меньше 3 символов");
 }
+
+#[tokio::test]
+async fn archive_all_completed_takes_only_what_you_may_archive() {
+    let app = App::new().await;
+    let (owner, emp_id, emp, client) = setup(&app).await;
+    let mut ids = Vec::new();
+    for title in ["Первая", "Вторая", "Открытая"] {
+        let (_, t) = app
+            .call("POST", "/api/tasks", LOCAL, Some(&owner), Some(json!({
+                "client_id": client, "title": title, "priority": 2, "deadline_at": now() + HOUR, "assignees": [emp_id]
+            })))
+            .await;
+        ids.push(t["id"].as_str().unwrap().to_owned());
+    }
+    for t in &ids[..2] {
+        app.call(
+            "POST",
+            &format!("/api/tasks/{t}/status"),
+            LOCAL,
+            Some(&emp),
+            Some(json!({"status": "completed"})),
+        )
+        .await;
+    }
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/tasks/archive-completed",
+            LOCAL,
+            Some(&emp),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["archived"], 2, "{v}");
+    let (_, list) = app
+        .call("GET", "/api/tasks", LOCAL, Some(&owner), None)
+        .await;
+    let left: Vec<&str> = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(left, ["Открытая"]);
+    let (_, v) = app
+        .call(
+            "POST",
+            "/api/tasks/archive-completed",
+            LOCAL,
+            Some(&emp),
+            None,
+        )
+        .await;
+    assert_eq!(v["archived"], 0, "повтор ничего не меняет");
+}

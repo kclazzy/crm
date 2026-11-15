@@ -184,6 +184,10 @@ fn work_routes() -> Router<AppState> {
             "/api/tasks/{id}",
             get(tasks::get).patch(tasks::update).delete(tasks::trash),
         )
+        .route(
+            "/api/tasks/archive-completed",
+            post(tasks::archive_completed),
+        )
         .route("/api/tasks/{id}/status", post(tasks::set_status))
         .route("/api/tasks/{id}/assignees", put(tasks::reassign))
         .route("/api/tasks/{id}/restore", post(tasks::restore))

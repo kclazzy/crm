@@ -184,7 +184,10 @@ pub fn check_reopen(to: TaskStatus, parent: Option<TaskStatus>) -> Result<(), Ru
 pub struct Involvement {
     pub is_owner: bool,
     pub is_creator: bool,
+    /// Ответственный исполнитель — ведёт задачу.
     pub is_assignee: bool,
+    /// Соисполнитель: работает в чате и с этапами, статус не меняет.
+    pub is_co_assignee: bool,
 }
 
 /// Статус меняют постановщик, исполнитель или владелец.
@@ -415,6 +418,17 @@ mod tests {
             ..nobody
         };
         assert_eq!(check_status_change(nobody), Err(RuleError::NotYourTask));
+        // Соисполнитель помогает, но статус, архив и передачу решает ответственный.
+        let co = Involvement {
+            is_co_assignee: true,
+            ..nobody
+        };
+        assert_eq!(check_status_change(co), Err(RuleError::NotYourTask));
+        assert_eq!(check_reassign(co, false, 1), Err(RuleError::NotReassigner));
+        assert_eq!(
+            check_archive(co, TaskStatus::Completed),
+            Err(RuleError::NotArchiver)
+        );
         assert_eq!(
             check_reassign(nobody, false, 1),
             Err(RuleError::NotReassigner)
