@@ -3,6 +3,7 @@ import { AlertTriangle, FolderInput, HardDrive, History, RefreshCw, Truck } from
 import { api, type BackupFile, type BackupPolicy, type BackupStatus, bytes, type StorageInfo } from '../api';
 import { BackupScheme } from '../components/BackupScheme';
 import { BackupSettings } from '../components/BackupSettings';
+import { PathInput } from '../components/FolderPicker';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 import { work } from '../work';
 
@@ -127,6 +128,11 @@ export function AdminStorage() {
           <h2 className="flex items-center gap-2 font-semibold"><FolderInput className="size-5 text-brand-600" />Папка данных</h2>
           <p className="mt-1 text-sm text-slate-500">База, ключи и сертификат сервера.</p>
           <code className="mt-4 block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm break-all dark:border-slate-700 dark:bg-slate-950">{info.data_dir}</code>
+          <p className="mt-2 text-xs text-slate-500">
+            Папка закрыта для обычных пользователей Windows — так защищены база и ключи: открыть её может только служба CRM и
+            администратор компьютера (проводник спросит разрешение, нажмите «Продолжить»). Копировать базу вручную не нужно —
+            для этого есть резервные копии и пакет переноса ниже.
+          </p>
           <Button variant="secondary" className="mt-4" disabled={info.restart_required} onClick={() => { setError(''); setMoving(true); }}>Перенести в другую папку…</Button>
         </section>
         <section className="card mt-6 p-6">
@@ -166,7 +172,7 @@ export function AdminStorage() {
         <form onSubmit={move} className="flex flex-col gap-4">
           <p className="text-sm text-slate-600 dark:text-slate-300">Сервер скопирует базу и ключи в новую папку. Старая папка останется — удалите её сами через неделю работы.</p>
           <Field label="Новая папка" hint="Только диск этого компьютера. Сетевые папки, NAS, OneDrive и Яндекс.Диск для базы не подходят — она на них повреждается.">
-            <input name="dir" className="input font-mono text-sm" placeholder="D:\CRM\data" required spellCheck={false} />
+            <PathInput name="dir" placeholder="D:\CRM\data" required />
           </Field>
           <ErrorText>{error}</ErrorText>
           <Button type="submit" busy={busy === 'move'}>Перенести</Button>
@@ -207,7 +213,7 @@ export function AdminStorage() {
           } catch (x) { setError((x as Error).message); } finally { setBusy(''); }
         }}>
           <Field label="Куда сохранить" hint="Флешка или сетевая папка, доступная этому компьютеру">
-            <input name="dir" className="input font-mono text-sm" placeholder="E:\" required spellCheck={false} />
+            <PathInput name="dir" placeholder="E:\" required />
           </Field>
           <ErrorText>{error}</ErrorText>
           <Button type="submit" busy={busy === 'move'}>Собрать пакет и остановить приём изменений</Button>

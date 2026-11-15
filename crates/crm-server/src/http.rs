@@ -128,6 +128,8 @@ pub fn router(state: AppState) -> Router {
             post(crate::connect::connection_key),
         )
         .route("/api/admin/phone", get(crate::connect::phone_links))
+        .route("/api/admin/fs", get(crate::folders::list))
+        .route("/api/admin/fs/mkdir", post(crate::folders::mkdir))
         .route(
             "/api/admin/remote",
             get(crate::remote::info).put(crate::remote::set),

@@ -1,3 +1,4 @@
+import { PathInput } from './FolderPicker';
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, DatabaseBackup, FolderOpen, Plus, Trash2, XCircle } from 'lucide-react';
 import { type BackupPolicy, type BackupStatus, bytes, timeAgo } from '../api';
@@ -67,8 +68,7 @@ export function BackupSettings(props: {
           <div className="flex max-w-xl flex-col gap-2">
             {dirs.map((d, i) => (
               <div key={i} className="flex gap-2">
-                <input className="input font-mono text-sm" value={d} placeholder="E:\CRM-backup" spellCheck={false}
-                  onChange={(e) => setDirs(dirs.map((x, j) => (j === i ? e.target.value : x)))} />
+                <PathInput value={d} placeholder="E:\CRM-backup" onChange={(v) => setDirs(dirs.map((x, j) => (j === i ? v : x)))} />
                 {dirs.length > 1 && (
                   <button className="rounded-xl px-2 text-slate-400 hover:bg-slate-100 hover:text-red-600 dark:hover:bg-slate-800" title="Убрать папку" onClick={() => setDirs(dirs.filter((_, j) => j !== i))}>
                     <Trash2 className="size-4" />

@@ -12,6 +12,7 @@ pub mod config;
 pub mod connect;
 pub mod db;
 pub mod events;
+pub mod folders;
 pub mod http;
 pub mod limits;
 pub mod logging;

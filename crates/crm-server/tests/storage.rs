@@ -277,3 +277,76 @@ async fn impossible_schedule_is_explained() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
     assert!(v["error"].as_str().unwrap().contains("часа"), "{v}");
 }
+
+#[tokio::test]
+async fn folder_picker_lists_and_creates_folders_on_the_server() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let base = tempfile::tempdir().unwrap();
+    std::fs::create_dir(base.path().join("Копии")).unwrap();
+    std::fs::write(base.path().join("файл.txt"), "x").unwrap();
+    let enc = |p: &std::path::Path| {
+        p.display()
+            .to_string()
+            .bytes()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() {
+                    (b as char).to_string()
+                } else {
+                    format!("%{b:02X}")
+                }
+            })
+            .collect::<String>()
+    };
+
+    // Без пути — корни (диски).
+    let (s, v) = app
+        .call("GET", "/api/admin/fs", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(!v["entries"].as_array().unwrap().is_empty(), "{v}");
+
+    // Папка — только вложенные папки, без файлов.
+    let url = format!("/api/admin/fs?path={}", enc(base.path()));
+    let (s, v) = app.call("GET", &url, LOCAL, Some(&owner), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let names: Vec<&str> = v["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["Копии"], "{v}");
+    assert!(v["parent"].is_string());
+
+    // Создать папку.
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/admin/fs/mkdir",
+            LOCAL,
+            Some(&owner),
+            Some(json!({"parent": base.path(), "name": "CRM-копии"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(base.path().join("CRM-копии").is_dir());
+    for bad in ["", "..", "a/b", "a\\b"] {
+        let (s, _) = app
+            .call(
+                "POST",
+                "/api/admin/fs/mkdir",
+                LOCAL,
+                Some(&owner),
+                Some(json!({"parent": base.path(), "name": bad})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "имя «{bad}»");
+    }
+
+    let (_, emp) = app.member(&owner, "olga", "employee", "10.0.0.3").await;
+    let (s, _) = app
+        .call("GET", "/api/admin/fs", LOCAL, Some(&emp), None)
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+}

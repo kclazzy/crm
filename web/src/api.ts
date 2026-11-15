@@ -101,7 +101,7 @@ export class ApiError extends Error {
 export const SECURITY_PATH = '/security';
 export const NEED_CODE_EVENT = 'crm:need-code';
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: 'same-origin',
