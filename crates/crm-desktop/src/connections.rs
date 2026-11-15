@@ -15,9 +15,6 @@ use tokio::sync::Mutex;
 #[derive(Default)]
 pub struct Tunnels(pub Mutex<HashMap<String, Tunnel>>);
 
-/// Адрес собственных страниц программы — чтобы вернуться к списку серверов.
-pub struct AppUrl(pub std::sync::Mutex<Option<tauri::Url>>);
-
 fn store(app: &AppHandle) -> Result<Store, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(Store::new(dir.join("servers.json")))
@@ -201,15 +198,11 @@ pub fn guard_script() -> String {
 
 /// Вернуться на стартовую панель программы; `param` — что показать: подтверждение или сообщение.
 pub fn to_panel(app: &AppHandle, param: Option<(&str, &str)>) {
-    let saved = app.state::<AppUrl>().0.lock().ok().and_then(|u| u.clone());
-    let mut u = match saved {
-        Some(u) => u,
-        None => match app_index_url().parse() {
-            Ok(u) => u,
-            Err(_) => return,
-        },
+    // Адрес панели фиксированный: запомненный при запуске был about:blank — окно
+    // ещё не загрузилось, и переход туда давал белый экран.
+    let Ok(mut u) = app_index_url().parse::<tauri::Url>() else {
+        return;
     };
-    u.set_query(None);
     if let Some((k, v)) = param {
         u.query_pairs_mut().append_pair(k, v);
     }
@@ -218,11 +211,7 @@ pub fn to_panel(app: &AppHandle, param: Option<(&str, &str)>) {
 
 /// Вернуться из CRM к списку «Мои серверы».
 pub fn back_to_list(app: &AppHandle) {
-    let saved = app.state::<AppUrl>().0.lock().ok().and_then(|u| u.clone());
-    if let Some(mut u) = saved {
-        u.set_query(Some("screen=servers"));
-        let _ = navigate(app, u.as_str());
-    }
+    to_panel(app, Some(("screen", "servers")));
 }
 
 /// Владелец на сервере: «Этот компьютер» в списке и сразу вход в CRM.

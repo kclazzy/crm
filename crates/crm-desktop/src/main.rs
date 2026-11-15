@@ -298,7 +298,6 @@ fn main() {
         ))
         .manage(LastStatus(Mutex::new(None)))
         .manage(connections::Tunnels::default())
-        .manage(connections::AppUrl(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_status,
             addresses,
@@ -348,13 +347,6 @@ fn main() {
                         }
                     })
                     .build()?;
-            }
-            if let Some(w) = app.get_webview_window("main") {
-                if let (Ok(url), Ok(mut slot)) =
-                    (w.url(), app.state::<connections::AppUrl>().0.lock())
-                {
-                    *slot = Some(url);
-                }
             }
             if !minimized {
                 show_main(app.handle());
