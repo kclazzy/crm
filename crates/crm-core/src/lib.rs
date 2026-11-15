@@ -8,6 +8,6 @@ pub mod disk;
 pub mod import;
 pub mod org;
 pub mod reminders;
+pub mod remote;
 pub mod schedule;
 pub mod task;
-pub mod vpn;

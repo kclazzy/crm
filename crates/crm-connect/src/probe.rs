@@ -29,8 +29,10 @@ pub struct Probe {
     pub state: State,
     /// Какой адрес ответил.
     pub addr: Option<String>,
-    /// Через VPN (адрес 10.77.0.x).
-    pub via_vpn: bool,
+    /// Через интернет (внешний адрес), а не в сети офиса.
+    pub via_internet: bool,
+    /// Внешний адрес, который сообщил сервер (`None` — доступ через интернет выключен).
+    pub public_addr: Option<String>,
     pub version: Option<String>,
     pub latency_ms: Option<u64>,
     pub error: Option<String>,
@@ -75,7 +77,12 @@ pub async fn connect(
     })
 }
 
-async fn health(addr: &str, port: u16, fp: &str) -> Result<String, ProbeError> {
+struct Health {
+    version: String,
+    public_addr: Option<String>,
+}
+
+async fn health(addr: &str, port: u16, fp: &str) -> Result<Health, ProbeError> {
     let mut s = connect(addr, port, fp).await?;
     let req = format!("GET /api/health HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes()).await?;
@@ -89,30 +96,29 @@ async fn health(addr: &str, port: u16, fp: &str) -> Result<String, ProbeError> {
     let body = text.split("\r\n\r\n").nth(1).ok_or(ProbeError::BadAnswer)?;
     let v: serde_json::Value =
         serde_json::from_str(body.trim()).map_err(|_| ProbeError::BadAnswer)?;
-    v["version"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or(ProbeError::BadAnswer)
+    Ok(Health {
+        version: v["version"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or(ProbeError::BadAnswer)?,
+        public_addr: v["public_addr"].as_str().map(str::to_owned),
+    })
 }
 
-fn is_vpn(addr: &str) -> bool {
-    addr.parse()
-        .is_ok_and(|ip: std::net::Ipv4Addr| crm_core::vpn::is_vpn_ip(ip))
-}
-
-/// Проверить адреса сервера по порядку: последний удачный, затем офис, затем VPN.
+/// Проверить адреса сервера по порядку: последний удачный, затем офис, затем интернет.
 pub async fn probe(server: &Server) -> Probe {
     let mut last_error = None;
     let mut wrong = false;
     for addr in server.addresses_in_order() {
         let started = Instant::now();
         match health(&addr, server.port, &server.fp).await {
-            Ok(version) => {
+            Ok(h) => {
                 return Probe {
                     state: State::Online,
-                    via_vpn: is_vpn(&addr),
+                    via_internet: !crm_core::remote::is_office_addr(&addr),
+                    public_addr: h.public_addr,
                     addr: Some(addr),
-                    version: Some(version),
+                    version: Some(h.version),
                     latency_ms: Some(started.elapsed().as_millis() as u64),
                     error: None,
                 }
@@ -130,7 +136,8 @@ pub async fn probe(server: &Server) -> Probe {
             State::Offline
         },
         addr: None,
-        via_vpn: false,
+        via_internet: false,
+        public_addr: None,
         version: None,
         latency_ms: None,
         error: last_error,

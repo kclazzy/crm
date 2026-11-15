@@ -21,7 +21,6 @@ pub fn intercept(app: &AppHandle, url: &Url) -> bool {
     }
     match url.path().trim_matches('/') {
         "ping" => selftest::log("BRIDGE ping"),
-        "vpn-apply" => crate::on_menu(app, "vpn-apply"),
         other => selftest::log(&format!("BRIDGE unknown {other}")),
     }
     true

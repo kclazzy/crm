@@ -102,6 +102,9 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
     let st = store(&app)?;
     let server = st.get(&id).map_err(|e| e.to_string())?;
     let p = probe(&server).await;
+    if p.state == ProbeState::Online {
+        let _ = st.learn_public_addr(&id, p.public_addr.as_deref());
+    }
     let addr = match (p.state, p.addr) {
         (ProbeState::Online, Some(a)) => a,
         (ProbeState::WrongServer, _) => {
@@ -113,7 +116,7 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
         }
         _ => {
             return Err(format!(
-                "Сервер не отвечает. В офисе проверьте сеть, из дома — включён ли VPN.{}",
+                "Сервер не отвечает. В офисе проверьте сеть; из дома — включил ли владелец доступ через интернет (раздел «Удалённый доступ»).{}",
                 p.error.map(|e| format!(" ({e})")).unwrap_or_default()
             ))
         }
@@ -240,7 +243,7 @@ pub async fn open_own(app: AppHandle) -> Result<(), String> {
     server_open(app, server.id, None).await
 }
 
-/// Раз в 15 секунд: если офисный адрес пропал (ушли домой), туннель переключается на VPN.
+/// Раз в 15 секунд: если офисный адрес пропал (ушли домой), туннель переключается на внешний адрес.
 pub async fn keep_tunnels_fresh(app: AppHandle) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(15)).await;
@@ -256,6 +259,9 @@ pub async fn keep_tunnels_fresh(app: AppHandle) {
         for id in ids {
             let Ok(server) = st.get(&id) else { continue };
             let p = probe(&server).await;
+            if p.state == ProbeState::Online {
+                let _ = st.learn_public_addr(&id, p.public_addr.as_deref());
+            }
             if let (ProbeState::Online, Some(addr)) = (p.state, p.addr) {
                 if server.last_addr.as_deref() != Some(addr.as_str()) {
                     let _ = st.remember_addr(&id, &addr);

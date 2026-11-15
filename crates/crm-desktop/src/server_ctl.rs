@@ -249,10 +249,7 @@ pub use platform::{elevated, reset_owner_password_console, service_autostart, se
 
 /// Действия, которые окно и трей могут попросить у службы.
 pub fn is_allowed_action(action: &str) -> bool {
-    matches!(
-        action,
-        "install" | "start" | "stop" | "restart" | "vpn-apply"
-    )
+    matches!(action, "install" | "start" | "stop" | "restart")
 }
 
 /// Открыть адрес в браузере по умолчанию (для телефона — тот же адрес в сети).

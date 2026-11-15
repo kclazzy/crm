@@ -134,11 +134,11 @@ let knownServers = [];
 
 function describe(p) {
   if (p.state === 'online') {
-    const how = p.via_vpn ? 'через VPN' : 'в сети офиса';
+    const how = p.via_internet ? 'через интернет' : 'в сети офиса';
     return `В сети · ${how} · ${p.latency_ms} мс`;
   }
   if (p.state === 'wrong_server') return 'Чужой сертификат — подключение запрещено';
-  return 'Не отвечает — проверьте сеть или VPN';
+  return 'Не отвечает — проверьте интернет или сеть офиса';
 }
 
 async function loadServers() {

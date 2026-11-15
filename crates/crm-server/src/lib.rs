@@ -18,6 +18,7 @@ pub mod logging;
 pub mod notify;
 pub mod org;
 pub mod recovery;
+pub mod remote;
 pub mod restore;
 pub mod search;
 pub mod secrets;
@@ -25,7 +26,6 @@ pub mod server;
 pub mod tasks;
 pub mod tls;
 pub mod transfer;
-pub mod vpn;
 pub mod web;
 #[cfg(windows)]
 pub mod winsvc;

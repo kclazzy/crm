@@ -102,7 +102,7 @@ export function Shell() {
             <Item to="/admin/org" icon={Clock} label="Рабочее время" onClick={close} />
             <Item to="/admin/sessions" icon={KeyRound} label="Активные входы" onClick={close} />
             <Item to="/admin/storage" icon={DatabaseBackup} label="Хранилище и копии" onClick={close} />
-            <Item to="/admin/vpn" icon={Globe} label="Удалённый доступ" onClick={close} />
+            <Item to="/admin/remote" icon={Globe} label="Удалённый доступ" onClick={close} />
             <Item to="/admin/server" icon={Server} label="Сервер" onClick={close} />
             <Item to="/admin/help" icon={BookOpen} label="Инструкция администратора" onClick={close} />
           </nav>

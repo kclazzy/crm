@@ -167,6 +167,31 @@ impl Store {
         Ok(())
     }
 
+    /// Сервер сообщил внешний адрес (доступ через интернет) — держим его последним в списке:
+    /// в офисе быстрее напрямую. Офисные адреса не трогаем; `None` — доступ выключен.
+    pub fn learn_public_addr(&self, id: &str, public: Option<&str>) -> Result<(), StoreError> {
+        let mut all = self.list()?;
+        let s = all
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or(StoreError::NotFound)?;
+        let mut addrs: Vec<String> = s
+            .addrs
+            .iter()
+            .filter(|a| crm_core::remote::is_office_addr(a))
+            .cloned()
+            .collect();
+        addrs.extend(public.map(str::to_owned));
+        if addrs == s.addrs {
+            return Ok(());
+        }
+        if s.last_addr.as_ref().is_some_and(|l| !addrs.contains(l)) {
+            s.last_addr = None;
+        }
+        s.addrs = addrs;
+        self.save(all)
+    }
+
     pub fn rename(&self, id: &str, name: &str) -> Result<(), StoreError> {
         let mut all = self.list()?;
         let s = all
@@ -199,6 +224,35 @@ impl Store {
 mod tests {
     use super::*;
     use crm_core::connkey::{encode, ServerKey};
+
+    #[test]
+    fn internet_address_learned_from_server_goes_last_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("servers.json"));
+        let a = store
+            .add_key(&key("AA:BB", &["pc", "192.168.1.2"], None), Some("1234"))
+            .unwrap();
+        let id = a.server.id;
+        store
+            .learn_public_addr(&id, Some("office.example.ru"))
+            .unwrap();
+        store
+            .learn_public_addr(&id, Some("office.example.ru"))
+            .unwrap();
+        assert_eq!(
+            store.get(&id).unwrap().addrs,
+            ["pc", "192.168.1.2", "office.example.ru"]
+        );
+        // Владелец сменил адрес — старый внешний заменяется, офисные остаются.
+        store.learn_public_addr(&id, Some("85.12.34.56")).unwrap();
+        assert_eq!(
+            store.get(&id).unwrap().addrs,
+            ["pc", "192.168.1.2", "85.12.34.56"]
+        );
+        // Выключил доступ через интернет — внешний адрес убирается.
+        store.learn_public_addr(&id, None).unwrap();
+        assert_eq!(store.get(&id).unwrap().addrs, ["pc", "192.168.1.2"]);
+    }
 
     fn key(fp: &str, addrs: &[&str], invite: Option<&str>) -> String {
         encode(

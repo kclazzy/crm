@@ -1,7 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, Download, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UsersRound } from 'lucide-react';
-import { timeAgo } from '../api';
-import { type Group, type OrgSettings, type VpnInfo, work } from '../work';
+import { Check, Copy, KeyRound, Plus, Trash2, UsersRound } from 'lucide-react';
+import { type Group, type OrgSettings, type RemoteInfo, work } from '../work';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 import { PeoplePicker, usePeople } from '../components/work';
 
@@ -144,7 +143,7 @@ export function ConnectionKey({ userId, name, onClose }: { userId: string | null
       {!key ? (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Сотрудник вставит ключ в программу CRM («Подключиться по ключу») — она сама найдёт сервер в сети или через VPN и проверит, что он ваш.
+            Сотрудник вставит ключ в программу CRM («Подключиться по ключу») — она сама найдёт сервер в сети офиса или через интернет и проверит, что он ваш.
             {userId ? ' В ключ встроено приглашение: после подключения сотрудник сразу задаст пароль.' : ''}
           </p>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={usePin} onChange={(e) => setUsePin(e.target.checked)} />Защитить PIN (рекомендуется)</label>
@@ -170,121 +169,77 @@ export function ConnectionKey({ userId, name, onClose }: { userId: string | null
   );
 }
 
-// ---------- Удалённый доступ (WireGuard) ----------
+// ---------- Удалённый доступ (через интернет) ----------
 
-declare global {
-  /** Есть, когда страница открыта в окне программы CRM (её встраивает программа). */
-  interface Window { crmApp?: { run: (action: string) => void } }
-}
-
-/** Сохранить текст файлом. Ссылка должна быть в документе, иначе часть браузеров молчит. */
-function saveText(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
-export function AdminVpn() {
-  const inApp = !!window.crmApp;
-  const people = usePeople();
-  const [info, setInfo] = useState<VpnInfo | null>(null);
+/** Доступ через интернет: внешний адрес офиса, переадресация порта, сотрудники и телефоны. */
+export function AdminRemote() {
+  const [info, setInfo] = useState<RemoteInfo | null>(null);
   const [error, setError] = useState('');
-  const [issued, setIssued] = useState<Awaited<ReturnType<typeof work.vpnAdd>> | null>(null);
-  const [adding, setAdding] = useState(false);
-  const load = useCallback(() => work.vpn().then(setInfo).catch((e) => setError(e.message)), []);
+  const [saved, setSaved] = useState('');
+  const load = useCallback(() => work.remote().then(setInfo).catch((e) => setError(e.message)), []);
   useEffect(() => void load(), [load]);
   if (!info) return <ErrorText>{error}</ErrorText>;
-
+  const url = info.address ? `https://${info.address}:${info.port}/` : '';
   return (
     <>
-      <PageHeader title="Удалённый доступ (VPN)" subtitle="Работа из дома через WireGuard: через туннель идёт только CRM, интернет сотрудника — как обычно." />
-      <ErrorText>{error}</ErrorText>
-      <div className="grid gap-5">
+      <PageHeader title="Удалённый доступ" subtitle="Работа из дома и с телефона через интернет — без VPN. Канал зашифрован, программа проверяет, что это именно ваш сервер." />
+      <div className="flex max-w-3xl flex-col gap-4">
+        <ErrorText>{error}</ErrorText>
+        {!info.https && <p className="card border-amber-300 p-4 text-sm text-amber-800 dark:text-amber-200">HTTPS выключен — открывать сервер в интернет нельзя. Включите HTTPS в настройках сервера.</p>}
         <section className="card p-5">
           <h2 className="mb-1 font-semibold">1. Внешний адрес офиса</h2>
-          <p className="mb-4 text-sm text-slate-500">Нужен «белый» IP (узнайте у провайдера; проверить — сайт 2ip.ru) или имя DDNS, если IP меняется (KeenDNS, No-IP).</p>
-          <form className="flex flex-wrap gap-2" onSubmit={async (e) => {
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+            «Белый» IP (узнайте у провайдера; проверить — сайт 2ip.ru) или имя DDNS, если IP меняется (KeenDNS, No-IP).
+            Оставьте пустым и сохраните, чтобы выключить доступ из интернета.
+          </p>
+          <form className="flex flex-wrap gap-2" onSubmit={async (e: FormEvent<HTMLFormElement>) => {
             e.preventDefault();
-            const f = new FormData(e.currentTarget);
             setError('');
-            try { await work.vpnSetup(String(f.get('endpoint')), Number(f.get('port'))); load(); } catch (x) { setError((x as Error).message); }
+            setSaved('');
+            try {
+              setInfo(await work.setRemote(String(new FormData(e.currentTarget).get('address'))));
+              setSaved('Сохранено. Сертификат сервера обновлён — перезапуск не нужен.');
+            } catch (x) { setError((x as Error).message); }
           }}>
-            <input name="endpoint" className="input min-w-60 flex-1" placeholder="85.12.34.56 или office.keenetic.pro" defaultValue={info.endpoint ?? ''} required />
-            <input name="port" type="number" className="input w-28" defaultValue={info.port} min={1024} max={65535} />
-            <Button type="submit">{info.configured ? 'Сохранить' : 'Настроить'}</Button>
+            <input name="address" className="input min-w-60 flex-1" placeholder="85.12.34.56 или office.keenetic.pro" defaultValue={info.address ?? ''} />
+            <Button type="submit">Сохранить</Button>
           </form>
+          {saved && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{saved}</p>}
+          <p className="mt-3 text-sm">Сейчас: {info.address ? <Badge tone="green" dot>включён — {info.address}</Badge> : <Badge tone="slate" dot>только сеть офиса</Badge>}</p>
         </section>
-        {info.configured && (
-          <section className="card p-5">
-            <h2 className="mb-1 font-semibold">2. Включить на этом компьютере</h2>
+        <section className="card p-5">
+          <h2 className="mb-1 font-semibold">2. Роутер: переадресация порта</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            В настройках роутера (обычно 192.168.1.1 или 192.168.0.1) создайте правило «Переадресация портов» / «Port forwarding»:
+          </p>
+          <ul className="mt-2 list-disc pl-5 text-sm">
+            <li>протокол <b>TCP</b>, внешний и внутренний порт <b>{info.port}</b>;</li>
+            <li>адрес назначения — этот компьютер: <b>{info.office_ip ?? 'IP сервера в сети офиса'}</b>.</li>
+          </ul>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Закрепите этот IP за компьютером в роутере («Постоянный IP-адрес» / «Резервирование DHCP»), чтобы правило не сломалось.
+            Где искать: Keenetic — «Сетевые правила → Переадресация»; TP-Link — «NAT переадресация → Виртуальные серверы»; ASUS — «Интернет → Переадресация портов».
+          </p>
+        </section>
+        <section className="card p-5">
+          <h2 className="mb-1 font-semibold">3. Проверка</h2>
+          {info.address ? (
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Программа сама поставит WireGuard, включит туннель и откроет порт. Windows попросит подтвердить —
-              нажмите «Да». Повторяйте после выдачи или отзыва доступа.
+              На телефоне выключите Wi-Fi и откройте <b className="select-all">{url}</b>. Открылась страница входа — всё готово.
+              Не открывается: проверьте правило на роутере; если IP на 2ip.ru не совпадает с IP в настройках роутера, у провайдера «серый» адрес — закажите «белый».
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              {inApp
-                ? <Button onClick={() => window.crmApp?.run('vpn-apply')}><ShieldCheck className="size-4" />Включить VPN на этом компьютере</Button>
-                : <p className="text-sm text-amber-700 dark:text-amber-300">
-                    Кнопка работает в программе CRM на сервере. В браузере: значок CRM в трее → <b>«Применить настройки VPN…»</b>.
-                  </p>}
-              <Button variant="ghost" onClick={load}><RefreshCw className="size-4" />Проверить</Button>
-              <span className="text-sm">Туннель: {info.tunnel_up ? <Badge tone="green" dot>работает</Badge> : <Badge tone="amber" dot>не включён</Badge>}</span>
-            </div>
-            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-              На роутере: перенаправьте <b>UDP-порт {info.port}</b> на этот компьютер (раздел «Переадресация портов» / «Port forwarding»).
-            </p>
-          </section>
-        )}
-        {info.configured && (
-          <section className="card p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-semibold">3. Устройства сотрудников</h2>
-              <Button onClick={() => setAdding(true)}><Plus className="size-4" />Выдать доступ</Button>
-            </div>
-            {info.peers.length === 0 && <p className="text-sm text-slate-500">Пока никому не выдан.</p>}
-            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-              {info.peers.map((p) => (
-                <li key={p.id} className="flex items-center gap-3 py-2.5 text-sm">
-                  <span className="min-w-0 flex-1"><b>{p.name}</b>{p.user_name && ` · ${p.user_name}`}<br />
-                    <span className="text-xs text-slate-500">{p.address} · {p.last_seen_at ? `заходил ${timeAgo(p.last_seen_at)}` : 'ещё не подключался'}</span></span>
-                  <Button variant="ghost" className="px-2 py-1 text-xs text-red-600" onClick={async () => { await work.vpnRemove(p.id); load(); }}><Trash2 className="size-3.5" />Отозвать</Button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+          ) : <p className="text-sm text-slate-500">Сначала укажите внешний адрес.</p>}
+        </section>
+        <section className="card p-5">
+          <h2 className="mb-1 font-semibold">4. Сотрудники и телефоны</h2>
+          <ul className="list-disc pl-5 text-sm text-slate-600 dark:text-slate-300">
+            <li>Программа CRM сотрудника узнаёт внешний адрес сама при подключении в офисе — дальше из дома работает без настроек.</li>
+            <li>Кто ни разу не подключался в офисе — выдайте новый ключ (<b>Сотрудники → Ключ подключения</b>): адрес уже в нём.</li>
+            <li>Телефон: <b>Сервер → Вход с телефона</b> — QR-коды для сертификата и для входа из интернета.</li>
+            <li>Защита входа: включите <b>обязательный код из приложения</b> (<b>Сервер → Безопасность</b>) — без него пароля недостаточно.</li>
+          </ul>
+        </section>
       </div>
-      <Modal open={adding} onClose={() => setAdding(false)} title="Выдать доступ к VPN">
-        <form className="flex flex-col gap-4" onSubmit={async (e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          try {
-            setIssued(await work.vpnAdd(String(f.get('name')), String(f.get('user') || '') || null));
-            setAdding(false);
-            load();
-          } catch (x) { setError((x as Error).message); setAdding(false); }
-        }}>
-          <Field label="Устройство"><input name="name" className="input" required maxLength={60} placeholder="Ноутбук Ивана" /></Field>
-          <Field label="Сотрудник"><select name="user" className="input"><option value="">—</option>{people.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}</select></Field>
-          <Button type="submit">Создать</Button>
-        </form>
-      </Modal>
-      <Modal open={!!issued} onClose={() => setIssued(null)} title="Доступ создан">
-        {issued && (
-          <div className="flex flex-col items-center gap-4 text-center">
-            <p className="text-sm text-slate-600 dark:text-slate-300">Показывается один раз. Телефон: приложение WireGuard → «+» → «Сканировать QR-код». Компьютер: WireGuard → «Импорт туннеля из файла».</p>
-            {/* QR-код строит сервер (SVG без скриптов) — показываем картинкой. */}
-            <img alt="QR-код настроек VPN" className="w-60 rounded-xl bg-white p-2" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(issued.qr_svg)}`} />
-            <Button onClick={() => saveText(issued.file_name, issued.conf)}><Download className="size-4" />Скачать {issued.file_name}</Button>
-            <p className="text-xs text-slate-500">Дальше: в программе CRM сотрудника нажмите «Подключиться» — когда офисная сеть недоступна, она сама пойдёт через VPN.</p>
-          </div>
-        )}
-      </Modal>
     </>
   );
 }

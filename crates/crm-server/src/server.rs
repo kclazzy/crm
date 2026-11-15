@@ -53,9 +53,13 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
     let tls_dir = cfg.storage.db_dir.join("tls");
     let material = if cfg.tls.enabled {
         let dir = tls_dir.clone();
+        let public = crate::remote::address(&pool)
+            .await
+            .map_err(db::DbError::from)?;
         Some(
             tokio::task::spawn_blocking(move || {
-                tls::ensure(&dir, &tls::local_sans(), time::OffsetDateTime::now_utc())
+                let sans = tls::with_public(tls::local_sans(), public.as_deref());
+                tls::ensure(&dir, &sans, time::OffsetDateTime::now_utc())
             })
             .await??,
         )
@@ -70,6 +74,7 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         .map(|m| Arc::from(m.ca_fingerprint.as_str()));
     let backups = tokio::spawn(crate::backup::hourly(state.clone()));
     let workers = tokio::spawn(crate::workers::run(state.clone()));
+    let state_for_tls = state.clone();
     let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
     let handle = Handle::new();
     let listener = bind_patiently(cfg.listen).await?;
@@ -82,6 +87,7 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
                     .map_err(RunError::TlsLoad)?;
             let renew = tokio::spawn(keep_certificate_fresh(
                 tls_dir,
+                state_for_tls.clone(),
                 rustls.clone(),
                 m.cert_pem.clone(),
             ));
@@ -152,18 +158,30 @@ async fn bind_patiently(addr: SocketAddr) -> Result<std::net::TcpListener, RunEr
     }
 }
 
-/// Если у компьютера появился новый адрес или сертификат скоро истечёт —
-/// выпускаем новый и подменяем без перезапуска.
+/// Если у компьютера появился новый адрес (в том числе внешний), или сертификат скоро
+/// истечёт — выпускаем новый и подменяем без перезапуска.
 async fn keep_certificate_fresh(
     dir: std::path::PathBuf,
+    app: crate::http::AppState,
     rustls: RustlsConfig,
     mut current: String,
 ) {
     loop {
-        tokio::time::sleep(TLS_CHECK_EVERY).await;
+        tokio::select! {
+            () = tokio::time::sleep(TLS_CHECK_EVERY) => {}
+            () = app.rt.tls_refresh.notified() => {}
+        }
+        let public = match crate::remote::address(&app.pool).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(error = %e, "внешний адрес для сертификата");
+                continue;
+            }
+        };
         let d = dir.clone();
         let fresh = tokio::task::spawn_blocking(move || {
-            tls::ensure(&d, &tls::local_sans(), time::OffsetDateTime::now_utc())
+            let sans = tls::with_public(tls::local_sans(), public.as_deref());
+            tls::ensure(&d, &sans, time::OffsetDateTime::now_utc())
         })
         .await;
         match fresh {

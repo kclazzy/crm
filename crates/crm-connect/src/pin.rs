@@ -59,7 +59,7 @@ impl ServerCertVerifier for Pinned {
                 .build()
                 .map_err(|e| Error::General(e.to_string()))?;
         match inner.verify_server_cert(end_entity, &[], server_name, ocsp, now) {
-            // Имя/адрес мог смениться (новый IP, VPN) — подпись нашим CA важнее.
+            // Имя/адрес мог смениться (новый IP, внешний адрес) — подпись нашим CA важнее.
             Err(Error::InvalidCertificate(
                 CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
             )) => Ok(ServerCertVerified::assertion()),

@@ -9,10 +9,10 @@ pub const USAGE: &str = "\
   crm-server service uninstall      остановить и удалить службу (данные сохраняются)
   crm-server service park           для установщика: удалить службу, запомнив её и автозапуск
   crm-server service unpark         для установщика: вернуть запомненную службу (если была)
+                                    и убрать туннель WireGuard прежних версий
   crm-server service start|stop|restart|status
   crm-server service autostart-on   запускать сервер при включении компьютера (по умолчанию)
   crm-server service autostart-off  не запускать сам — только вручную
-  crm-server service vpn-apply      включить VPN WireGuard по настройкам из админ-панели (от администратора)
   crm-server reset-owner-password   сбросить забытый пароль владельца (от администратора, на сервере)
   crm-server restore ИСТОЧНИК       восстановить данные: файл копии .db.zst, папка копий
                                     или пакет переноса .crmpack (затем перезапустить службу)
@@ -45,8 +45,6 @@ pub enum ServiceCmd {
     Status,
     /// Вызывается диспетчером служб Windows, не человеком.
     Run,
-    /// Включить VPN WireGuard по файлу из админ-панели.
-    VpnApply,
     /// Запуск службы вместе с Windows: да или нет.
     Autostart(bool),
     /// Деинсталлятор: удалить службу, запомнив, что она была (и её автозапуск).
@@ -89,7 +87,6 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
                 "restart" => ServiceCmd::Restart,
                 "status" => ServiceCmd::Status,
                 "run" => ServiceCmd::Run,
-                "vpn-apply" => ServiceCmd::VpnApply,
                 "autostart-on" => ServiceCmd::Autostart(true),
                 "autostart-off" => ServiceCmd::Autostart(false),
                 "park" => ServiceCmd::Park,
@@ -146,10 +143,7 @@ mod tests {
             p("service autostart-off"),
             Ok(Command::Service(ServiceCmd::Autostart(false)))
         );
-        assert_eq!(
-            p("service vpn-apply"),
-            Ok(Command::Service(ServiceCmd::VpnApply))
-        );
+        assert!(p("service vpn-apply").is_err(), "VPN убран");
         assert_eq!(p("service park"), Ok(Command::Service(ServiceCmd::Park)));
         assert_eq!(
             p("service unpark"),

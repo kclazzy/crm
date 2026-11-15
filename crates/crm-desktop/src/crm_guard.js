@@ -16,7 +16,7 @@
   window.addEventListener('unhandledrejection', function (e) {
     errors.push('Promise: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)));
   });
-  // Кнопки страницы, которым нужна программа: window.crmApp.run('vpn-apply').
+  // Кнопки страницы, которым нужна программа: window.crmApp.run('ДЕЙСТВИЕ').
   window.crmApp = { run: function (action) { location.href = 'http://__APP_HOST__/' + action; } };
   // Назад в программу: у владельца — панель сервера, у сотрудника — «Мои серверы».
   function back() { location.href = APP; }
@@ -78,7 +78,7 @@
     addBack();
     setTimeout(explain, 7000);
     if (__SELFTEST__) {
-      // Скачивание файла из памяти страницы (как «Скачать конфиг» VPN) и вызов программы.
+      // Скачивание файла из памяти страницы (как выгрузка клиентов) и вызов программы.
       setTimeout(function () {
         var a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob(['CRM selftest'], { type: 'text/plain' }));

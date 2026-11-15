@@ -88,7 +88,6 @@ pub fn handle(cmd: ServiceCmd) -> Result<String, ServiceError> {
             service_dispatcher::start(SERVICE_NAME, ffi_service_main)?;
             Ok(String::new())
         }
-        ServiceCmd::VpnApply => vpn_apply(),
         ServiceCmd::Park => park(),
         ServiceCmd::Unpark => unpark(),
         ServiceCmd::Autostart(on) => {
@@ -111,66 +110,22 @@ pub fn handle(cmd: ServiceCmd) -> Result<String, ServiceError> {
     }
 }
 
-// ---------- VPN WireGuard ----------
+// ---------- Старый VPN ----------
 
-const VPN_RULE: &str = "CRM VPN";
-const VPN_CRM_RULE: &str = "CRM Server (VPN)";
-
-fn wireguard_exe() -> Option<PathBuf> {
+/// До 0.2.5 CRM могла включить свой туннель WireGuard «crm-vpn» и открыть для него порты.
+/// Теперь доступ снаружи — через интернет, поэтому туннель и правила убираем.
+/// Саму программу WireGuard не трогаем: ею может пользоваться VPN компании.
+fn remove_old_vpn() {
     let base = std::env::var_os("ProgramFiles")
         .map_or_else(|| PathBuf::from("C:\\Program Files"), PathBuf::from);
-    let exe = base.join("WireGuard").join("wireguard.exe");
-    exe.exists().then_some(exe)
-}
-
-/// Включить туннель по файлу, который пишет админ-панель: при необходимости
-/// поставить WireGuard, (пере)установить службу туннеля, открыть порты.
-fn vpn_apply() -> Result<String, ServiceError> {
-    let cfg = Config::load(&config::default_config_path())?;
-    let conf = crate::vpn::conf_path(&cfg.storage.db_dir);
-    let text = std::fs::read_to_string(&conf).map_err(|_| ServiceError::Tool {
-        program: "VPN".into(),
-        detail: "сначала настройте VPN в админ-панели (Сервер → Удалённый доступ)".into(),
-    })?;
-    let port = text
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("ListenPort = "))
-        .and_then(|p| p.trim().parse::<u16>().ok())
-        .unwrap_or(crm_core::vpn::DEFAULT_PORT);
-    let wg = match wireguard_exe() {
-        Some(p) => p,
-        None => {
-            run_tool(
-                "winget",
-                [
-                    "install",
-                    "--id",
-                    "WireGuard.WireGuard",
-                    "-e",
-                    "--silent",
-                    "--accept-package-agreements",
-                    "--accept-source-agreements",
-                ],
-            )?;
-            wireguard_exe().ok_or_else(|| ServiceError::Tool {
-                program: "winget".into(),
-                detail: "WireGuard не установился — поставьте его с wireguard.com и повторите"
-                    .into(),
-            })?
-        }
-    };
-    let wg = wg.display().to_string();
-    // Служба туннеля читает файл при установке — для новых настроек переустанавливаем.
-    let _ = run_tool(&wg, ["/uninstalltunnelservice", crm_core::vpn::TUNNEL]);
-    std::thread::sleep(Duration::from_secs(2));
-    run_tool(
-        &wg,
-        [
-            "/installtunnelservice".to_owned(),
-            conf.display().to_string(),
-        ],
-    )?;
-    for rule in [VPN_RULE, VPN_CRM_RULE] {
+    let wg = base.join("WireGuard").join("wireguard.exe");
+    if wg.exists() {
+        let _ = run_tool(
+            &wg.display().to_string(),
+            ["/uninstalltunnelservice", "crm-vpn"],
+        );
+    }
+    for rule in ["CRM VPN", "CRM Server (VPN)"] {
         let _ = run_tool(
             "netsh",
             [
@@ -182,43 +137,6 @@ fn vpn_apply() -> Result<String, ServiceError> {
             ],
         );
     }
-    run_tool(
-        "netsh",
-        [
-            "advfirewall".to_owned(),
-            "firewall".into(),
-            "add".into(),
-            "rule".into(),
-            format!("name={VPN_RULE}"),
-            "dir=in".into(),
-            "action=allow".into(),
-            "protocol=UDP".into(),
-            format!("localport={port}"),
-            "profile=any".into(),
-            "enable=yes".into(),
-        ],
-    )?;
-    // Сеть туннеля Windows часто считает «общественной» — CRM из VPN разрешаем отдельно.
-    run_tool(
-        "netsh",
-        [
-            "advfirewall".to_owned(),
-            "firewall".into(),
-            "add".into(),
-            "rule".into(),
-            format!("name={VPN_CRM_RULE}"),
-            "dir=in".into(),
-            "action=allow".into(),
-            "protocol=TCP".into(),
-            format!("localport={}", cfg.listen.port()),
-            "remoteip=10.77.0.0/24".into(),
-            "profile=any".into(),
-            "enable=yes".into(),
-        ],
-    )?;
-    Ok(format!(
-        "VPN включён: порт UDP {port}. Не забудьте перенаправить этот порт на роутере на этот компьютер."
-    ))
 }
 
 // ---------- Установка ----------
@@ -358,6 +276,7 @@ fn park() -> Result<String, ServiceError> {
 }
 
 fn unpark() -> Result<String, ServiceError> {
+    remove_old_vpn();
     let path = parked_path();
     let auto = match std::fs::read_to_string(&path) {
         Ok(s) => s.trim() != "demand",

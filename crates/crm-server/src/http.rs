@@ -25,8 +25,8 @@ pub struct Runtime {
     pub limiter: crate::limits::RateLimiter,
     /// События в реальном времени для подключённых окон.
     pub hub: crate::events::Hub,
-    /// Когда устройства VPN последний раз заходили.
-    pub vpn_seen: crate::vpn::Seen,
+    /// Перевыпустить сертификат сейчас (сменился внешний адрес).
+    pub tls_refresh: tokio::sync::Notify,
 }
 
 impl Runtime {
@@ -63,7 +63,7 @@ impl AppState {
                 backup_lock: tokio::sync::Mutex::new(()),
                 limiter: crate::limits::RateLimiter::default(),
                 hub: crate::events::Hub::default(),
-                vpn_seen: crate::vpn::Seen::default(),
+                tls_refresh: tokio::sync::Notify::new(),
             }),
             ca_pem: None,
             ca_fingerprint: None,
@@ -111,11 +111,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/admin/phone", get(crate::connect::phone_links))
         .route(
-            "/api/admin/vpn",
-            get(crate::vpn::info).put(crate::vpn::setup),
+            "/api/admin/remote",
+            get(crate::remote::info).put(crate::remote::set),
         )
-        .route("/api/admin/vpn/peers", post(crate::vpn::add_peer))
-        .route("/api/admin/vpn/peers/{id}", delete(crate::vpn::remove_peer))
         .route("/api/admin/move-out", post(crate::admin::move_out))
         .merge(work_routes())
         .fallback(crate::web::static_or_index)
@@ -126,10 +124,6 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::limits::rate_limit,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::vpn::track,
         ))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY))
         .layer(axum::middleware::map_response(crate::web::security_headers))
@@ -258,6 +252,8 @@ struct Health {
     status: &'static str,
     version: &'static str,
     ca_fingerprint: Option<Arc<str>>,
+    /// Внешний адрес (доступ через интернет): программа сотрудника запоминает его в офисе.
+    public_addr: Option<String>,
 }
 
 async fn health(State(app): State<AppState>) -> Result<Json<Health>, ApiError> {
@@ -266,6 +262,7 @@ async fn health(State(app): State<AppState>) -> Result<Json<Health>, ApiError> {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
         ca_fingerprint: app.ca_fingerprint,
+        public_addr: crate::remote::address(&app.pool).await?,
     }))
 }
 

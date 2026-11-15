@@ -75,6 +75,21 @@ pub fn sans_for(hostname: &str, interface_ips: &[IpAddr]) -> Sans {
     Sans { names, ips }
 }
 
+/// Добавить внешний адрес (доступ через интернет): IP — как IP, имя — как имя.
+pub fn with_public(mut sans: Sans, public: Option<&str>) -> Sans {
+    match public.map(str::parse::<IpAddr>) {
+        Some(Ok(ip)) if !sans.ips.contains(&ip) => sans.ips.push(ip),
+        Some(Err(_)) => {
+            let name = public.unwrap_or_default().to_ascii_lowercase();
+            if !sans.names.contains(&name) {
+                sans.names.push(name);
+            }
+        }
+        _ => {}
+    }
+    sans
+}
+
 /// Адреса текущего компьютера.
 pub fn local_sans() -> Sans {
     let host = gethostname::gethostname().to_string_lossy().into_owned();
@@ -279,6 +294,14 @@ mod tests {
             ],
         );
         assert_eq!(s.names, vec!["localhost", "office-pc", "office-pc.local"]);
+        let named = with_public(s.clone(), Some("Office.Keenetic.pro"));
+        assert_eq!(
+            named.names.last().map(String::as_str),
+            Some("office.keenetic.pro")
+        );
+        let by_ip = with_public(s.clone(), Some("178.206.250.161"));
+        assert!(by_ip.ips.contains(&ip("178.206.250.161")));
+        assert_eq!(with_public(s.clone(), None), s);
         assert_eq!(s.ips, vec![ip("127.0.0.1"), ip("192.168.1.10"), ip("::1")]);
     }
 

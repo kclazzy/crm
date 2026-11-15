@@ -25,24 +25,21 @@ pub struct KeyOut {
     addrs: Vec<String>,
 }
 
-/// Адреса сервера в порядке попыток: имена, IP офисной сети, адрес VPN.
-pub fn server_addrs(app: &AppState) -> Vec<String> {
+/// Адреса сервера в порядке попыток: имена, IP офисной сети, внешний адрес — последним.
+pub async fn server_addrs(app: &AppState) -> Result<Vec<String>, ApiError> {
     let sans = crate::tls::local_sans();
     let names = sans.names.iter().filter(|n| *n != "localhost").cloned();
-    let mut ips: Vec<std::net::IpAddr> = sans
+    let ips = sans
         .ips
         .iter()
-        .copied()
         .filter(|ip| ip.is_ipv4() && !ip.is_loopback())
-        .collect();
-    // VPN — последним: в офисе быстрее напрямую.
-    ips.sort_by_key(|ip| crate::vpn::is_vpn_ip(*ip));
-    let mut out: Vec<String> = names.chain(ips.iter().map(ToString::to_string)).collect();
-    let vpn = crate::vpn::SERVER_IP.to_string();
-    if crate::vpn::is_configured(app) && !out.contains(&vpn) {
-        out.push(vpn);
+        .map(ToString::to_string);
+    let mut out: Vec<String> = names.chain(ips).collect();
+    if let Some(a) = crate::remote::address(&app.pool).await? {
+        out.retain(|x| *x != a);
+        out.push(a);
     }
-    out
+    Ok(out)
 }
 
 pub async fn connection_key(
@@ -79,7 +76,7 @@ pub async fn connection_key(
         expires = Some(inv.invite_expires_at);
         user = Some(username);
     }
-    let addrs = server_addrs(&app);
+    let addrs = server_addrs(&app).await?;
     let key = ServerKey {
         name: gethostname::gethostname().to_string_lossy().into_owned(),
         addrs: addrs.clone(),
@@ -102,7 +99,7 @@ pub async fn connection_key(
 
 #[derive(Serialize)]
 pub struct PhoneLink {
-    /// «cert», «office», «vpn».
+    /// «cert», «office», «internet».
     kind: &'static str,
     url: String,
     qr_svg: String,
@@ -116,25 +113,29 @@ fn qr(text: &str) -> Result<String, ApiError> {
         .build())
 }
 
-/// Ссылки и QR-коды для телефона: установить сертификат, открыть CRM в офисе и через VPN.
+/// Ссылки и QR-коды для телефона: установить сертификат, открыть CRM в офисе и из интернета.
 /// На телефонах имя компьютера часто не находится — поэтому IP-адреса.
 pub async fn phone_links(
     State(app): State<AppState>,
     Owner(_): Owner,
 ) -> Result<Json<Vec<PhoneLink>>, ApiError> {
     let port = app.rt.config().listen.port();
-    let office = server_addrs(&app).into_iter().find(|a| {
-        a.parse::<std::net::Ipv4Addr>()
-            .is_ok_and(|ip| !crm_core::vpn::is_vpn_ip(ip))
-    });
+    let addrs = server_addrs(&app).await?;
+    let office = addrs
+        .iter()
+        .find(|a| a.parse::<std::net::Ipv4Addr>().is_ok() && crm_core::remote::is_office_addr(a));
+    let internet = crate::remote::address(&app.pool).await?;
     let mut out = Vec::new();
-    if let Some(ip) = &office {
-        let cert = format!("https://{ip}:{port}/api/tls/ca");
+    // Сертификат ставят там, где телефон сейчас: в офисе или из интернета.
+    if let Some(host) = office.or(internet.as_ref()) {
+        let cert = format!("https://{host}:{port}/api/tls/ca");
         out.push(PhoneLink {
             kind: "cert",
             qr_svg: qr(&cert)?,
             url: cert,
         });
+    }
+    if let Some(ip) = office {
         let url = format!("https://{ip}:{port}/");
         out.push(PhoneLink {
             kind: "office",
@@ -142,10 +143,10 @@ pub async fn phone_links(
             url,
         });
     }
-    if crate::vpn::is_configured(&app) {
-        let url = format!("https://{}:{port}/", crate::vpn::SERVER_IP);
+    if let Some(host) = &internet {
+        let url = format!("https://{host}:{port}/");
         out.push(PhoneLink {
-            kind: "vpn",
+            kind: "internet",
             qr_svg: qr(&url)?,
             url,
         });

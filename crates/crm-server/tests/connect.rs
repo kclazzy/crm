@@ -1,4 +1,4 @@
-//! Ключ подключения и VPN из админ-панели.
+//! Ключ подключения и доступ через интернет из админ-панели.
 #![allow(clippy::unwrap_used)]
 
 mod common;
@@ -79,130 +79,93 @@ async fn key_with_pin_carries_invite_that_works_once() {
 }
 
 #[tokio::test]
-async fn vpn_wizard_issues_device_configs_and_revokes_them() {
+async fn internet_address_goes_to_key_phone_and_health() {
     let app = App::new().await;
     let owner = app.owner().await;
-    let (s, v) = app
-        .call(
+    let get = || app.call("GET", "/api/admin/remote", LOCAL, Some(&owner), None);
+    let (s, v) = get().await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["address"].is_null(), "по умолчанию выключено: {v}");
+    let put = |a: &'static str| {
+        app.call(
             "PUT",
-            "/api/admin/vpn",
+            "/api/admin/remote",
             LOCAL,
             Some(&owner),
-            Some(json!({"endpoint": "192.168.1.1"})),
+            Some(json!({"address": a})),
         )
-        .await;
-    assert_eq!(s, StatusCode::BAD_REQUEST);
-    assert!(v["error"].as_str().unwrap().contains("внешний"));
-    let (s, v) = app
+    };
+    let (s, v) = put("192.168.1.10").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "внутренний адрес: {v}");
+    let (s, v) = put("https://Office.Example.ru/").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["address"], "office.example.ru");
+    assert_eq!(get().await.1["address"], "office.example.ru");
+
+    // Ключ: офисные адреса, затем внешний — последним.
+    let (_, v) = app
         .call(
             "POST",
-            "/api/admin/vpn/peers",
+            "/api/admin/connection-key",
             LOCAL,
             Some(&owner),
-            Some(json!({"name": "Ноутбук"})),
+            Some(json!({})),
         )
         .await;
-    assert_eq!(s, StatusCode::BAD_REQUEST, "сначала адрес офиса: {v}");
-
-    let (s, _) = app
-        .call(
-            "PUT",
-            "/api/admin/vpn",
-            LOCAL,
-            Some(&owner),
-            Some(json!({"endpoint": "office.keenetic.pro"})),
-        )
-        .await;
-    assert_eq!(s, StatusCode::NO_CONTENT);
-    let conf_path = app.dir().join("data/wg/crm-vpn.conf");
-    let server_key = std::fs::read_to_string(app.dir().join("data/wg/server.key")).unwrap();
-
-    let (s, a) = app
-        .call(
-            "POST",
-            "/api/admin/vpn/peers",
-            LOCAL,
-            Some(&owner),
-            Some(json!({"name": "Ноутбук Ивана"})),
-        )
-        .await;
-    assert_eq!(s, StatusCode::CREATED, "{a}");
-    assert_eq!(a["address"], "10.77.0.2");
-    let conf = a["conf"].as_str().unwrap();
-    assert!(conf.contains("Endpoint = office.keenetic.pro:51820"));
-    assert!(conf.contains("AllowedIPs = 10.77.0.1/32"));
-    assert!(
-        a["qr_svg"].as_str().unwrap().starts_with("<?xml")
-            || a["qr_svg"].as_str().unwrap().contains("<svg")
+    let k = decode(v["key"].as_str().unwrap(), None).unwrap();
+    assert_eq!(
+        k.addrs.last().map(String::as_str),
+        Some("office.example.ru"),
+        "{:?}",
+        k.addrs
     );
-    let (_, b) = app
-        .call(
-            "POST",
-            "/api/admin/vpn/peers",
-            LOCAL,
-            Some(&owner),
-            Some(json!({"name": "Телефон"})),
-        )
-        .await;
-    assert_eq!(b["address"], "10.77.0.3");
+    assert!(
+        !k.addrs.iter().any(|a| a.starts_with("10.77.")),
+        "VPN убран: {:?}",
+        k.addrs
+    );
 
-    let server = std::fs::read_to_string(&conf_path).unwrap();
-    assert!(server.contains(server_key.trim()));
-    assert_eq!(server.matches("[Peer]").count(), 2);
-    let device_private = conf
-        .lines()
-        .find_map(|l| l.strip_prefix("PrivateKey = "))
+    // Программы сотрудников узнают внешний адрес из ответа сервера.
+    let (_, h) = app.call("GET", "/api/health", LOCAL, None, None).await;
+    assert_eq!(h["public_addr"], "office.example.ru", "{h}");
+
+    // Телефон: QR-код «из интернета».
+    let (_, v) = app
+        .call("GET", "/api/admin/phone", LOCAL, Some(&owner), None)
+        .await;
+    let net = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["kind"] == "internet")
         .unwrap();
     assert!(
-        !server.contains(device_private),
-        "закрытый ключ устройства на сервере не хранится"
+        net["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://office.example.ru:"),
+        "{v}"
     );
 
-    // Повторная настройка адреса не меняет ключи сервера — выданные файлы продолжают работать.
-    app.call(
-        "PUT",
-        "/api/admin/vpn",
-        LOCAL,
-        Some(&owner),
-        Some(json!({"endpoint": "85.12.34.56"})),
-    )
-    .await;
-    assert_eq!(
-        std::fs::read_to_string(app.dir().join("data/wg/server.key")).unwrap(),
-        server_key
-    );
+    // Выключить — пустой адрес.
+    let (s, _) = put("").await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, h) = app.call("GET", "/api/health", LOCAL, None, None).await;
+    assert!(h["public_addr"].is_null());
 
-    let id = a["id"].as_str().unwrap();
+    let (_, emp) = app.member(&owner, "olga", "employee", "10.0.0.3").await;
     let (s, _) = app
-        .call(
-            "DELETE",
-            &format!("/api/admin/vpn/peers/{id}"),
-            LOCAL,
-            Some(&owner),
-            None,
-        )
+        .call("GET", "/api/admin/remote", LOCAL, Some(&emp), None)
         .await;
-    assert_eq!(s, StatusCode::NO_CONTENT);
-    let server = std::fs::read_to_string(&conf_path).unwrap();
-    assert_eq!(server.matches("[Peer]").count(), 1);
-    let (_, info) = app
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, _) = app
         .call("GET", "/api/admin/vpn", LOCAL, Some(&owner), None)
         .await;
-    assert_eq!(info["configured"], true);
-    assert_eq!(info["peers"].as_array().unwrap().len(), 1);
-
-    // Запрос через VPN отмечает устройство.
-    let (_, _) = app
-        .call("GET", "/api/health", "10.77.0.3", None, None)
-        .await;
-    let (_, info) = app
-        .call("GET", "/api/admin/vpn", LOCAL, Some(&owner), None)
-        .await;
-    assert!(info["peers"][0]["last_seen_at"].is_i64(), "{info}");
+    assert_eq!(s, StatusCode::NOT_FOUND, "WireGuard убран");
 }
 
 #[tokio::test]
-async fn phone_links_give_qr_for_certificate_office_and_vpn() {
+async fn phone_links_give_qr_for_certificate_and_office() {
     let app = App::new().await;
     let owner = app.owner().await;
     let (s, v) = app
@@ -215,36 +178,14 @@ async fn phone_links_give_qr_for_certificate_office_and_vpn() {
         .iter()
         .map(|l| l["kind"].as_str().unwrap())
         .collect();
-    assert!(!kinds.contains(&"vpn"), "VPN ещё не настроен: {v}");
+    assert!(
+        !kinds.contains(&"internet"),
+        "внешний адрес ещё не задан: {v}"
+    );
     if let Some(cert) = v.as_array().unwrap().iter().find(|l| l["kind"] == "cert") {
         assert!(cert["url"].as_str().unwrap().ends_with("/api/tls/ca"));
         assert!(cert["qr_svg"].as_str().unwrap().contains("<svg"));
     }
-    app.call(
-        "PUT",
-        "/api/admin/vpn",
-        LOCAL,
-        Some(&owner),
-        Some(json!({"endpoint": "office.example.ru"})),
-    )
-    .await;
-    let (_, v) = app
-        .call("GET", "/api/admin/phone", LOCAL, Some(&owner), None)
-        .await;
-    let vpn = v
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|l| l["kind"] == "vpn")
-        .unwrap();
-    assert!(
-        vpn["url"]
-            .as_str()
-            .unwrap()
-            .starts_with("https://10.77.0.1:"),
-        "{v}"
-    );
-
     let (_, emp) = app.member(&owner, "olga", "employee", "10.0.0.3").await;
     let (s, _) = app
         .call("GET", "/api/admin/phone", LOCAL, Some(&emp), None)

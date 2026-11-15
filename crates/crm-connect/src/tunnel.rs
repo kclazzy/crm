@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 
 use crate::probe::connect;
 
-/// Куда ведёт туннель; адрес меняется, если сотрудник ушёл из офиса на VPN.
+/// Куда ведёт туннель; адрес меняется, если сотрудник ушёл из офиса и подключается через интернет.
 #[derive(Debug, Clone)]
 pub struct Target {
     pub addr: String,
@@ -62,7 +62,7 @@ impl Tunnel {
                                 "<!doctype html><meta charset=utf-8><title>CRM</title>\
                                  <body style=\"font-family:sans-serif;padding:40px\">\
                                  <h2>Сервер CRM не отвечает</h2><p>{e}</p>\
-                                 <p>Проверьте сеть или VPN и обновите страницу (F5).</p>"
+                                 <p>Проверьте интернет или сеть офиса и обновите страницу (F5).</p>"
                             );
                             let resp = format!(
                                 "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -82,7 +82,7 @@ impl Tunnel {
         })
     }
 
-    /// Новый адрес сервера (например, пропала офисная сеть — дальше через VPN).
+    /// Новый адрес сервера (например, пропала офисная сеть — дальше через интернет).
     pub async fn retarget(&self, t: Target) {
         *self.target.write().await = t;
     }

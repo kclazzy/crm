@@ -11,7 +11,7 @@ import { Archive, TaskList, TaskPage } from './pages/Tasks';
 import { Messenger } from './pages/Messenger';
 import { ImportClients } from './pages/ImportClients';
 import { Trash } from './pages/Trash';
-import { AdminGroups, AdminOrg, AdminVpn } from './pages/AdminWork';
+import { AdminGroups, AdminOrg, AdminRemote } from './pages/AdminWork';
 import { Login } from './pages/Login';
 import { Invite } from './pages/Invite';
 import { Forgot } from './pages/Forgot';
@@ -50,7 +50,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="trash" element={<Trash />} />
             <Route path="admin/groups" element={<Gate owner><AdminGroups /></Gate>} />
             <Route path="admin/org" element={<Gate owner><AdminOrg /></Gate>} />
-            <Route path="admin/vpn" element={<Gate owner><AdminVpn /></Gate>} />
+            <Route path="admin/remote" element={<Gate owner><AdminRemote /></Gate>} />
             <Route path="admin/staff" element={<Gate owner><AdminStaff /></Gate>} />
             <Route path="admin/sessions" element={<Gate owner><AdminSessions /></Gate>} />
             <Route path="admin/storage" element={<Gate owner><AdminStorage /></Gate>} />

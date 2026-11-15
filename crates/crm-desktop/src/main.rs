@@ -78,7 +78,7 @@ pub fn on_menu(app: &AppHandle, id: &str) {
                 eprintln!("CRM: {e}");
             }
         }
-        "vpn-apply" | "restart" => {
+        "restart" => {
             let (app, action) = (app.clone(), id.to_owned());
             connections::to_panel(
                 &app,
@@ -86,8 +86,7 @@ pub fn on_menu(app: &AppHandle, id: &str) {
             );
             tauri::async_runtime::spawn(async move {
                 let text = match server_action(app.clone(), action.clone()).await {
-                    Ok(_) if action == "restart" => "Сервер перезапущен".to_owned(),
-                    Ok(_) => "VPN включён. Не забудьте перенаправить порт на роутере.".to_owned(),
+                    Ok(_) => "Сервер перезапущен".to_owned(),
                     Err(e) => e,
                 };
                 connections::to_panel(&app, Some(("toast", &text)));
@@ -218,13 +217,6 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
     let open = MenuItem::with_id(app, "open", "Открыть CRM", true, None::<&str>)?;
     let servers = MenuItem::with_id(app, "servers", "Мои серверы", true, None::<&str>)?;
     let browser = MenuItem::with_id(app, "browser", "Открыть CRM в браузере", true, None::<&str>)?;
-    let vpn = MenuItem::with_id(
-        app,
-        "vpn-apply",
-        "Применить настройки VPN…",
-        true,
-        None::<&str>,
-    )?;
     let line = MenuItem::with_id(app, "status", "Проверяю сервер…", false, None::<&str>)?;
     let update = MenuItem::with_id(app, "update", "Обновления…", true, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart", "Перезапустить сервер", true, None::<&str>)?;
@@ -256,7 +248,6 @@ fn build_tray(app: &tauri::App) -> tauri::Result<TrayIcon> {
             &restart,
             &stop,
             &reset,
-            &vpn,
             &PredefinedMenuItem::separator(app)?,
             &update,
             &quit,
