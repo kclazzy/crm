@@ -4,6 +4,7 @@
 // В релизной сборке без окна консоли.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod bridge;
 mod connections;
 mod selftest;
 mod server_ctl;
@@ -339,8 +340,12 @@ fn main() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?
                     .initialization_script(connections::guard_script())
                     .on_navigation(move |url| {
+                        if bridge::intercept(&handle, url) {
+                            return false;
+                        }
                         !selftest::enabled() || selftest::on_navigation(&handle, url)
                     })
+                    .on_download(|webview, event| bridge::on_download(webview.app_handle(), event))
                     .on_page_load(|_, payload| {
                         if selftest::enabled() {
                             selftest::log(&format!("LOAD {:?} {}", payload.event(), payload.url()));

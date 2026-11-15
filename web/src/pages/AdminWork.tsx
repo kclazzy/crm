@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, Download, KeyRound, Plus, Trash2, UsersRound } from 'lucide-react';
+import { Check, Copy, Download, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UsersRound } from 'lucide-react';
 import { timeAgo } from '../api';
 import { type Group, type OrgSettings, type VpnInfo, work } from '../work';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
@@ -172,7 +172,25 @@ export function ConnectionKey({ userId, name, onClose }: { userId: string | null
 
 // ---------- Удалённый доступ (WireGuard) ----------
 
+declare global {
+  /** Есть, когда страница открыта в окне программы CRM (её встраивает программа). */
+  interface Window { crmApp?: { run: (action: string) => void } }
+}
+
+/** Сохранить текст файлом. Ссылка должна быть в документе, иначе часть браузеров молчит. */
+function saveText(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export function AdminVpn() {
+  const inApp = !!window.crmApp;
   const people = usePeople();
   const [info, setInfo] = useState<VpnInfo | null>(null);
   const [error, setError] = useState('');
@@ -205,10 +223,18 @@ export function AdminVpn() {
           <section className="card p-5">
             <h2 className="mb-1 font-semibold">2. Включить на этом компьютере</h2>
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Значок CRM в трее → <b>«Применить настройки VPN…»</b> → подтвердите запрос Windows. Программа сама поставит WireGuard и откроет порт.
-              Повторяйте после выдачи или отзыва доступа.
+              Программа сама поставит WireGuard, включит туннель и откроет порт. Windows попросит подтвердить —
+              нажмите «Да». Повторяйте после выдачи или отзыва доступа.
             </p>
-            <p className="mt-2 text-sm">Туннель: {info.tunnel_up ? <Badge tone="green" dot>работает</Badge> : <Badge tone="amber" dot>не включён</Badge>}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              {inApp
+                ? <Button onClick={() => window.crmApp?.run('vpn-apply')}><ShieldCheck className="size-4" />Включить VPN на этом компьютере</Button>
+                : <p className="text-sm text-amber-700 dark:text-amber-300">
+                    Кнопка работает в программе CRM на сервере. В браузере: значок CRM в трее → <b>«Применить настройки VPN…»</b>.
+                  </p>}
+              <Button variant="ghost" onClick={load}><RefreshCw className="size-4" />Проверить</Button>
+              <span className="text-sm">Туннель: {info.tunnel_up ? <Badge tone="green" dot>работает</Badge> : <Badge tone="amber" dot>не включён</Badge>}</span>
+            </div>
             <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
               На роутере: перенаправьте <b>UDP-порт {info.port}</b> на этот компьютер (раздел «Переадресация портов» / «Port forwarding»).
             </p>
@@ -254,12 +280,7 @@ export function AdminVpn() {
             <p className="text-sm text-slate-600 dark:text-slate-300">Показывается один раз. Телефон: приложение WireGuard → «+» → «Сканировать QR-код». Компьютер: WireGuard → «Импорт туннеля из файла».</p>
             {/* QR-код строит сервер (SVG без скриптов) — показываем картинкой. */}
             <img alt="QR-код настроек VPN" className="w-60 rounded-xl bg-white p-2" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(issued.qr_svg)}`} />
-            <Button onClick={() => {
-              const a = document.createElement('a');
-              a.href = URL.createObjectURL(new Blob([issued.conf], { type: 'text/plain' }));
-              a.download = issued.file_name;
-              a.click();
-            }}><Download className="size-4" />Скачать {issued.file_name}</Button>
+            <Button onClick={() => saveText(issued.file_name, issued.conf)}><Download className="size-4" />Скачать {issued.file_name}</Button>
             <p className="text-xs text-slate-500">Дальше: в программе CRM сотрудника нажмите «Подключиться» — когда офисная сеть недоступна, она сама пойдёт через VPN.</p>
           </div>
         )}

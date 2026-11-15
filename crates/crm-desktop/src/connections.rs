@@ -186,6 +186,7 @@ pub fn guard_script() -> String {
     include_str!("crm_guard.js")
         .replace("__APP_URL__", app_index_url())
         .replace("__REPORT_HOST__", crate::selftest::REPORT_HOST)
+        .replace("__APP_HOST__", crate::bridge::APP_HOST)
         .replace(
             "__SELFTEST__",
             if crate::selftest::enabled() {
