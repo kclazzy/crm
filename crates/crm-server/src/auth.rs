@@ -734,6 +734,183 @@ pub async fn reset_access(
     Ok(Json(invite))
 }
 
+/// Сотрудник (не владелец, не удалён) — для отключения и удаления.
+async fn staff_username(pool: &SqlitePool, id: &str) -> Result<String, ApiError> {
+    let row: Option<(String, String)> =
+        sqlx::query_as("SELECT username, role FROM users WHERE id = ? AND deleted_at IS NULL")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    match row {
+        None => Err(ApiError::NotFound),
+        Some((_, role)) if role == "host" => Err(ApiError::BadRequest(
+            "владельца нельзя отключить или удалить".into(),
+        )),
+        Some((username, _)) => Ok(username),
+    }
+}
+
+async fn close_sessions(tx: &mut sqlx::SqliteConnection, id: &str) -> Result<(), ApiError> {
+    sqlx::query("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
+        .bind(now_ms())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM invites WHERE user_id = ? AND used_at IS NULL")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
+}
+
+/// Отключить: войти нельзя, все входы закрыты; задачи и данные на месте, можно включить обратно.
+pub async fn disable_user(
+    State(app): State<AppState>,
+    Owner(owner): Owner,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let username = staff_username(&app.pool, &id).await?;
+    let mut tx = app.pool.begin().await?;
+    sqlx::query("UPDATE users SET is_active = 0 WHERE id = ?")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
+    close_sessions(&mut tx, &id).await?;
+    tx.commit().await?;
+    audit(
+        &app.pool,
+        Some(&owner.id),
+        "user.disabled",
+        Some(&username),
+        "",
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn enable_user(
+    State(app): State<AppState>,
+    Owner(owner): Owner,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let username = staff_username(&app.pool, &id).await?;
+    sqlx::query("UPDATE users SET is_active = 1 WHERE id = ?")
+        .bind(&id)
+        .execute(&app.pool)
+        .await?;
+    audit(
+        &app.pool,
+        Some(&owner.id),
+        "user.enabled",
+        Some(&username),
+        "",
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct DeleteUserQuery {
+    /// Кому передать открытые задачи и клиентов.
+    reassign_to: Option<String>,
+}
+
+/// Удалить: из списков и входа — навсегда, логин свободен. Открытые задачи и клиенты
+/// переходят к `reassign_to`; завершённые задачи и сообщения хранят имя с «(удалён)».
+pub async fn delete_user(
+    State(app): State<AppState>,
+    Owner(owner): Owner,
+    Path(id): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<DeleteUserQuery>,
+) -> Result<StatusCode, ApiError> {
+    let username = staff_username(&app.pool, &id).await?;
+    let (open, managed): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM task_assignees ta JOIN tasks t ON t.id = ta.task_id
+                 WHERE ta.user_id = ?1 AND t.status <> 'completed' AND t.deleted_at IS NULL),
+                (SELECT count(*) FROM clients WHERE manager_id = ?1 AND deleted_at IS NULL)",
+    )
+    .bind(&id)
+    .fetch_one(&app.pool)
+    .await?;
+    let heir = match q.reassign_to.as_deref().filter(|h| !h.is_empty()) {
+        Some(h) => {
+            let ok: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM users WHERE id = ? AND id <> ? AND is_active = 1 AND deleted_at IS NULL)",
+            )
+            .bind(h)
+            .bind(&id)
+            .fetch_one(&app.pool)
+            .await?;
+            if !ok {
+                return Err(ApiError::BadRequest(
+                    "передать можно только работающему сотруднику".into(),
+                ));
+            }
+            Some(h.to_owned())
+        }
+        None if open > 0 || managed > 0 => {
+            return Err(ApiError::ConflictWith(format!(
+                "у сотрудника открытых задач: {open}, клиентов: {managed} — выберите, кому их передать"
+            )));
+        }
+        None => None,
+    };
+    let mut tx = app.pool.begin().await?;
+    if let Some(h) = &heir {
+        sqlx::query(
+            "INSERT OR IGNORE INTO task_assignees(task_id, user_id)
+             SELECT ta.task_id, ? FROM task_assignees ta JOIN tasks t ON t.id = ta.task_id
+             WHERE ta.user_id = ? AND t.status <> 'completed' AND t.deleted_at IS NULL",
+        )
+        .bind(h)
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE clients SET manager_id = ? WHERE manager_id = ?")
+            .bind(h)
+            .bind(&id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    // Из открытых задач — убрать; в завершённых имя остаётся для истории.
+    sqlx::query(
+        "DELETE FROM task_assignees WHERE user_id = ?
+         AND task_id IN (SELECT id FROM tasks WHERE status <> 'completed')",
+    )
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM group_members WHERE user_id = ?")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
+    close_sessions(&mut tx, &id).await?;
+    sqlx::query(
+        "UPDATE users SET is_active = 0, deleted_at = ?, password_hash = NULL,
+                totp_secret = NULL, totp_pending = NULL,
+                username = 'deleted:' || id, display_name = display_name || ' (удалён)'
+         WHERE id = ?",
+    )
+    .bind(now_ms())
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM totp_backup WHERE user_id = ?")
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    audit(
+        &app.pool,
+        Some(&owner.id),
+        "user.deleted",
+        Some(&username),
+        "",
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[derive(Serialize, sqlx::FromRow)]
 pub struct SessionInfo {
     id: String,
@@ -814,6 +991,7 @@ pub async fn list_users(
                 ) AS reset_requested,
                 totp_secret IS NOT NULL AS two_factor
          FROM users
+         WHERE deleted_at IS NULL
          ORDER BY role = 'host' DESC, display_name COLLATE NOCASE",
     )
     .bind(now_ms() - Duration::days(7).num_milliseconds())

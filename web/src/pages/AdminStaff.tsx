@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, KeyRound, RotateCcw, Smartphone, UserPlus } from 'lucide-react';
+import { Check, Copy, KeyRound, MoreHorizontal, RotateCcw, Smartphone, Trash2, UserCheck, UserPlus, UserX } from 'lucide-react';
+import { Menu, MenuItem } from '../components/Menu';
 import { ConnectionKey } from './AdminWork';
 import { api, type Invite, type Role, roleName, type StaffMember } from '../api';
 import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
@@ -10,6 +11,39 @@ const stateBadge = {
   invited: <Badge tone="amber" dot>Ждёт входа</Badge>,
   disabled: <Badge tone="slate" dot>Отключён</Badge>,
 };
+
+/** Удалить сотрудника: открытые задачи и клиенты — выбранному коллеге; история остаётся. */
+function DeleteUser({ m, staff, onClose, onDone }: { m: StaffMember; staff: StaffMember[]; onClose: () => void; onDone: () => void }) {
+  const heirs = staff.filter((s) => s.id !== m.id && s.state === 'active');
+  const [heir, setHeir] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal open onClose={onClose} title={`Удалить «${m.display_name}»?`}>
+      <div className="flex flex-col gap-4 text-sm">
+        <p className="text-slate-600 dark:text-slate-300">
+          Сотрудник исчезнет из списков и не сможет войти; его логин освободится. Сообщения и завершённые задачи
+          сохранятся с пометкой «(удалён)». Если нужно лишь временно закрыть доступ — выберите «Отключить».
+        </p>
+        <Field label="Кому передать открытые задачи и клиентов">
+          <select className="input" value={heir} onChange={(e) => setHeir(e.target.value)}>
+            <option value="">— не передавать (если их нет) —</option>
+            {heirs.map((h) => <option key={h.id} value={h.id}>{h.display_name}</option>)}
+          </select>
+        </Field>
+        <ErrorText>{error}</ErrorText>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Отмена</Button>
+          <Button variant="danger" busy={busy} onClick={async () => {
+            setBusy(true);
+            setError('');
+            try { await api.deleteUser(m.id, heir || undefined); onDone(); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
+          }}><Trash2 className="size-4" />Удалить</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 function InviteResult({ name, invite }: { name: string; invite: Invite }) {
   const link = `${location.origin}/invite?code=${encodeURIComponent(invite.invite_token)}`;
@@ -40,6 +74,7 @@ export function AdminStaff() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState<StaffMember | null>(null);
+  const [deleting, setDeleting] = useState<StaffMember | null>(null);
   const [keyFor, setKeyFor] = useState<StaffMember | 'all' | null>(null);
 
   const load = useCallback(() => api.staff().then(setStaff).catch((e) => setError(e.message)), []);
@@ -93,7 +128,7 @@ export function AdminStaff() {
       />
       <RecoveryCodes compact />
       {error && !adding && <div className="mb-4"><ErrorText>{error}</ErrorText></div>}
-      <div className="card overflow-hidden">
+      <div className="card">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-slate-200/80 bg-slate-50/60 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900">
             <tr><th className="px-5 py-3 font-semibold">Сотрудник</th><th className="px-5 py-3 font-semibold">Роль</th><th className="px-5 py-3 font-semibold">Состояние</th><th className="px-5 py-3" /></tr>
@@ -117,19 +152,37 @@ export function AdminStaff() {
                       <KeyRound className="size-3.5" />Ключ
                     </Button>
                   )}
-                  {m.role !== 'host' && m.two_factor && (
-                    <Button variant="ghost" className="px-3 py-1.5 text-xs" title="Потерял телефон: код настроит заново в офисе" onClick={async () => {
-                      if (!confirm(`Сбросить код для входа у «${m.display_name}»? Новый код он настроит в офисе.`)) return;
-                      await api.twoFactorReset(m.id);
-                      void load();
-                    }}>
-                      <Smartphone className="size-3.5" />Сбросить код
-                    </Button>
-                  )}
                   {m.role !== 'host' && (
-                    <Button variant={m.reset_requested ? 'primary' : 'ghost'} className="px-3 py-1.5 text-xs" onClick={() => setResetting(m)}>
-                      <RotateCcw className="size-3.5" />Сбросить доступ
-                    </Button>
+                    <span className="inline-flex align-middle">
+                      <Menu right button={(toggle) => (
+                        <Button variant={m.reset_requested ? 'primary' : 'ghost'} className="px-2.5 py-1.5 text-xs" onClick={toggle} title="Действия">
+                          {m.reset_requested ? <><RotateCcw className="size-3.5" />Сбросить доступ</> : <MoreHorizontal className="size-4" />}
+                        </Button>
+                      )}>
+                        {(close) => (
+                          <div className="text-left">
+                            <MenuItem icon={<RotateCcw className="size-4" />} onClick={() => { close(); setResetting(m); }}>Сбросить доступ</MenuItem>
+                            {m.two_factor && (
+                              <MenuItem icon={<Smartphone className="size-4" />} onClick={async () => {
+                                close();
+                                if (!confirm(`Сбросить код для входа у «${m.display_name}»? Новый код он настроит в офисе.`)) return;
+                                await api.twoFactorReset(m.id);
+                                void load();
+                              }}>Сбросить код для входа</MenuItem>
+                            )}
+                            {m.state === 'disabled'
+                              ? <MenuItem icon={<UserCheck className="size-4" />} onClick={async () => { close(); await api.enableUser(m.id); void load(); }}>Включить</MenuItem>
+                              : <MenuItem icon={<UserX className="size-4" />} onClick={async () => {
+                                  close();
+                                  if (!confirm(`Отключить «${m.display_name}»? Он сразу выйдет на всех устройствах и не сможет войти. Задачи и данные останутся, включить можно в любой момент.`)) return;
+                                  await api.disableUser(m.id);
+                                  void load();
+                                }}>Отключить</MenuItem>}
+                            <MenuItem danger icon={<Trash2 className="size-4" />} onClick={() => { close(); setDeleting(m); }}>Удалить…</MenuItem>
+                          </div>
+                        )}
+                      </Menu>
+                    </span>
                   )}
                 </td>
               </tr>
@@ -164,6 +217,8 @@ export function AdminStaff() {
           <Button variant="danger" busy={busy} onClick={() => resetting && reset(resetting)}>Сбросить</Button>
         </div>
       </Modal>
+
+      {deleting && <DeleteUser m={deleting} staff={staff ?? []} onClose={() => setDeleting(null)} onDone={() => { setDeleting(null); void load(); }} />}
 
       {keyFor && <ConnectionKey userId={keyFor === 'all' ? null : keyFor.id} name={keyFor === 'all' ? undefined : keyFor.display_name} onClose={() => setKeyFor(null)} />}
 

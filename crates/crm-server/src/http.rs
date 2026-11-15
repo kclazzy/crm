@@ -107,6 +107,9 @@ pub fn router(state: AppState) -> Router {
             post(auth::create_user).get(auth::list_users),
         )
         .route("/api/admin/users/{id}/reset", post(auth::reset_access))
+        .route("/api/admin/users/{id}/disable", post(auth::disable_user))
+        .route("/api/admin/users/{id}/enable", post(auth::enable_user))
+        .route("/api/admin/users/{id}", delete(auth::delete_user))
         .route("/api/admin/sessions", get(auth::list_sessions))
         .route("/api/admin/sessions/{id}", delete(auth::revoke_session))
         .route("/api/admin/server", get(crate::admin::server_info))
@@ -311,6 +314,9 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     Conflict(&'static str),
+    /// Конфликт с подробностями (сколько задач, кто).
+    #[error("{0}")]
+    ConflictWith(String),
     #[error("слишком много неудачных попыток, попробуйте через 15 минут")]
     TooManyAttempts,
     #[error("данные перенесены в новое место — перезапустите сервер (меню трея → «Перезапустить сервер»)")]
@@ -346,7 +352,7 @@ impl IntoResponse for ApiError {
                 StatusCode::FORBIDDEN
             }
             Self::NotFound => StatusCode::NOT_FOUND,
-            Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Conflict(_) | Self::ConflictWith(_) => StatusCode::CONFLICT,
             Self::TooManyAttempts => StatusCode::TOO_MANY_REQUESTS,
             Self::Frozen => StatusCode::SERVICE_UNAVAILABLE,
             Self::Failed(why) => {

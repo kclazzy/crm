@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   Archive, ArchiveRestore, CalendarDays, ChevronDown, ChevronRight, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, UserRoundCog, X,
 } from 'lucide-react';
 import { useLiveReload } from '../live';
 import { dateTime, fromLocalInput, type Priority, statusActions, statusName, type Status, type TaskCard, toLocalInput, work } from '../work';
+import { Menu, MenuItem } from '../components/Menu';
 import { Avatar, BackButton, Button, ErrorText, Modal } from '../components/ui';
 import { DeadlineText, Md, PeoplePicker, PriorityBadge, Progress, TaskForm, TaskRow, statusIcon, statusStyle, usePeople } from '../components/work';
 import { Chat } from '../components/Chat';
@@ -19,31 +20,6 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Выпадающее меню у кнопки. */
-function Menu({ button, children }: { button: (toggle: () => void) => ReactNode; children: (close: () => void) => ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
-  return (
-    <div className="relative" ref={box}>
-      {button(() => setOpen((o) => !o))}
-      {open && <div className="card absolute z-30 mt-1 min-w-56 overflow-hidden py-1 shadow-xl">{children(() => setOpen(false))}</div>}
-    </div>
-  );
-}
-
-function MenuItem({ onClick, icon, children, danger = false }: { onClick: () => void; icon?: ReactNode; children: ReactNode; danger?: boolean }) {
-  return (
-    <button onClick={onClick} className={`flex w-full items-center justify-between gap-6 px-4 py-2.5 text-left text-[15px] hover:bg-slate-50 dark:hover:bg-slate-800 ${danger ? 'text-red-600' : ''}`}>
-      <span>{children}</span><span className="text-slate-400">{icon}</span>
-    </button>
-  );
-}
-
 function Stages({ t, reload }: { t: TaskCard; reload: () => void }) {
   const manage = t.access === 'manage';
   const [title, setTitle] = useState('');

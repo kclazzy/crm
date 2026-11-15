@@ -164,6 +164,10 @@ export const api = {
   staff: () => request<StaffMember[]>('GET', '/api/admin/users'),
   addStaff: (username: string, display_name: string, role: Role) =>
     request<{ user: Me } & Invite>('POST', '/api/admin/users', { username, display_name, role }),
+  disableUser: (id: string) => request<void>('POST', `/api/admin/users/${id}/disable`),
+  enableUser: (id: string) => request<void>('POST', `/api/admin/users/${id}/enable`),
+  deleteUser: (id: string, reassignTo?: string) =>
+    request<void>('DELETE', `/api/admin/users/${id}${reassignTo ? `?reassign_to=${encodeURIComponent(reassignTo)}` : ''}`),
   resetAccess: (id: string) => request<Invite>('POST', `/api/admin/users/${id}/reset`),
   sessions: () => request<Session[]>('GET', '/api/admin/sessions'),
   revokeSession: (id: string) => request<void>('DELETE', `/api/admin/sessions/${id}`),
