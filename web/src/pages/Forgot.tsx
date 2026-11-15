@@ -60,7 +60,7 @@ export function Forgot() {
         <Field label="Логин"><input name="username" className="input" required autoFocus spellCheck={false} autoComplete="username" /></Field>
         {who === 'owner' && (
           <>
-            <Field label="Код восстановления" hint="Один из 10 кодов, которые вы сохранили или распечатали">
+            <Field label="Код сброса пароля" hint="Один из 10 кодов, которые вы сохранили или распечатали">
               <input name="code" className="input font-mono uppercase tracking-wider" required placeholder="XXXX-XXXX-XXXX" spellCheck={false} autoComplete="off" />
             </Field>
             <Field label="Новый пароль" hint="Не короче 10 символов и без логина внутри">

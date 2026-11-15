@@ -189,7 +189,7 @@ function TwoFactorPolicyCard() {
       <h2 className="mb-1 font-semibold">5. Защита входа: код из приложения</h2>
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Второй шаг входа — 6 цифр из приложения на телефоне (Яндекс Ключ, Google Authenticator). Каждый настраивает его сам:
-        меню <b>«Код для входа»</b>. Кто не настроил — из интернета не войдёт, только в офисе.
+        меню <b>«Код из приложения»</b>. Кто не настроил — из интернета не войдёт, только в офисе.
       </p>
       <div className="flex flex-col gap-2">
         {policies.map((p) => (
@@ -203,7 +203,7 @@ function TwoFactorPolicyCard() {
         ))}
       </div>
       <ErrorText>{error}</ErrorText>
-      <p className="mt-3 text-sm text-slate-500">Потерял телефон и резервные коды — «Сотрудники» → «Сбросить код». Владелец без кода: на сервере <code>crm-server reset-owner-password</code>.</p>
+      <p className="mt-3 text-sm text-slate-500">Потерял телефон и запасные коды — «Сотрудники» → «Сбросить код». Владелец без кода: на сервере <code>crm-server reset-owner-password</code>.</p>
     </section>
   );
 }

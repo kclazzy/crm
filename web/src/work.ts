@@ -26,6 +26,8 @@ export interface TaskSummary {
   archived_at?: number | null;
   created_at?: number;
   assignees?: PersonRef[];
+  /** Ответственный — первый в assignees. */
+  lead_id?: string | null;
   progress?: { done: number; total: number };
   unread?: number;
   children?: number;
@@ -246,6 +248,7 @@ export const work = {
   connectionKey: (user_id: string | null, pin: string | null) =>
     req<{ key: string; with_pin: boolean; invite_expires_at: number | null; addrs: string[] }>('POST', '/api/admin/connection-key', { user_id, pin }),
   remote: () => req<RemoteInfo>('GET', '/api/admin/remote'),
+  archiveCompleted: () => req<{ archived: number }>('POST', '/api/tasks/archive-completed'),
   routerOpen: () => req<{ external_ip: string | null; public: boolean; local_ip: string; port: number; address: string | null }>('POST', '/api/admin/remote/router'),
   routerClose: () => req<void>('DELETE', '/api/admin/remote/router'),
   setRemote: (address: string) => req<RemoteInfo>('PUT', '/api/admin/remote', { address }),

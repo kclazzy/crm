@@ -49,11 +49,11 @@ export function Badge({ tone, children, dot = false }: { tone: keyof typeof tone
 
 const avatarColors = ['bg-indigo-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-violet-500', 'bg-teal-500'];
 
-export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
+export function Avatar({ name, size = 'md', title }: { name: string; size?: 'xs' | 'sm' | 'md'; title?: string }) {
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?';
   const color = avatarColors[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % avatarColors.length];
-  const dim = size === 'sm' ? 'size-8 text-xs' : 'size-10 text-sm';
-  return <div className={`${dim} ${color} grid shrink-0 place-items-center rounded-full font-semibold text-white`}>{initials}</div>;
+  const dim = { xs: 'size-6 text-[10px]', sm: 'size-8 text-xs', md: 'size-10 text-sm' }[size];
+  return <div title={title ?? name} className={`${dim} ${color} grid shrink-0 place-items-center rounded-full font-semibold text-white`}>{initials}</div>;
 }
 
 export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {

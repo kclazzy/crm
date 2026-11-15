@@ -165,10 +165,10 @@ export function AdminStaff() {
                             {m.two_factor && (
                               <MenuItem icon={<Smartphone className="size-4" />} onClick={async () => {
                                 close();
-                                if (!confirm(`Сбросить код для входа у «${m.display_name}»? Новый код он настроит в офисе.`)) return;
+                                if (!confirm(`Сбросить код из приложения у «${m.display_name}»? Новый код он настроит в офисе.`)) return;
                                 await api.twoFactorReset(m.id);
                                 void load();
-                              }}>Сбросить код для входа</MenuItem>
+                              }}>Сбросить код из приложения</MenuItem>
                             )}
                             {m.state === 'disabled'
                               ? <MenuItem icon={<UserCheck className="size-4" />} onClick={async () => { close(); await api.enableUser(m.id); void load(); }}>Включить</MenuItem>

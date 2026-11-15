@@ -41,9 +41,9 @@ export function Login() {
 
   if (creds) {
     return (
-      <AuthLayout title="Код для входа" subtitle="Пароль верный. Откройте приложение-аутентификатор на телефоне и введите 6 цифр для CRM.">
+      <AuthLayout title="Код из приложения" subtitle="Пароль верный. Откройте приложение-аутентификатор на телефоне и введите 6 цифр для CRM.">
         <form key="code" onSubmit={submit} className="flex flex-col gap-5">
-          <Field label="Код из приложения" hint="Нет телефона под рукой — введите один из резервных кодов.">
+          <Field label="Код из приложения" hint="Нет телефона под рукой — введите один из запасных кодов.">
             <input key="code" name="code" defaultValue="" className="input text-center text-2xl tracking-[0.3em]" inputMode="numeric" autoComplete="one-time-code" autoFocus required maxLength={20} />
           </Field>
           <ErrorText>{error}</ErrorText>
@@ -67,7 +67,7 @@ export function Login() {
         <Button type="submit" busy={busy} className="mt-1 py-3">Войти</Button>
         <Link to="/forgot" className="-mt-1 text-center text-sm font-semibold text-slate-500 hover:text-brand-600 hover:underline">Забыли пароль?</Link>
         <p className="text-center text-sm text-slate-500">
-          Есть код приглашения?{' '}
+          Есть приглашение?{' '}
           <Link to="/invite" className="font-semibold text-brand-600 hover:underline">Принять приглашение</Link>
         </p>
       </form>

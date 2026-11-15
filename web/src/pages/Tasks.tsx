@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { ArchiveRestore, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, List, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArchiveRestore, Building2, CalendarDays, ChevronLeft, ChevronRight, List, Plus, Search, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
 import { childrenOf, dateTime, type TaskSummary, work } from '../work';
 import { Button, ErrorText, Modal } from '../components/ui';
-import { TaskForm, TaskRow, deadlineBar } from '../components/work';
+import { TaskForm, TaskRow, deadlineBar, deadlineLegend } from '../components/work';
 
 export { TaskPage } from './TaskPage';
 
 type Role = 'assignee' | 'creator' | 'involved';
 
 const roles = [
-  { v: '', label: 'Все роли' },
-  { v: 'assignee', label: 'Я исполнитель' },
-  { v: 'creator', label: 'Я постановщик' },
+  { v: '', label: 'Все' },
+  { v: 'assignee', label: 'Исполняю' },
+  { v: 'creator', label: 'Поставил(а)' },
 ] as const;
 
 function count(n: number) {
@@ -50,45 +50,37 @@ function Header({ title, baseRole, onCreate }: { title: string; baseRole?: Role;
   useEffect(() => void loadOverdue(), [loadOverdue]);
   useLiveReload(loadOverdue);
 
-  const tab = (active: boolean) => `inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${active ? 'bg-white/25 text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'}`;
-  const chip = 'inline-flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-white/25';
+  const seg = (active: boolean) => `inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${active ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`;
+  const chip = (active = false) => `inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-medium transition ${active ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-100' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`;
 
   return (
-    <div className="mb-5 rounded-2xl bg-gradient-to-r from-indigo-700 via-violet-600 to-indigo-500 p-4 text-white shadow-lg shadow-indigo-900/20 sm:p-5">
+    <div className="mb-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="mr-1 text-2xl font-bold tracking-tight">{title}</h1>
-        {onCreate && (
-          <button onClick={onCreate} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-600">
-            <Plus className="size-4" />Создать
-          </button>
-        )}
-        <label className="relative">
-          <select value={role} onChange={(e) => set('role', e.target.value)} aria-label="Роль"
-            className="appearance-none rounded-xl bg-white/15 py-2 pl-3.5 pr-9 text-sm font-semibold text-white outline-none hover:bg-white/25 [&>option]:text-slate-900">
-            {roles.map((r) => <option key={r.v} value={r.v}>{r.label}</option>)}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2" />
-        </label>
-        <div className="relative min-w-56 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/70" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по задачам и клиентам"
-            className="w-full rounded-xl bg-white/15 py-2 pl-9 pr-9 text-sm text-white placeholder-white/70 outline-none focus:bg-white/25" />
-          {q && <button onClick={() => setQ('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/80" aria-label="Очистить"><X className="size-4" /></button>}
+        <h1 className="mr-auto text-2xl font-bold tracking-tight">{title}</h1>
+        <div className="relative order-last w-full sm:order-none sm:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по задачам и клиентам" className="input py-2 pl-9 pr-9" />
+          {q && <button onClick={() => setQ('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" aria-label="Очистить"><X className="size-4" /></button>}
         </div>
+        {onCreate && <Button onClick={onCreate}><Plus className="size-4" />Создать</Button>}
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <div className="flex rounded-xl bg-white/10 p-0.5">
-          <button className={tab(view === 'list')} onClick={() => set('view', '')}><List className="size-4" />Список</button>
-          <button className={tab(view === 'clients')} onClick={() => set('view', 'clients')}><Building2 className="size-4" />По клиентам</button>
-          <button className={tab(view === 'calendar')} onClick={() => set('view', 'calendar')}><CalendarDays className="size-4" />Календарь</button>
+      {/* Одна строка фильтров; на телефоне листается вбок, а не съедает пол-экрана. */}
+      <div className="-mx-1 mt-3 flex items-center gap-2 overflow-x-auto px-1 pb-1">
+        <div className="flex shrink-0 rounded-xl bg-slate-100 p-0.5 dark:bg-slate-800">
+          <button className={seg(view === 'list')} onClick={() => set('view', '')}><List className="size-4" />Список</button>
+          <button className={seg(view === 'clients')} onClick={() => set('view', 'clients')}><Building2 className="size-4" />Клиенты</button>
+          <button className={seg(view === 'calendar')} onClick={() => set('view', 'calendar')}><CalendarDays className="size-4" />Календарь</button>
         </div>
-        <Link to="/messenger" className={chip}>
-          Чаты задач{unread > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-bold">{count(unread)}</span>}
-        </Link>
-        <button className={`${chip} ${overdue ? 'bg-white/30 ring-1 ring-white/60' : ''}`} onClick={() => set('overdue', overdue ? '' : '1')} title="Показать только просроченные">
-          {overdueCount > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-bold">{count(overdueCount)}</span>}Просрочены
+        <div className="flex shrink-0 rounded-xl bg-slate-100 p-0.5 dark:bg-slate-800">
+          {roles.map((r) => <button key={r.v} className={seg(role === r.v)} onClick={() => set('role', r.v)}>{r.label}</button>)}
+        </div>
+        <button className={chip(overdue)} onClick={() => set('overdue', overdue ? '' : '1')} title="Показать только просроченные">
+          Просрочены{overdueCount > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white">{count(overdueCount)}</span>}
         </button>
-        {unread > 0 && <button className={chip} onClick={async () => { await work.readAll(); refreshUnread(); }}>Прочитать все</button>}
+        <Link to="/messenger" className={chip()}>
+          Чаты задач{unread > 0 && <span className="rounded-full bg-brand-600 px-1.5 text-[11px] font-bold text-white">{count(unread)}</span>}
+        </Link>
+        {unread > 0 && <button className={chip()} onClick={async () => { await work.readAll(); refreshUnread(); }}>Прочитать все</button>}
       </div>
     </div>
   );
@@ -228,8 +220,12 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
   useEffect(load, [load]);
   useLiveReload(load);
 
+  const [showDone, setShowDone] = useState(false);
+  const [archivedNote, setArchivedNote] = useState('');
   const sorted = [...(tasks ?? [])].sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed') || (a.deadline_at ?? 0) - (b.deadline_at ?? 0));
   const canCreate = me?.role !== 'employee';
+  const open = sorted.filter((t) => t.status !== 'completed');
+  const done = sorted.filter((t) => t.status === 'completed');
 
   return (
     <>
@@ -243,11 +239,33 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
             </div>
           )}
           {tasks && tasks.length > 0 && (grouped ? <ByClients tasks={sorted} /> : (
-            <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
-              {sorted.map((t) => <TaskRow key={t.id} t={t} showClient />)}
-            </div>
+            <>
+              {open.length > 0 && (
+                <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
+                  {open.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                </div>
+              )}
+              {done.length > 0 && (
+                <details className="mt-4" open={showDone} onToggle={(e) => setShowDone((e.target as HTMLDetailsElement).open)}>
+                  <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                    Завершены · {done.length}
+                    <button type="button" className="ml-auto rounded-lg px-2 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        const r = await work.archiveCompleted();
+                        setArchivedNote(r.archived ? `Убрано в архив: ${r.archived}` : 'Нечего убирать: завершённые убирает ответственный или владелец.');
+                        load();
+                      }}>В архив все завершённые</button>
+                  </summary>
+                  <div className="card mt-2 divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
+                    {done.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                  </div>
+                </details>
+              )}
+            </>
           ))}
-          <p className="mt-3 text-xs text-slate-500">Выполненные задачи остаются здесь, пока исполнитель или владелец не уберёт их в <Link to="/archive" className="text-brand-600">архив</Link>.</p>
+          {archivedNote && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{archivedNote}</p>}
+          <p className="mt-3 text-xs text-slate-500">{deadlineLegend} Завершённые уходят в <Link to="/archive" className="text-brand-600">архив</Link>, когда их уберёт ответственный или владелец.</p>
         </>
       )}
       <TaskForm open={creating} onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); navigate(`/tasks/${id}`); }} />

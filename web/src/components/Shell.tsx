@@ -1,8 +1,8 @@
 import { useEffect, useState, type ComponentType } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
   Archive, BookOpen, Building2, Clock, DatabaseBackup, Globe, KeyRound, LayoutList, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
-  Server, ShieldCheck, Trash2, Users, UsersRound, WifiOff, X,
+  Server, Settings, ShieldCheck, Trash2, Users, UsersRound, WifiOff, X, ChevronDown,
 } from 'lucide-react';
 import { api, roleName } from '../api';
 import { useAuth } from '../auth';
@@ -51,6 +51,10 @@ function BottomNav({ unread, onSearch }: { unread: number; onSearch: () => void 
 export function Shell() {
   const { me, setMe } = useAuth();
   const { unread, online } = useLive();
+  const { pathname } = useLocation();
+  // «Настройки» свёрнуты, пока вы не в них: в меню остаётся работа, а не 8 пунктов администрирования.
+  const [settingsOpen, setSettingsOpen] = useState(pathname.startsWith('/admin'));
+  useEffect(() => { if (pathname.startsWith('/admin')) setSettingsOpen(true); }, [pathname]);
   const navigate = useNavigate();
   const [search, setSearch] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -96,8 +100,11 @@ export function Shell() {
       </nav>
       {isOwner && (
         <>
-          <p className="mb-2 mt-7 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Администрирование</p>
-          <nav className="flex flex-col gap-1">
+          <button onClick={() => setSettingsOpen((o) => !o)} className="mt-6 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[15px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
+            <Settings className="size-[18px]" /><span className="flex-1 text-left">Настройки</span>
+            <ChevronDown className={`size-4 transition ${settingsOpen ? 'rotate-180' : ''}`} />
+          </button>
+          <nav className={`ml-3 flex-col gap-1 border-l border-slate-200 pl-2 dark:border-slate-800 ${settingsOpen ? 'flex' : 'hidden'}`}>
             <Item to="/admin/staff" icon={Users} label="Сотрудники" onClick={close} />
             <Item to="/admin/groups" icon={UsersRound} label="Группы" onClick={close} />
             <Item to="/admin/org" icon={Clock} label="Рабочее время" onClick={close} />
@@ -110,7 +117,7 @@ export function Shell() {
         </>
       )}
       <nav className="mb-2 mt-auto flex flex-col gap-1 pt-6">
-        <Item to="/security" icon={ShieldCheck} label="Код для входа" onClick={close} />
+        <Item to="/security" icon={ShieldCheck} label="Код из приложения" onClick={close} />
         <Item to="/help" icon={LifeBuoy} label="Справка" onClick={close} />
       </nav>
       <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">

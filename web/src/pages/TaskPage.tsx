@@ -7,7 +7,7 @@ import { useLiveReload } from '../live';
 import { dateTime, fromLocalInput, type Priority, statusActions, statusName, type Status, type TaskCard, toLocalInput, work } from '../work';
 import { Menu, MenuItem } from '../components/Menu';
 import { Avatar, BackButton, Button, ErrorText, Modal } from '../components/ui';
-import { DeadlineText, Md, PeoplePicker, PriorityBadge, Progress, TaskForm, TaskRow, statusIcon, statusStyle, usePeople } from '../components/work';
+import { DeadlineText, LeadPicker, Md, PeoplePicker, PriorityBadge, Progress, TaskForm, TaskRow, statusIcon, statusStyle, usePeople } from '../components/work';
 import { Chat } from '../components/Chat';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -90,7 +90,7 @@ function EditTask({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; o
           <input name="deadline" type="datetime-local" className="input" defaultValue={toLocalInput(t.deadline_at ?? Date.now())} required />
           {t.parent_deadline_at && <span className="text-xs font-normal text-slate-500">Не позже {dateTime(t.parent_deadline_at)}</span>}
         </label>
-        <div className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Исполнители<PeoplePicker people={people} value={assignees} onChange={setAssignees} /></div>
+        <div className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Исполнители<PeoplePicker lead people={people} value={assignees} onChange={setAssignees} /><LeadPicker people={people} value={assignees} onChange={setAssignees} /></div>
         <label className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">Описание<textarea name="description" className="input min-h-28" defaultValue={t.description} maxLength={50000} /></label>
         <div className="flex flex-col gap-3 sm:col-span-2"><ErrorText>{error}</ErrorText><Button type="submit" busy={busy}>Сохранить</Button></div>
       </form>
@@ -119,13 +119,14 @@ function Reassign({ t, onClose, onSaved }: { t: TaskCard; onClose: () => void; o
           return (
             <>
               {team.length > 0 && <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Группа клиента</p>}
-              <PeoplePicker people={team} value={ids} onChange={setIds} />
+              <PeoplePicker lead people={team} value={ids} onChange={setIds} />
               {rest.length > 0 && (
                 <details className="text-sm" open={team.length === 0 || ids.some((i) => rest.some((p) => p.id === i))}>
                   <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">Другие сотрудники — увидят этого клиента через задачу</summary>
-                  <div className="mt-2"><PeoplePicker people={rest} value={ids} onChange={setIds} /></div>
+                  <div className="mt-2"><PeoplePicker lead people={rest} value={ids} onChange={setIds} /></div>
                 </details>
               )}
+              <LeadPicker people={people} value={ids} onChange={setIds} />
             </>
           );
         })()}
@@ -193,9 +194,9 @@ export function TaskPage() {
 
           <div className="card mb-4 px-5 py-3">
             <Row label="Постановщик"><span className="flex items-center gap-2"><Avatar name={t.created_by.name} size="sm" />{t.created_by.name}</span></Row>
-            <Row label="Исполнитель">
+            <Row label={(t.assignees?.length ?? 0) > 1 ? 'Ответственный' : 'Исполнитель'}>
               {t.assignees?.length ? (
-                <span className="flex flex-col gap-1.5">{t.assignees.map((a) => <span key={a.id} className="flex items-center gap-2"><Avatar name={a.name} size="sm" />{a.name}</span>)}</span>
+                <span className="flex items-center gap-2"><Avatar name={t.assignees[0].name} size="sm" />{t.assignees[0].name}</span>
               ) : <span className="text-slate-400">не назначен</span>}
               {t.can_reassign && !archived && (
                 <button className="mt-1.5 flex items-center gap-1 text-sm text-brand-600 hover:underline" onClick={() => setReassigning(true)}>
@@ -203,6 +204,11 @@ export function TaskPage() {
                 </button>
               )}
             </Row>
+            {(t.assignees?.length ?? 0) > 1 && (
+              <Row label="Соисполнители">
+                <span className="flex flex-col gap-1.5">{t.assignees!.slice(1).map((a) => <span key={a.id} className="flex items-center gap-2"><Avatar name={a.name} size="sm" />{a.name}</span>)}</span>
+              </Row>
+            )}
             <Row label="Крайний срок">
               <span className="flex flex-wrap items-center gap-2"><CalendarDays className="size-4 text-brand-500" />{t.deadline_at && longDate(t.deadline_at)}<DeadlineText t={t} /></span>
             </Row>

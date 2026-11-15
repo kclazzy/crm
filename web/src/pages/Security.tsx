@@ -25,7 +25,7 @@ function saveText(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-/** Код для входа (второй фактор): включить, перенастроить, резервные коды. */
+/** Код из приложения (второй фактор): включить, перенастроить, запасные коды. */
 export function Security() {
   const [st, setSt] = useState<Status | null>(null);
   const [started, setStarted] = useState<Started | null>(null);
@@ -62,7 +62,7 @@ export function Security() {
 
   return (
     <>
-      <PageHeader title="Код для входа" subtitle="Второй шаг входа: 6 цифр из приложения на телефоне. Даже узнав пароль, без вашего телефона войти нельзя." />
+      <PageHeader title="Код из приложения" subtitle="Второй шаг входа: 6 цифр из приложения на телефоне. Даже узнав пароль, без вашего телефона войти нельзя." />
       <div className="flex max-w-2xl flex-col gap-4">
         <ErrorText>{error}</ErrorText>
         {!st.enabled && st.policy === 'all' && !started && !codes && (
@@ -78,7 +78,7 @@ export function Security() {
           <p className="text-sm text-slate-600 dark:text-slate-300">{policyText[st.policy]}</p>
           {st.enabled && (
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-              Резервных кодов осталось: <b>{st.backup_left}</b>{st.backup_left < 3 && ' — перенастройте код, чтобы получить новые.'}
+              Запасных кодов осталось: <b>{st.backup_left}</b>{st.backup_left < 3 && ' — перенастройте код, чтобы получить новые.'}
             </p>
           )}
           {!started && !codes && (
@@ -119,7 +119,7 @@ export function Security() {
 
         {codes && (
           <section className="card p-5">
-            <h2 className="mb-1 font-semibold">Код включён. Сохраните резервные коды</h2>
+            <h2 className="mb-1 font-semibold">Код включён. Сохраните запасные коды</h2>
             <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
               Если телефон потеряется — войдите одним из этих кодов (каждый срабатывает один раз). Показываются только сейчас:
               скачайте или распечатайте и храните отдельно от телефона.
@@ -128,7 +128,7 @@ export function Security() {
               {codes.map((c) => <span key={c} className="select-all">{c}</span>)}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => saveText('crm-резервные-коды.txt', `Резервные коды CRM — каждый один раз:\n\n${codes.join('\n')}\n`)}>
+              <Button variant="secondary" onClick={() => saveText('crm-запасные-коды.txt', `Запасные коды CRM — каждый один раз:\n\n${codes.join('\n')}\n`)}>
                 <Download className="size-4" />Скачать
               </Button>
               <Button variant="secondary" onClick={async () => { await navigator.clipboard.writeText(codes.join('\n')); setCopied(true); }}>

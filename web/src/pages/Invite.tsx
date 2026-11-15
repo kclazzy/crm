@@ -32,7 +32,7 @@ export function Invite() {
   return (
     <AuthLayout title="Добро пожаловать" subtitle="Придумайте пароль — им вы будете входить в CRM.">
       <form onSubmit={submit} className="flex flex-col gap-5">
-        <Field label="Код приглашения" hint="Его выдаёт владелец CRM. Действует 72 часа, один раз.">
+        <Field label="Приглашение" hint="Его выдаёт владелец CRM. Действует 72 часа, один раз.">
           <input name="code" className="input font-mono text-sm" defaultValue={params.get('code') ?? ''} required spellCheck={false} />
         </Field>
         <Field label="Пароль" hint="Не короче 10 символов и без логина внутри">

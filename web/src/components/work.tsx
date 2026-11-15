@@ -5,7 +5,7 @@ import {
   type ClientInput, type Client, dateTime, deadlineText, fromLocalInput, type Group, type Person, type Priority,
   statusName, type Status, type TaskSummary, toLocalInput, work,
 } from '../work';
-import { Button, ErrorText, Field, Modal } from './ui';
+import { Avatar, Button, ErrorText, Field, Modal } from './ui';
 import { useAuth } from '../auth';
 
 // ---------- Метки ----------
@@ -40,6 +40,27 @@ export const statusStyle: Record<Status, string> = {
 
 export function StatusBadge({ s }: { s: Status }) {
   return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${statusStyle[s]}`}>{statusIcon[s]}{statusName[s]}</span>;
+}
+
+/** Что значит цвет полосы — подсказка при наведении и легенда под списком. */
+export const deadlineLegend = 'Полоса слева — срок: зелёная — в запасе, жёлтая — срок скоро, красная — просрочена, серая — работа ещё не начата.';
+
+function deadlineHint(t: TaskSummary) {
+  if ((t.status === 'waiting' || t.status === 'postponed') && t.deadline_state === 'ok') return 'Срок в запасе, работа не начата';
+  return { ok: 'Срок в запасе', due_soon: 'Срок скоро', overdue: 'Срок прошёл', done: 'Завершена' }[t.deadline_state ?? 'ok'];
+}
+
+/** Исполнители аватарами: ответственный первым, остальные — «+N». */
+export function Assignees({ t }: { t: TaskSummary }) {
+  const list = t.assignees ?? [];
+  if (list.length === 0) return null;
+  const shown = list.slice(0, 3);
+  return (
+    <span className="flex items-center -space-x-1.5" title={list.map((a, i) => (i === 0 && t.lead_id === a.id ? `${a.name} — ответственный` : a.name)).join(', ')}>
+      {shown.map((a) => <span key={a.id} className="rounded-full ring-2 ring-white dark:ring-slate-900"><Avatar name={a.name} size="xs" title="" /></span>)}
+      {list.length > 3 && <span className="grid size-6 place-items-center rounded-full bg-slate-200 text-[10px] font-semibold ring-2 ring-white dark:bg-slate-700 dark:ring-slate-900">+{list.length - 3}</span>}
+    </span>
+  );
 }
 
 /** Полоса слева у карточки задачи — цвет срока, но всегда рядом есть текст. */
@@ -107,7 +128,9 @@ export function TaskRow({ t, showClient = false, depth = 0, extra }: { t: TaskSu
       to={`/tasks/${t.id}`}
       className={`group flex flex-wrap items-center gap-x-3 gap-y-1 border-l-4 bg-white py-2.5 pr-4 transition hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/60 ${deadlineBar(t)} ${done ? 'opacity-60' : ''}`}
       style={{ paddingLeft: depth * 22 + 12 }}
+      title={deadlineHint(t)}
     >
+      {t.status && <span className={`grid size-6 shrink-0 place-items-center rounded-full ${statusStyle[t.status]}`} title={statusName[t.status]}>{statusIcon[t.status]}</span>}
       {t.priority && <PriorityBadge p={t.priority} />}
       <span className={`order-first w-full min-w-0 truncate font-medium sm:order-none sm:w-auto sm:flex-1 ${done ? 'line-through' : ''}`}>
         {t.title}
@@ -116,8 +139,8 @@ export function TaskRow({ t, showClient = false, depth = 0, extra }: { t: TaskSu
       {extra}
       <UnreadDot n={t.unread} />
       {t.progress && <Progress {...t.progress} />}
-      {t.assignees && t.assignees.length > 0 && <span className="hidden max-w-40 truncate text-xs text-slate-500 sm:inline">{t.assignees.map((a) => a.name.split(' ')[0]).join(', ')}</span>}
-      {t.status && t.status !== 'in_progress' && <StatusBadge s={t.status} />}
+      {t.status && <span className={`hidden rounded-full px-2 py-0.5 text-xs font-medium sm:inline ${statusStyle[t.status]}`}>{statusName[t.status]}</span>}
+      <Assignees t={t} />
       <DeadlineText t={t} />
     </Link>
   );
@@ -183,11 +206,12 @@ export function useGroups() {
   return groups;
 }
 
-export function PeoplePicker({ people, value, onChange }: { people: Person[]; value: string[]; onChange: (v: string[]) => void }) {
+export function PeoplePicker({ people, value, onChange, lead: markLead = false }: { people: Person[]; value: string[]; onChange: (v: string[]) => void; lead?: boolean }) {
   return (
     <div className="flex max-h-40 flex-wrap gap-1.5 overflow-auto">
       {people.map((p) => {
         const on = value.includes(p.id);
+        const lead = markLead && value[0] === p.id && value.length > 1;
         return (
           <button
             type="button"
@@ -195,11 +219,26 @@ export function PeoplePicker({ people, value, onChange }: { people: Person[]; va
             onClick={() => onChange(on ? value.filter((x) => x !== p.id) : [...value, p.id])}
             className={`rounded-full border px-3 py-1 text-sm transition ${on ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-100' : 'border-slate-200 hover:border-brand-400 dark:border-slate-700'}`}
           >
-            {p.display_name}
+            {p.display_name}{lead && ' ★'}
           </button>
         );
       })}
     </div>
+  );
+}
+
+/** Кто из выбранных ведёт задачу: первый в списке. Остальные — соисполнители. */
+export function LeadPicker({ people, value, onChange }: { people: Person[]; value: string[]; onChange: (v: string[]) => void }) {
+  if (value.length < 2) return null;
+  const name = (id: string) => people.find((p) => p.id === id)?.display_name ?? '…';
+  return (
+    <label className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-slate-600 dark:text-slate-300">Ответственный ★</span>
+      <select className="input w-auto py-1.5" value={value[0]} onChange={(e) => onChange([e.target.value, ...value.filter((x) => x !== e.target.value)])}>
+        {value.map((id) => <option key={id} value={id}>{name(id)}</option>)}
+      </select>
+      <span className="text-xs text-slate-500">ведёт задачу и меняет статус; остальные — соисполнители</span>
+    </label>
   );
 }
 
@@ -396,7 +435,8 @@ export function TaskForm({
           </p>
         )}
         <div className="sm:col-span-2">
-          <Field label="Исполнители"><PeoplePicker people={people} value={assignees} onChange={setAssignees} /></Field>
+          <Field label="Исполнители"><PeoplePicker lead people={people} value={assignees} onChange={setAssignees} />
+              <LeadPicker people={people} value={assignees} onChange={setAssignees} /></Field>
         </div>
         <div className="sm:col-span-2">
           <Field label="Описание"><textarea name="description" className="input min-h-20" maxLength={50000} /></Field>
