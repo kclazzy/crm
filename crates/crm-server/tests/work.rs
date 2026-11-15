@@ -307,14 +307,39 @@ async fn subtask_rules_and_path_only_parents() {
             Some(json!({"status": "in_progress"})),
         )
         .await;
-    assert_eq!(
-        s,
-        StatusCode::BAD_REQUEST,
-        "завершённая задача дальше — только в архив"
-    );
+    assert_eq!(s, StatusCode::CONFLICT, "родитель завершён: {v}");
+    assert!(v["error"].as_str().unwrap().contains("родительскую"), "{v}");
+
+    // Вернуть в работу: сначала родителя, потом подзадачу.
+    for (t, tok) in [(&root, &owner), (&sub, &emp)] {
+        let (s, v) = app
+            .call(
+                "POST",
+                &format!("/api/tasks/{t}/status"),
+                LOCAL,
+                Some(tok),
+                Some(json!({"status": "in_progress"})),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+    }
+    let (_, card) = app
+        .call("GET", &format!("/api/tasks/{sub}"), LOCAL, Some(&emp), None)
+        .await;
+    assert_eq!(card["status"], "in_progress");
+    assert!(card["completed_at"].is_null(), "отметка завершения снята");
+    let (_, chat) = app
+        .call(
+            "GET",
+            &format!("/api/tasks/{sub}/messages"),
+            LOCAL,
+            Some(&emp),
+            None,
+        )
+        .await;
     assert!(
-        v["error"].as_str().unwrap().contains("нельзя перейти"),
-        "{v}"
+        chat.to_string().contains("вернул(а) задачу в работу"),
+        "{chat}"
     );
 }
 

@@ -130,6 +130,8 @@ pub enum RuleError {
     NotCompleted,
     #[error("в архив убирает исполнитель или владелец")]
     NotArchiver,
+    #[error("родительская задача завершена — сначала верните в работу родительскую задачу")]
+    ParentCompleted,
 }
 
 impl TaskStatus {
@@ -144,12 +146,12 @@ impl TaskStatus {
     }
 }
 
-/// Разрешённые переходы статуса. Завершённая задача дальше идёт только в архив.
+/// Разрешённые переходы статуса. Завершённую задачу можно вернуть в работу.
 pub fn check_transition(from: TaskStatus, to: TaskStatus) -> Result<(), RuleError> {
     use TaskStatus::{Completed, InProgress, Postponed, Waiting};
     let ok = matches!(
         (from, to),
-        (Waiting | Postponed, InProgress)
+        (Waiting | Postponed | Completed, InProgress)
             | (Waiting | InProgress | Postponed, Completed)
             | (Waiting | InProgress, Postponed)
     );
@@ -160,6 +162,16 @@ pub fn check_transition(from: TaskStatus, to: TaskStatus) -> Result<(), RuleErro
             from: from.label(),
             to: to.label(),
         })
+    }
+}
+
+/// Нельзя открыть подзадачу, пока родитель завершён: у завершённой задачи
+/// не бывает открытых подзадач.
+pub fn check_reopen(to: TaskStatus, parent: Option<TaskStatus>) -> Result<(), RuleError> {
+    if to != TaskStatus::Completed && parent == Some(TaskStatus::Completed) {
+        Err(RuleError::ParentCompleted)
+    } else {
+        Ok(())
     }
 }
 
@@ -337,11 +349,13 @@ mod tests {
             (InProgress, Postponed),
             (Postponed, InProgress),
             (Postponed, Completed),
+            // «Вернуть в работу» завершённую задачу.
+            (Completed, InProgress),
         ] {
             assert_eq!(check_transition(f, t), Ok(()), "{f:?} → {t:?}");
         }
         for (f, t) in [
-            (Completed, InProgress),
+            (Completed, Postponed),
             (Completed, Waiting),
             (InProgress, Waiting),
             (Postponed, Postponed),
@@ -350,11 +364,23 @@ mod tests {
             assert!(check_transition(f, t).is_err(), "{f:?} → {t:?}");
         }
         assert_eq!(
-            check_transition(Completed, InProgress)
+            check_transition(Completed, Postponed)
                 .unwrap_err()
                 .to_string(),
-            "из статуса «Завершена» нельзя перейти в «Выполняется»"
+            "из статуса «Завершена» нельзя перейти в «Отложена»"
         );
+    }
+
+    #[test]
+    fn subtask_opens_only_under_open_parent() {
+        use TaskStatus::*;
+        assert_eq!(
+            check_reopen(InProgress, Some(Completed)),
+            Err(RuleError::ParentCompleted)
+        );
+        assert_eq!(check_reopen(InProgress, Some(InProgress)), Ok(()));
+        assert_eq!(check_reopen(InProgress, None), Ok(()));
+        assert_eq!(check_reopen(Completed, Some(Completed)), Ok(()));
     }
 
     #[test]

@@ -284,6 +284,7 @@ export const statusActions: { to: Status; label: string; from: Status[] }[] = [
   { to: 'in_progress', label: 'Начать выполнение', from: ['waiting', 'postponed'] },
   { to: 'completed', label: 'Завершить', from: ['waiting', 'in_progress', 'postponed'] },
   { to: 'postponed', label: 'Отложить', from: ['waiting', 'in_progress'] },
+  { to: 'in_progress', label: 'Вернуть в работу', from: ['completed'] },
 ];
 
 /** «Осталось 3 дня», «Осталось 5 ч», «Просрочено на 2 ч». */

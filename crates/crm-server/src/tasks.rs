@@ -9,7 +9,7 @@ use chrono::{Duration, TimeZone, Utc};
 use crm_core::access::{ClientAccess, TaskAccess};
 use crm_core::auth::Role;
 use crm_core::task::{
-    check_archive, check_can_complete, check_status_change, check_subtask_deadline,
+    check_archive, check_can_complete, check_reopen, check_status_change, check_subtask_deadline,
     check_transition, completed_at_after, deadline_state, parse_title, DeadlineState, Involvement,
     Priority, TaskStatus,
 };
@@ -794,8 +794,9 @@ async fn involvement(
 }
 
 /// «Иван Петров начал выполнение» — запись в чат при смене статуса.
-fn status_phrase(to: TaskStatus) -> &'static str {
+fn status_phrase(from: TaskStatus, to: TaskStatus) -> &'static str {
     match to {
+        TaskStatus::InProgress if from == TaskStatus::Completed => "вернул(а) задачу в работу",
         TaskStatus::InProgress => "начал(а) выполнение задачи",
         TaskStatus::Completed => "завершил(а) задачу",
         TaskStatus::Postponed => "отложил(а) задачу",
@@ -822,6 +823,18 @@ pub async fn set_status(
         .parse()
         .map_err(|_| ApiError::Corrupt(format!("статус «{}»", cur.status)))?;
     check_transition(from, req.status)?;
+    if let Some(p) = &cur.parent_task_id {
+        let parent: TaskStatus = parent_of(&app.pool, p)
+            .await?
+            .status
+            .parse()
+            .map_err(|_| ApiError::Corrupt("статус родительской задачи".into()))?;
+        check_reopen(req.status, Some(parent)).map_err(|_| {
+            ApiError::Conflict(
+                "родительская задача завершена — сначала верните в работу родительскую задачу",
+            )
+        })?;
+    }
     let open_children: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM tasks WHERE parent_task_id = ? AND deleted_at IS NULL AND status <> 'completed'",
     )
@@ -854,7 +867,7 @@ pub async fn set_status(
             &format!(
                 "{} {}. Статус: «{}»",
                 user.display_name,
-                status_phrase(req.status),
+                status_phrase(from, req.status),
                 req.status.label()
             ),
         )

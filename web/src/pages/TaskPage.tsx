@@ -195,7 +195,7 @@ export function TaskPage() {
                   </button>
                 )}>
                   {(close) => actions.map((a) => (
-                    <MenuItem key={a.to} icon={statusIcon[a.to]} onClick={() => { close(); void setStatus(a.to); }}>{a.label}</MenuItem>
+                    <MenuItem key={a.label} icon={statusIcon[a.to]} onClick={() => { close(); void setStatus(a.to); }}>{a.label}</MenuItem>
                   ))}
                 </Menu>
               ) : (
@@ -223,14 +223,17 @@ export function TaskPage() {
 
         {/* Нижняя панель действий — как кнопки «Начать / Завершить / ⋯» */}
         <div className="sticky bottom-0 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 dark:border-slate-800 dark:bg-slate-900">
-          {primary && <Button onClick={() => setStatus(primary.to)}>{primary.to === 'in_progress' ? 'Начать' : 'Завершить'}</Button>}
+          {primary && <Button onClick={() => setStatus(primary.to)}>{status === 'completed' ? 'Вернуть в работу' : primary.to === 'in_progress' ? 'Начать' : 'Завершить'}</Button>}
           {secondary.map((a) => <Button key={a.to} variant="secondary" onClick={() => setStatus(a.to)}>Завершить</Button>)}
           {archived && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.unarchive(t.id), 'Задача восстановлена из архива.')}><ArchiveRestore className="size-4" />Восстановить</Button>}
+          {archived && t.can_archive && t.can_change_status && (
+            <Button onClick={() => act(async () => { await work.unarchive(t.id); await work.setStatus(t.id, 'in_progress'); }, 'Задача восстановлена и возвращена в работу.')}>Восстановить в работу</Button>
+          )}
           {!archived && status === 'completed' && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.archive(t.id), 'Задача убрана в архив.')}><Archive className="size-4" />В архив</Button>}
           <Menu button={(toggle) => <Button variant="ghost" onClick={toggle} title="Ещё"><MoreHorizontal className="size-5" /></Button>}>
             {(close) => (
               <>
-                {more.map((a) => <MenuItem key={a.to} icon={statusIcon[a.to]} onClick={() => { close(); void setStatus(a.to); }}>{a.label}</MenuItem>)}
+                {more.map((a) => <MenuItem key={a.label} icon={statusIcon[a.to]} onClick={() => { close(); void setStatus(a.to); }}>{a.label}</MenuItem>)}
                 {manage && !archived && <MenuItem icon={<Pencil className="size-4" />} onClick={() => { close(); setEditing(true); }}>Изменить</MenuItem>}
                 {t.can_trash && !archived && <MenuItem danger icon={<Trash2 className="size-4" />} onClick={() => { close(); setTrash(true); }}>В корзину</MenuItem>}
                 {!more.length && !(manage && !archived) && !(t.can_trash && !archived) && <p className="px-4 py-2.5 text-sm text-slate-500">Других действий нет</p>}

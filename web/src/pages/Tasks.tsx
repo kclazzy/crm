@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { ArchiveRestore, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, List, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArchiveRestore, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, List, Plus, Search, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
-import { dateTime, type TaskSummary, work } from '../work';
+import { childrenOf, dateTime, type TaskSummary, work } from '../work';
 import { Button, ErrorText, Modal } from '../components/ui';
 import { TaskForm, TaskRow, deadlineBar } from '../components/work';
 
@@ -27,7 +27,7 @@ function Header({ title, baseRole, onCreate }: { title: string; baseRole?: Role;
   const { unread, refreshUnread } = useLive();
   const [overdueCount, setOverdueCount] = useState(0);
   const [q, setQ] = useState(params.get('q') ?? '');
-  const view = params.get('view') === 'calendar' ? 'calendar' : 'list';
+  const view = params.get('view') === 'calendar' ? 'calendar' : params.get('view') === 'clients' ? 'clients' : 'list';
   const role = params.get('role') ?? '';
   const overdue = params.get('overdue') === '1';
 
@@ -79,6 +79,7 @@ function Header({ title, baseRole, onCreate }: { title: string; baseRole?: Role;
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <div className="flex rounded-xl bg-white/10 p-0.5">
           <button className={tab(view === 'list')} onClick={() => set('view', '')}><List className="size-4" />Список</button>
+          <button className={tab(view === 'clients')} onClick={() => set('view', 'clients')}><Building2 className="size-4" />По клиентам</button>
           <button className={tab(view === 'calendar')} onClick={() => set('view', 'calendar')}><CalendarDays className="size-4" />Календарь</button>
         </div>
         <Link to="/messenger" className={chip}>
@@ -89,6 +90,58 @@ function Header({ title, baseRole, onCreate }: { title: string; baseRole?: Role;
         </button>
         {unread > 0 && <button className={chip} onClick={async () => { await work.readAll(); refreshUnread(); }}>Прочитать все</button>}
       </div>
+    </div>
+  );
+}
+
+/** По клиентам: первый уровень — клиент, второй — его задачи (подзадачи с отступом). */
+function ByClients({ tasks }: { tasks: TaskSummary[] }) {
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const groups = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; tasks: TaskSummary[] }>();
+    for (const t of tasks) {
+      const g = m.get(t.client_id) ?? { id: t.client_id, name: t.client_name, tasks: [] };
+      g.tasks.push(t);
+      m.set(t.client_id, g);
+    }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  }, [tasks]);
+  const toggle = (id: string) => setClosed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allClosed = groups.length > 0 && groups.every((g) => closed.has(g.id));
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <button className="text-sm text-brand-600 hover:underline" onClick={() => setClosed(allClosed ? new Set() : new Set(groups.map((g) => g.id)))}>
+          {allClosed ? 'Развернуть всех' : 'Свернуть всех'}
+        </button>
+      </div>
+      {groups.map((g) => {
+        const open = g.tasks.filter((t) => t.status && t.status !== 'completed').length;
+        const overdue = g.tasks.filter((t) => t.deadline_state === 'overdue').length;
+        const unread = g.tasks.reduce((n, t) => n + (t.unread ?? 0), 0);
+        const by = childrenOf(g.tasks);
+        const rows = (parent: string | null, depth: number): React.ReactNode[] =>
+          (by.get(parent) ?? [])
+            .sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed') || (a.deadline_at ?? 0) - (b.deadline_at ?? 0))
+            .flatMap((t) => [<TaskRow key={t.id} t={t} depth={depth} />, ...rows(t.id, depth + 1)]);
+        const isOpen = !closed.has(g.id);
+        return (
+          <section key={g.id} className="card overflow-hidden">
+            <div className="flex items-center gap-3 bg-slate-50 px-4 py-2.5 dark:bg-slate-800/60">
+              <button onClick={() => toggle(g.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-expanded={isOpen}>
+                <ChevronRight className={`size-4 shrink-0 text-slate-400 transition ${isOpen ? 'rotate-90' : ''}`} />
+                <Building2 className="size-4 shrink-0 text-brand-500" />
+                <span className="truncate font-semibold">{g.name}</span>
+                <span className="shrink-0 text-xs text-slate-500">задач: {g.tasks.length} · открыто: {open}</span>
+                {overdue > 0 && <span className="shrink-0 rounded-full bg-red-100 px-2 text-xs font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300">просрочено {overdue}</span>}
+                {unread > 0 && <span className="shrink-0 rounded-full bg-brand-600 px-2 text-xs font-bold text-white">{unread}</span>}
+              </button>
+              <Link to={`/clients/${g.id}`} className="shrink-0 text-xs text-brand-600 hover:underline">Карточка клиента</Link>
+            </div>
+            {isOpen && <div className="divide-y divide-slate-100 dark:divide-slate-800">{rows(null, 0)}</div>}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -161,6 +214,7 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
   const q = params.get('q') || undefined;
   const overdue = params.get('overdue') === '1';
   const calendar = params.get('view') === 'calendar';
+  const grouped = params.get('view') === 'clients';
 
   const load = useCallback(() => {
     work.tasks({ role, q, overdue }).then(setTasks).catch((e) => setError(e.message));
@@ -182,11 +236,11 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
               {q ? 'По запросу ничего не нашлось.' : overdue ? 'Просроченных задач нет.' : 'Задач нет.'}
             </div>
           )}
-          {tasks && tasks.length > 0 && (
+          {tasks && tasks.length > 0 && (grouped ? <ByClients tasks={sorted} /> : (
             <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
               {sorted.map((t) => <TaskRow key={t.id} t={t} showClient />)}
             </div>
-          )}
+          ))}
           <p className="mt-3 text-xs text-slate-500">Выполненные задачи остаются здесь, пока исполнитель или владелец не уберёт их в <Link to="/archive" className="text-brand-600">архив</Link>.</p>
         </>
       )}
@@ -212,7 +266,7 @@ export function Archive() {
     <>
       <div className="mb-5 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-500 p-5 text-white shadow-lg">
         <h1 className="text-2xl font-bold tracking-tight">Архив</h1>
-        <p className="mt-1 text-sm text-white/80">Выполненные задачи, которые убрали исполнитель или владелец. Восстановить можно отсюда{owner ? '; удалить навсегда — только владелец' : ''}.</p>
+        <p className="mt-1 text-sm text-white/80">Выполненные задачи, которые убрали исполнитель или владелец. «Восстановить» — вернуть в список завершённой, «В работу» — сразу возобновить{owner ? '; удалить навсегда — только владелец' : ''}.</p>
         <div className="relative mt-3 max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/70" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск в архиве" className="w-full rounded-xl bg-white/15 py-2 pl-9 pr-3 text-sm text-white placeholder-white/70 outline-none focus:bg-white/25" />
@@ -227,6 +281,8 @@ export function Archive() {
               <span className="flex items-center gap-1" onClick={(e) => e.preventDefault()}>
                 <button className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10" title="Восстановить из архива"
                   onClick={() => act(() => work.unarchive(t.id))}><ArchiveRestore className="size-3.5" />Восстановить</button>
+                <button className="rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10" title="Восстановить и сразу вернуть в работу"
+                  onClick={() => act(async () => { await work.unarchive(t.id); await work.setStatus(t.id, 'in_progress'); })}>В работу</button>
                 {owner && <button className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" title="Удалить навсегда"
                   onClick={() => setPurging(t)}><Trash2 className="size-4" /></button>}
               </span>
