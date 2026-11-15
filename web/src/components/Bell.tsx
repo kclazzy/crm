@@ -24,8 +24,9 @@ export function Bell() {
 
   return (
     <div className="relative" ref={box}>
-      <button onClick={() => setOpen((o) => !o)} className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Уведомления">
-        {bell.quiet ? <Moon className="size-5" /> : <BellIcon className="size-5" />}
+      <button onClick={() => setOpen((o) => !o)} className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title={bell.quiet ? 'Уведомления · нерабочее время, без звука' : 'Уведомления'}>
+        <BellIcon className="size-5" />
+        {bell.quiet && <Moon className="absolute bottom-1 right-1 size-3 rounded-full bg-slate-50 text-slate-500 dark:bg-slate-950" />}
         {bell.unread > 0 && <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{bell.unread}</span>}
       </button>
       {open && (

@@ -34,3 +34,23 @@
   #root { display: none; }
   [role="dialog"] button { display: none; }
 }
+
+/* Контраст вторичного текста не ниже 4,5:1 (WCAG AA) в обеих темах: серые 400/500
+   из палитры Tailwind на светлом фоне дают 2,5–4,4, на тёмном — 3–4. */
+@layer utilities {
+  .text-slate-400 { color: #5b6b82; }
+  .text-slate-500 { color: #56657a; }
+  @media (prefers-color-scheme: dark) {
+    .text-slate-400 { color: #94a3b8; }
+    .text-slate-500 { color: #9aa9be; }
+    .text-brand-600 { color: #a5b4fc; }
+  }
+}
+
+/* Страница задачи на телефоне: кнопки статуса над нижним меню, чат — на всю высоту экрана. */
+.task-actions { bottom: calc(56px + env(safe-area-inset-bottom)); }
+.task-chat { height: calc(100dvh - 3.5rem - 2.75rem - 56px - env(safe-area-inset-bottom)); }
+@media (min-width: 1024px) {
+  .task-actions { bottom: 0; }
+  .task-chat { height: auto; }
+}

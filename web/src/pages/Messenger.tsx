@@ -26,6 +26,12 @@ export function Messenger() {
   useEffect(() => void load(), [load]);
   useLiveReload(load);
   const current = threads?.find((t) => t.id === open);
+  // На широком экране сразу открыть первый непрочитанный (или последний) чат — без пустой половины.
+  useEffect(() => {
+    if (open || !threads?.length || !window.matchMedia('(min-width: 768px)').matches) return;
+    const first = threads.find((t) => (t.unread ?? 0) > 0) ?? threads[0];
+    setParams({ task: first.id }, { replace: true });
+  }, [open, threads, setParams]);
 
   return (
     <div className="flex h-[calc(100dvh-8.5rem)] gap-4 lg:h-[calc(100dvh-5rem)]">
@@ -45,7 +51,7 @@ export function Messenger() {
           {threads?.length === 0 && <p className="p-6 text-center text-sm text-slate-500">{onlyUnread ? 'Всё прочитано.' : 'Чатов пока нет.'}</p>}
           {threads?.map((t) => (
             <button key={t.id} onClick={() => setParams({ task: t.id })}
-              className={`flex w-full flex-col gap-1 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50 ${t.id === open ? 'bg-brand-50/70 dark:bg-brand-500/10' : ''}`}>
+              className={`flex w-full flex-col gap-1 border-b border-l-[3px] border-b-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 dark:border-b-slate-800 dark:hover:bg-slate-800/50 ${t.id === open ? 'border-l-brand-600 bg-brand-50/70 dark:bg-brand-500/10' : t.unread ? 'border-l-brand-400' : 'border-l-transparent'}`}>
               <div className="flex items-center gap-2">
                 <span className="truncate text-xs text-slate-500">{t.client_name}</span>
                 <span className="ml-auto shrink-0 text-xs text-slate-400">{t.last_message && when(t.last_message.created_at)}</span>
@@ -56,8 +62,8 @@ export function Messenger() {
                 <UnreadDot n={t.unread} />
               </div>
               {t.last_message && (
-                <p className="truncate text-sm text-slate-500">
-                  {t.last_message.kind === 'system' ? <i>{t.last_message.excerpt}</i> : <><b className="font-medium">{t.last_message.sender_name.split(' ')[0]}:</b> {t.last_message.excerpt}</>}
+                <p className={`truncate text-sm ${t.unread ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500'}`}>
+                  {t.last_message.kind === 'system' ? <span className="text-slate-400">{t.last_message.excerpt}</span> : <><b className="font-medium">{t.last_message.sender_name.split(' ')[0]}:</b> {t.last_message.excerpt}</>}
                 </p>
               )}
             </button>

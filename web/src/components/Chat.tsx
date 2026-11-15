@@ -37,7 +37,8 @@ function dayLabel(ms: number) {
 const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
 /** Цвет кружка и имени — по имени, всегда один и тот же. */
-const palette = ['#e5533d', '#7c5cc4', '#2f8fd8', '#1f9d6c', '#d9822b', '#c2417f', '#4b6584'];
+// Тёмные оттенки: белые буквы в кружке и имя на белом пузыре читаются (≥ 4,5:1).
+const palette = ['#b91c1c', '#6d28d9', '#1d4ed8', '#047857', '#c2410c', '#be185d', '#475569'];
 function colorOf(name: string) {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -54,7 +55,7 @@ function SystemText({ text, names }: { text: string; names: string[] }) {
   const list = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length);
   if (!list.length) return <>{text}</>;
   const re = new RegExp(`(${list.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g');
-  return <>{text.split(re).map((part, i) => (list.includes(part) ? <mark key={i} className="rounded bg-amber-100 px-1 text-slate-900 dark:bg-amber-400/30 dark:text-amber-50">{part}</mark> : part))}</>;
+  return <>{text.split(re).map((part, i) => (list.includes(part) ? <b key={i} className="font-semibold text-slate-700 dark:text-slate-200">{part}</b> : part))}</>;
 }
 
 export function Chat({ taskId, canWrite, participants = [] }: { taskId: string; canWrite: boolean; participants?: string[] }) {
@@ -157,7 +158,7 @@ export function Chat({ taskId, canWrite, participants = [] }: { taskId: string; 
         <span className="grid size-10 place-items-center rounded-full bg-sky-50 text-sky-600 dark:bg-sky-500/15"><MessagesSquare className="size-5" /></span>
         <div><p className="font-semibold">Чат задачи</p><p className="text-xs text-slate-500">{people} {plural(people, 'участник', 'участника', 'участников')}</p></div>
       </div>
-      <div ref={list} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-gradient-to-br from-emerald-100 via-sky-200 to-indigo-300 px-4 py-4 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950">
+      <div ref={list} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-slate-50 px-4 py-4 dark:bg-slate-950">
         {messages === null && <Loader2 className="mx-auto size-5 animate-spin text-slate-400" />}
         {messages?.length === 0 && <p className="m-auto text-sm text-slate-500">Сообщений пока нет.</p>}
         {messages?.map((m, i) => {
@@ -166,26 +167,27 @@ export function Chat({ taskId, canWrite, participants = [] }: { taskId: string; 
           const mine = m.sender_id === me?.id;
           return (
             <div key={m.id} className="flex flex-col gap-3">
-              {newDay && <div className="flex justify-center"><span className="rounded-full bg-slate-500/45 px-3 py-1 text-xs font-medium text-white backdrop-blur">{dayLabel(m.created_at)}</span></div>}
+              {newDay && <div className="flex justify-center"><span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{dayLabel(m.created_at)}</span></div>}
               {m.id === firstUnread && (
-                <div className="flex items-center gap-3 text-xs font-semibold text-white"><span className="h-px flex-1 bg-white/60" /><span className="rounded-full bg-brand-600 px-3 py-0.5">Новые сообщения</span><span className="h-px flex-1 bg-white/60" /></div>
+                <div className="flex items-center gap-3 text-xs font-semibold text-brand-700 dark:text-brand-100"><span className="h-px flex-1 bg-brand-300" />Новые сообщения<span className="h-px flex-1 bg-brand-300" /></div>
               )}
               {m.kind === 'system' ? (
-                <div className="ml-14 max-w-[85%] self-start rounded-2xl bg-white/70 px-3.5 py-2 text-[15px] text-slate-800 shadow-sm backdrop-blur dark:bg-slate-900/70 dark:text-slate-100">
+                // Событие (статус, срок, архив) — узкой серой строкой, чтобы не тонула переписка.
+                <p className="mx-auto max-w-[90%] text-center text-[13px] leading-snug text-slate-500 dark:text-slate-400">
                   <SystemText text={m.content} names={allNames} />
-                  <span className="ml-2 align-bottom text-[11px] text-slate-400">{hhmm(m.created_at)}</span>
-                </div>
+                  <span className="ml-1.5 text-[12px] text-slate-400">{hhmm(m.created_at)}</span>
+                </p>
               ) : (
-                <div className="group flex items-end gap-3">
-                  <Initials name={m.sender_name} />
-                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 shadow-sm ${mine ? 'bg-lime-50 dark:bg-emerald-900/60' : 'bg-white dark:bg-slate-900'}`}>
+                <div className={`group flex items-end gap-3 ${mine ? 'flex-row-reverse' : ''}`}>
+                  {!mine && <Initials name={m.sender_name} />}
+                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 shadow-sm ${mine ? 'bg-brand-50 text-slate-900 dark:bg-brand-500/20 dark:text-slate-50' : 'bg-white dark:bg-slate-900'}`}>
                     {!mine && <p className="text-sm font-semibold" style={{ color: colorOf(m.sender_name) }}>{m.sender_name}</p>}
                     {m.reply_to && (
                       <p className="mt-1 border-l-2 border-brand-400 pl-2 text-xs text-slate-500"><b>{m.reply_to.sender_name}:</b> {m.reply_to.excerpt}</p>
                     )}
                     <Md text={m.content} className="select-text" />
                     <Files files={m.attachments} />
-                    <p className="mt-0.5 text-right text-[11px] text-slate-400">{m.edited_at ? 'изменено · ' : ''}{hhmm(m.created_at)}</p>
+                    <p className="mt-0.5 text-right text-xs text-slate-400">{m.edited_at ? 'изменено · ' : ''}{hhmm(m.created_at)}</p>
                     {canWrite && (
                       <div className="hidden gap-3 text-xs text-slate-500 group-hover:flex">
                         <button onClick={() => { setReply(m); setEditing(null); }} className="inline-flex items-center gap-1 hover:text-brand-600"><CornerUpLeft className="size-3" />Ответить</button>
@@ -226,7 +228,7 @@ export function Chat({ taskId, canWrite, participants = [] }: { taskId: string; 
             <textarea
               className="input max-h-40 min-h-11 flex-1 resize-none py-2.5"
               rows={1}
-              placeholder="Сообщение… (Enter — отправить, Shift+Enter — новая строка)"
+              placeholder="Сообщение…" title="Enter — отправить, Shift+Enter — новая строка"
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {

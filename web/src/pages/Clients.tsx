@@ -24,6 +24,11 @@ export function Clients() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
   const canCreate = me?.role !== 'employee';
+  // Вид запоминается в этом браузере; при 50+ клиентах удобнее таблица.
+  const [view, setViewState] = useState<'cards' | 'table'>(() => {
+    try { return (localStorage.getItem('crm.clients.view') as 'cards' | 'table') || 'cards'; } catch { return 'cards'; }
+  });
+  const setView = (v: 'cards' | 'table') => { setViewState(v); try { localStorage.setItem('crm.clients.view', v); } catch { /* без памяти */ } };
 
   const load = useCallback(() => work.clients({ q, tag }).then(setList).catch((e) => setError(e.message)), [q, tag]);
   useEffect(() => {
@@ -32,6 +37,7 @@ export function Clients() {
   }, [load]);
   useLiveReload(load);
 
+  const manyGroups = new Set((list ?? []).map((c) => c.group_id)).size > 1;
   const tags = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of list ?? []) for (const t of c.tags) m.set(t.name, t.color);
@@ -64,6 +70,13 @@ export function Clients() {
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <input className="input pl-10" placeholder="Название, телефон, email, описание…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
+        <div className="flex rounded-xl bg-slate-100 p-0.5 dark:bg-slate-800">
+          {(['cards', 'table'] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${view === v ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}>
+              {v === 'cards' ? 'Карточки' : 'Таблица'}
+            </button>
+          ))}
+        </div>
         {tags.length > 0 && (
           <select className="input w-auto" value={tag} onChange={(e) => setTag(e.target.value)}>
             <option value="">Все теги</option>
@@ -81,6 +94,31 @@ export function Clients() {
           </p>
         </div>
       )}
+      {view === 'table' ? (
+        list && list.length > 0 && (
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-slate-200 dark:border-slate-800">
+                  <th className="px-4 py-2.5">Клиент</th><th className="px-4 py-2.5">Телефон</th><th className="px-4 py-2.5">Ответственный</th>
+                  <th className="px-4 py-2.5 text-right">Открыто</th><th className="px-4 py-2.5 text-right">Просрочено</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {list.map((c) => (
+                  <tr key={c.id} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50" onClick={() => navigate(`/clients/${c.id}`)}>
+                    <td className="px-4 py-2.5 font-medium"><span className="flex items-center gap-2">{c.kind === 'company' ? <Building2 className="size-4 text-slate-400" /> : <User className="size-4 text-slate-400" />}{c.name}<UnreadDot n={c.counts.unread} /></span></td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-slate-600 dark:text-slate-300">{c.phone ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300">{c.manager_name ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{c.counts.open}</td>
+                    <td className={`px-4 py-2.5 text-right tabular-nums ${c.counts.overdue ? 'font-semibold text-red-600' : 'text-slate-400'}`}>{c.counts.overdue}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {list?.map((c) => (
           <Link key={c.id} to={`/clients/${c.id}`} className="card group flex flex-col gap-2 p-4 transition hover:border-brand-400 hover:shadow-md">
@@ -90,21 +128,29 @@ export function Clients() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{c.name}</p>
-                <p className="truncate text-xs text-slate-500">{c.phone || c.email || c.group_name}</p>
+                {c.manager_name && <p className="truncate text-xs text-slate-500">Ответственный: {c.manager_name}</p>}
+                {manyGroups && <p className="truncate text-xs text-slate-400">{c.group_name}</p>}
               </div>
               <UnreadDot n={c.counts.unread} />
             </div>
+            {(c.phone || c.email) && (
+              <p className="flex flex-wrap gap-x-3 text-sm text-slate-600 dark:text-slate-300">
+                {c.phone && <span className="inline-flex items-center gap-1"><Phone className="size-3.5 text-slate-400" />{c.phone}</span>}
+                {c.email && <span className="inline-flex min-w-0 items-center gap-1 truncate"><Mail className="size-3.5 text-slate-400" />{c.email}</span>}
+              </p>
+            )}
             {c.description && <p className="line-clamp-2 text-sm text-slate-600 dark:text-slate-400">{c.description}</p>}
             <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
               {c.tags.map((t) => <TagChip key={t.name} {...t} />)}
               <span className="ml-auto flex gap-2 text-xs text-slate-500">
                 <span>{c.counts.open} открыто</span>
-                {c.counts.overdue > 0 && <span className="inline-flex items-center gap-0.5 font-semibold text-red-700 dark:text-red-300"><AlertTriangle className="size-3" />{c.counts.overdue}</span>}
+                {c.counts.overdue > 0 && <span className="inline-flex items-center gap-0.5 rounded-full bg-red-50 px-1.5 font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300"><AlertTriangle className="size-3" />{c.counts.overdue} просрочено</span>}
               </span>
             </div>
           </Link>
         ))}
       </div>
+      )}
       <ClientForm open={adding} onClose={() => setAdding(false)} onSaved={(id) => { setAdding(false); navigate(`/clients/${id}`); }} />
     </>
   );

@@ -147,6 +147,7 @@ export function TaskPage() {
   const [note, setNote] = useState('');
   const [editing, setEditing] = useState(false);
   const [reassigning, setReassigning] = useState(false);
+  const [tab, setTab] = useState<'task' | 'chat'>('task');
   const [sub, setSub] = useState(false);
   const [trash, setTrash] = useState(false);
 
@@ -178,8 +179,17 @@ export function TaskPage() {
 
   return (
     <div className="-mx-4 -mt-4 flex flex-col sm:-mx-8 lg:-mx-12 lg:h-[calc(100dvh-3.5rem)] lg:flex-row">
+      {/* Телефон: задача и чат — вкладками, а не одной длинной лентой. */}
+      <div className="sticky top-14 z-20 flex border-b border-slate-200 bg-white lg:hidden dark:border-slate-800 dark:bg-slate-900">
+        {(['task', 'chat'] as const).map((k) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`flex-1 py-2.5 text-sm font-semibold ${tab === k ? 'border-b-2 border-brand-600 text-brand-700 dark:text-brand-100' : 'text-slate-500'}`}>
+            {k === 'task' ? 'Задача' : <>Чат{(t.unread ?? 0) > 0 && <span className="ml-1.5 rounded-full bg-brand-600 px-1.5 text-[11px] text-white">{t.unread}</span>}</>}
+          </button>
+        ))}
+      </div>
       {/* Левая панель: поля задачи */}
-      <section className="flex min-w-0 flex-col bg-slate-100/70 lg:w-[44%] lg:max-w-[640px] dark:bg-slate-900/50">
+      <section className={`${tab === 'chat' ? 'hidden' : 'flex'} min-w-0 flex-col bg-slate-100/70 lg:flex lg:w-[44%] lg:max-w-[640px] dark:bg-slate-900/50`}>
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <nav className="mb-2 flex flex-wrap items-center gap-1 text-sm text-slate-500">
             <span className="mr-2"><BackButton fallback="/" /></span>
@@ -248,7 +258,7 @@ export function TaskPage() {
         </div>
 
         {/* Нижняя панель действий — как кнопки «Начать / Завершить / ⋯» */}
-        <div className="sticky bottom-0 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 dark:border-slate-800 dark:bg-slate-900">
+        <div className="task-actions sticky z-10 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:bottom-0 dark:border-slate-800 dark:bg-slate-900">
           {primary && <Button onClick={() => setStatus(primary.to)}>{primary.to === 'in_progress' ? 'Начать' : 'Завершить'}</Button>}
           {secondary.map((a) => <Button key={a.to} variant="secondary" onClick={() => setStatus(a.to)}>Завершить</Button>)}
           {archived && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.unarchive(t.id), 'Задача восстановлена из архива.')}><ArchiveRestore className="size-4" />Восстановить</Button>}
@@ -270,7 +280,7 @@ export function TaskPage() {
       </section>
 
       {/* Правая панель: чат задачи */}
-      <section className="flex h-[75dvh] min-w-0 flex-1 flex-col lg:h-auto">
+      <section className={`${tab === 'task' ? 'hidden' : 'flex'} task-chat min-w-0 flex-col lg:flex lg:flex-1`}>
         <Chat taskId={t.id} canWrite={!archived && (t.access === 'participant' || t.access === 'manage')}
           participants={[t.created_by.name, ...(t.assignees ?? []).map((a) => a.name)]} />
       </section>

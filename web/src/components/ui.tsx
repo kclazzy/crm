@@ -47,7 +47,8 @@ export function Badge({ tone, children, dot = false }: { tone: keyof typeof tone
   );
 }
 
-const avatarColors = ['bg-indigo-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-violet-500', 'bg-teal-500'];
+// Тёмные оттенки: белые инициалы читаются (контраст ≥ 5:1).
+const avatarColors = ['bg-indigo-700', 'bg-blue-700', 'bg-emerald-700', 'bg-orange-700', 'bg-rose-700', 'bg-violet-700', 'bg-cyan-700'];
 
 export function Avatar({ name, size = 'md', title }: { name: string; size?: 'xs' | 'sm' | 'md'; title?: string }) {
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?';

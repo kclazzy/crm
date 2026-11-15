@@ -3,9 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { ArchiveRestore, Building2, CalendarDays, ChevronLeft, ChevronRight, List, Plus, Search, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
-import { childrenOf, dateTime, type TaskSummary, work } from '../work';
+import { childrenOf, dateTime, statusName, type TaskSummary, work } from '../work';
 import { Button, ErrorText, Modal } from '../components/ui';
-import { TaskForm, TaskRow, deadlineBar, deadlineLegend } from '../components/work';
+import { TaskForm, TaskRow, deadlineBar, deadlineLegend, statusIcon, statusStyle } from '../components/work';
 
 export { TaskPage } from './TaskPage';
 
@@ -147,8 +147,68 @@ export function monthTitle(d: Date) {
 }
 
 /** Месяц: задачи по дню крайнего срока. */
-function Calendar({ tasks }: { tasks: TaskSummary[] }) {
+const hhmm = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+/** Перенести срок на другой день, сохранив время. */
+async function moveDeadline(t: TaskSummary, day: Date) {
+  if (!t.deadline_at) return;
+  const old = new Date(t.deadline_at);
+  const next = new Date(day.getFullYear(), day.getMonth(), day.getDate(), old.getHours(), old.getMinutes());
+  if (next.getTime() === t.deadline_at) return;
+  await work.updateTask(t.id, { deadline_at: next.getTime() });
+}
+
+function CalendarItem({ t, draggable }: { t: TaskSummary; draggable: boolean }) {
+  const done = t.status === 'completed';
+  return (
+    <Link to={`/tasks/${t.id}`} title={`${t.title} · ${t.client_name}${t.status ? ` · ${statusName[t.status]}` : ''}`}
+      draggable={draggable && !done}
+      onDragStart={(e) => e.dataTransfer.setData('text/task', t.id)}
+      className={`flex items-center gap-1 truncate rounded border-l-[3px] bg-white px-1.5 py-0.5 text-[11px] font-medium shadow-sm hover:bg-brand-50 dark:bg-slate-800 ${deadlineBar(t)} ${done ? 'line-through opacity-50' : ''}`}>
+      {t.status && <span className={`shrink-0 ${statusStyle[t.status]} rounded-full`}>{statusIcon[t.status]}</span>}
+      {t.deadline_at && <span className="shrink-0 tabular-nums text-slate-500">{hhmm(t.deadline_at)}</span>}
+      <span className="truncate">{t.title}</span>
+    </Link>
+  );
+}
+
+/** Телефон: не сетка месяца, а список по дням — названия видны целиком. */
+function Agenda({ tasks }: { tasks: TaskSummary[] }) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const open = tasks.filter((t) => t.deadline_at && t.status !== 'completed');
+  const overdue = open.filter((t) => t.deadline_at! < start.getTime());
+  const days = new Map<string, { day: Date; list: TaskSummary[] }>();
+  for (const t of open.filter((t) => t.deadline_at! >= start.getTime())) {
+    const d = new Date(t.deadline_at!);
+    const k = d.toDateString();
+    days.set(k, { day: d, list: [...(days.get(k)?.list ?? []), t] });
+  }
+  const label = (d: Date) => {
+    const diff = Math.round((new Date(d).setHours(0, 0, 0, 0) - start.getTime()) / 86_400_000);
+    if (diff === 0) return 'Сегодня';
+    if (diff === 1) return 'Завтра';
+    return d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
+  const block = (title: string, list: TaskSummary[], red = false) => (
+    <div key={title}>
+      <p className={`mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wide first-letter:uppercase ${red ? 'text-red-600' : 'text-slate-500'}`}>{title}</p>
+      <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">{list.map((t) => <TaskRow key={t.id} t={t} showClient />)}</div>
+    </div>
+  );
+  if (!overdue.length && !days.size) return <div className="card px-8 py-16 text-center text-slate-500">Открытых задач со сроком нет.</div>;
+  return (
+    <div>
+      {overdue.length > 0 && block('Просрочены', overdue, true)}
+      {[...days.values()].map(({ day, list }) => block(label(day), list))}
+    </div>
+  );
+}
+
+function Calendar({ tasks, reload }: { tasks: TaskSummary[]; reload: () => void }) {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [error, setError] = useState('');
+  const [over, setOver] = useState('');
   const days = useMemo(() => {
     const first = (month.getDay() + 6) % 7;
     return Array.from({ length: 42 }, (_, i) => new Date(month.getFullYear(), month.getMonth(), 1 - first + i));
@@ -160,42 +220,58 @@ function Calendar({ tasks }: { tasks: TaskSummary[] }) {
       const k = new Date(t.deadline_at).toDateString();
       m.set(k, [...(m.get(k) ?? []), t]);
     }
+    for (const l of m.values()) l.sort((a, b) => (a.deadline_at ?? 0) - (b.deadline_at ?? 0));
     return m;
   }, [tasks]);
-  const today = new Date().toDateString();
+  const now = new Date();
+  const today = now.toDateString();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
   return (
-    <div className="card overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <button className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => shift(-1)} aria-label="Предыдущий месяц"><ChevronLeft className="size-5" /></button>
-        <p className="min-w-40 text-center font-semibold">{monthTitle(month)}</p>
-        <button className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => shift(1)} aria-label="Следующий месяц"><ChevronRight className="size-5" /></button>
-        <button className="ml-2 rounded-lg px-2.5 py-1 text-sm text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }}>Сегодня</button>
-      </div>
-      <div className="grid grid-cols-7 border-b border-slate-200 text-center text-xs font-semibold text-slate-500 dark:border-slate-800">
-        {weekDays.map((d) => <div key={d} className="py-2">{d}</div>)}
-      </div>
-      <div className="grid grid-cols-7">
-        {days.map((d) => {
-          const list = byDay.get(d.toDateString()) ?? [];
-          const other = d.getMonth() !== month.getMonth();
-          return (
-            <div key={d.toISOString()} className={`min-h-24 border-b border-r border-slate-100 p-1.5 dark:border-slate-800 ${other ? 'bg-slate-50/60 dark:bg-slate-900/40' : ''}`}>
-              <p className={`mb-1 text-right text-xs ${d.toDateString() === today ? 'font-bold text-brand-600' : other ? 'text-slate-400' : 'text-slate-500'}`}>{d.getDate()}</p>
-              <div className="flex flex-col gap-1">
-                {list.slice(0, 4).map((t) => (
-                  <Link key={t.id} to={`/tasks/${t.id}`} title={`${t.title} · ${t.client_name}`}
-                    className={`truncate rounded border-l-[3px] bg-white px-1.5 py-0.5 text-[11px] font-medium shadow-sm hover:bg-brand-50 dark:bg-slate-800 ${deadlineBar(t)} ${t.status === 'completed' ? 'line-through opacity-60' : ''}`}>
-                    {t.title}
-                  </Link>
-                ))}
-                {list.length > 4 && <span className="px-1 text-[11px] text-slate-500">ещё {list.length - 4}</span>}
+    <>
+      <div className="sm:hidden"><Agenda tasks={tasks} /></div>
+      <div className="card hidden overflow-hidden sm:block">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <button className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => shift(-1)} aria-label="Предыдущий месяц"><ChevronLeft className="size-5" /></button>
+          <p className="min-w-40 text-center font-semibold">{monthTitle(month)}</p>
+          <button className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => shift(1)} aria-label="Следующий месяц"><ChevronRight className="size-5" /></button>
+          <button className="ml-2 rounded-lg px-2.5 py-1 text-sm text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }}>Сегодня</button>
+          <span className="ml-auto text-xs text-slate-500">Перетащите задачу на другой день, чтобы перенести срок</span>
+        </div>
+        {error && <p className="border-b border-slate-200 px-4 py-2 text-sm text-red-600 dark:border-slate-800">{error}</p>}
+        <div className="grid grid-cols-7 border-b border-slate-200 text-center text-xs font-semibold text-slate-500 dark:border-slate-800">
+          {weekDays.map((d) => <div key={d} className="py-2">{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7">
+          {days.map((d) => {
+            const k = d.toDateString();
+            const list = byDay.get(k) ?? [];
+            const other = d.getMonth() !== month.getMonth();
+            const past = d.getTime() < todayStart;
+            return (
+              <div key={d.toISOString()}
+                onDragOver={(e) => { e.preventDefault(); setOver(k); }}
+                onDragLeave={() => setOver((o) => (o === k ? '' : o))}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  setOver('');
+                  const t = tasks.find((x) => x.id === e.dataTransfer.getData('text/task'));
+                  if (!t) return;
+                  setError('');
+                  try { await moveDeadline(t, d); reload(); } catch (x) { setError((x as Error).message); }
+                }}
+                className={`min-h-24 border-b border-r border-slate-100 p-1.5 transition dark:border-slate-800 ${over === k ? 'bg-brand-50 dark:bg-brand-500/10' : other ? 'bg-slate-50 dark:bg-slate-900/60' : past ? 'bg-slate-50/50 dark:bg-slate-900/30' : ''}`}>
+                <p className={`mb-1 text-right text-xs ${k === today ? 'font-bold text-brand-600' : other ? 'text-slate-400' : past ? 'text-slate-500' : 'text-slate-700 dark:text-slate-200'}`}>{d.getDate()}</p>
+                <div className="flex flex-col gap-1">
+                  {list.slice(0, 4).map((t) => <CalendarItem key={t.id} t={t} draggable={t.access === 'manage'} />)}
+                  {list.length > 4 && <span className="px-1 text-[11px] text-slate-500">ещё {list.length - 4}</span>}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -231,7 +307,7 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
     <>
       <Header title={mode === 'mine' ? 'Мои задачи' : 'Все задачи'} baseRole={baseRole} onCreate={canCreate ? () => setCreating(true) : undefined} />
       <ErrorText>{error}</ErrorText>
-      {calendar ? <Calendar tasks={sorted} /> : (
+      {calendar ? <Calendar tasks={sorted} reload={load} /> : (
         <>
           {tasks && tasks.length === 0 && (
             <div className="card px-8 py-16 text-center text-slate-500">
