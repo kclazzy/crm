@@ -11,6 +11,9 @@ use crate::store::Server;
 
 /// Сколько ждать один адрес: в офисной сети ответ приходит за миллисекунды.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(1500);
+/// «Проверить соединение» ждёт дольше: Windows сообщает об отказе закрытого порта
+/// примерно через 2 секунды, а нам важно отличить «CRM остановлена» от «нет ответа».
+const DIAGNOSE_TIMEOUT: Duration = Duration::from_secs(3);
 const READ_TIMEOUT: Duration = Duration::from_secs(4);
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -56,7 +59,16 @@ pub async fn connect(
     port: u16,
     fp: &str,
 ) -> Result<tokio_rustls::client::TlsStream<TcpStream>, ProbeError> {
-    let tcp = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((addr, port)))
+    connect_within(addr, port, fp, CONNECT_TIMEOUT).await
+}
+
+async fn connect_within(
+    addr: &str,
+    port: u16,
+    fp: &str,
+    wait: Duration,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, ProbeError> {
+    let tcp = tokio::time::timeout(wait, TcpStream::connect((addr, port)))
         .await
         .map_err(|_| ProbeError::Timeout)??;
     tcp.set_nodelay(true)?;
@@ -83,7 +95,16 @@ struct Health {
 }
 
 async fn health(addr: &str, port: u16, fp: &str) -> Result<Health, ProbeError> {
-    let mut s = connect(addr, port, fp).await?;
+    health_within(addr, port, fp, CONNECT_TIMEOUT).await
+}
+
+async fn health_within(
+    addr: &str,
+    port: u16,
+    fp: &str,
+    wait: Duration,
+) -> Result<Health, ProbeError> {
+    let mut s = connect_within(addr, port, fp, wait).await?;
     let req = format!("GET /api/health HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes()).await?;
     let mut buf = Vec::new();
@@ -187,14 +208,15 @@ pub async fn diagnose(server: &Server) -> Vec<AddrCheck> {
             tokio::spawn(async move {
                 let via_internet = !crm_core::remote::is_office_addr(&addr);
                 let started = Instant::now();
-                let (verdict, latency_ms, version) = match health(&addr, port, &fp).await {
-                    Ok(h) => (
-                        Verdict::Online,
-                        Some(started.elapsed().as_millis() as u64),
-                        Some(h.version),
-                    ),
-                    Err(e) => (verdict(&e), None, None),
-                };
+                let (verdict, latency_ms, version) =
+                    match health_within(&addr, port, &fp, DIAGNOSE_TIMEOUT).await {
+                        Ok(h) => (
+                            Verdict::Online,
+                            Some(started.elapsed().as_millis() as u64),
+                            Some(h.version),
+                        ),
+                        Err(e) => (verdict(&e), None, None),
+                    };
                 AddrCheck {
                     message: explain(verdict, via_internet, latency_ms),
                     addr,
