@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
+  AlertTriangle,
   Archive, ArchiveRestore, CalendarDays, ChevronDown, ChevronRight, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, UserRoundCog, X,
 } from 'lucide-react';
 import { useLiveReload } from '../live';
@@ -9,6 +10,36 @@ import { Menu, MenuItem } from '../components/Menu';
 import { Avatar, BackButton, Button, ErrorText, Modal } from '../components/ui';
 import { DeadlineText, LeadPicker, Md, PeoplePicker, PriorityBadge, Progress, TaskForm, TaskRow, statusIcon, statusStyle, usePeople } from '../components/work';
 import { Chat } from '../components/Chat';
+
+// ---------- Размер текста в задаче: описание, этапы и чат; запоминается на этом устройстве ----------
+
+const SCALES = [0.9, 1, 1.15, 1.3, 1.5];
+const SCALE_KEY = 'crm-task-text';
+
+function useTextScale(): [number, (s: number) => void] {
+  const [scale, set] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem(SCALE_KEY));
+      return SCALES.includes(v) ? v : 1;
+    } catch { return 1; }
+  });
+  return [scale, (s) => {
+    set(s);
+    try { localStorage.setItem(SCALE_KEY, String(s)); } catch { /* запомнить не вышло — размер действует до закрытия */ }
+  }];
+}
+
+function TextSize({ scale, onChange }: { scale: number; onChange: (s: number) => void }) {
+  const i = SCALES.indexOf(scale);
+  const btn = 'grid h-8 w-9 place-items-center font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 dark:text-slate-300 dark:hover:bg-slate-800';
+  return (
+    <div role="group" aria-label="Размер текста" className="flex shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900" style={{ fontSize: 14 }}>
+      <button className={btn} disabled={i <= 0} onClick={() => onChange(SCALES[i - 1])} title="Мельче" aria-label="Текст мельче"><span style={{ fontSize: 12 }}>А</span></button>
+      <span className="grid w-12 place-items-center border-x border-slate-200 text-xs tabular-nums text-slate-500 dark:border-slate-700" style={{ fontSize: 12 }} title="Размер текста в задаче">{Math.round(scale * 100)}%</span>
+      <button className={btn} disabled={i >= SCALES.length - 1} onClick={() => onChange(SCALES[i + 1])} title="Крупнее" aria-label="Текст крупнее"><span style={{ fontSize: 18 }}>А</span></button>
+    </div>
+  );
+}
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -149,6 +180,7 @@ export function TaskPage() {
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [editing, setEditing] = useState(false);
+  const [scale, setScale] = useTextScale();
   const [reassigning, setReassigning] = useState(false);
   const [tab, setTab] = useState<'task' | 'chat'>('task');
   const [sub, setSub] = useState(false);
@@ -181,7 +213,7 @@ export function TaskPage() {
   }
 
   return (
-    <div className="-mx-4 -mt-4 flex flex-col sm:-mx-8 lg:-mx-12 lg:h-[calc(100dvh-3.5rem)] lg:flex-row">
+    <div className="task-scale -mx-4 -mt-4 flex flex-col sm:-mx-8 lg:-mx-12 lg:h-[calc(100dvh-3.5rem)] lg:flex-row" style={{ '--task-scale': scale } as CSSProperties}>
       {/* Телефон: задача и чат — вкладками, а не одной длинной лентой. */}
       <div className="sticky top-14 z-20 flex border-b border-slate-200 bg-white lg:hidden dark:border-slate-800 dark:bg-slate-900">
         {(['task', 'chat'] as const).map((k) => (
@@ -202,9 +234,15 @@ export function TaskPage() {
                 {p.readable ? <Link to={`/tasks/${p.id}`} className="hover:text-brand-600">{p.title}</Link> : <span>{p.title}</span>}
               </span>
             ))}
+            <span className="ml-auto"><TextSize scale={scale} onChange={setScale} /></span>
           </nav>
+          {t.deadline_state === 'overdue' && (
+            <div role="alert" className="mb-3 flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 font-semibold text-white shadow-sm shadow-red-600/30">
+              <AlertTriangle className="size-5 shrink-0" />Задача просрочена{t.deadline_at ? ` — срок был ${longDate(t.deadline_at)}` : ''}
+            </div>
+          )}
           <div className="mb-4 flex items-start gap-3">
-            <h1 className="min-w-0 flex-1 break-words text-2xl font-bold tracking-tight">{t.title}</h1>
+            <h1 className="min-w-0 flex-1 text-2xl font-bold tracking-tight [overflow-wrap:anywhere]">{t.title}</h1>
             {t.can_edit && !archived && (
               <Button variant="secondary" className="shrink-0 px-3 py-1.5 text-sm" onClick={() => setEditing(true)} title="Наименование, описание, срок, приоритет">
                 <Pencil className="size-4" />Изменить

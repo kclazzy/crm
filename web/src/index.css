@@ -54,3 +54,15 @@
   .task-actions { bottom: 0; }
   .task-chat { height: auto; }
 }
+
+/* Размер текста в задаче: шкалы Tailwind пересчитываются внутри страницы задачи
+   (описание, этапы, чат). Межстрочные интервалы заданы отношением и растут сами. */
+.task-scale {
+  font-size: calc(1rem * var(--task-scale, 1));
+  --text-xs: calc(0.75rem * var(--task-scale, 1));
+  --text-sm: calc(0.875rem * var(--task-scale, 1));
+  --text-base: calc(1rem * var(--task-scale, 1));
+  --text-lg: calc(1.125rem * var(--task-scale, 1));
+  --text-xl: calc(1.25rem * var(--task-scale, 1));
+  --text-2xl: calc(1.5rem * var(--task-scale, 1));
+}
