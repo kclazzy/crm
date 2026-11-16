@@ -10,6 +10,8 @@ const STAY = location.hash === '#list'; // вернулись кнопкой «�
 if (location.hash === '#lock') sessionStorage.removeItem(UNLOCKED);
 
 function show(el, on) { el.hidden = !on; }
+// Без replaceChildren: на телефонах со старым системным WebView (до 86) его нет.
+function clear(el) { el.textContent = ''; }
 function toast(text) { $('toast').textContent = text; show($('toast'), !!text); }
 
 function describe(p) {
@@ -65,7 +67,7 @@ function checkPanel(s) {
   rows.innerHTML = '<li>Проверяю…</li>';
   const run = async () => {
     const list = await invoke('server_check', { id: s.id });
-    rows.replaceChildren();
+    clear(rows);
     for (const c of list) {
       const li = document.createElement('li');
       const dot = document.createElement('i');
@@ -118,7 +120,7 @@ function checkPanel(s) {
 async function load() {
   const list = await invoke('servers');
   const ul = $('servers');
-  ul.replaceChildren();
+  clear(ul);
   show($('empty'), list.length === 0);
   for (const s of list) {
     const li = document.createElement('li');
