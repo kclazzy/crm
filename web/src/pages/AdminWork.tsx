@@ -243,6 +243,55 @@ function RouterOneClick({ onDone }: { onDone: () => void }) {
 }
 
 /** Доступ через интернет: внешний адрес офиса, переадресация порта, сотрудники и телефоны. */
+/** Способ 1: по ключу сервера — без роутера и белого IP, для программы на компьютере. */
+function NodeAccessCard() {
+  const [st, setSt] = useState<{ enabled: boolean; running: boolean } | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => void work.nodeAccess().then(setSt).catch((e) => setError(e.message)), []);
+  const toggle = async () => {
+    if (!st) return;
+    setBusy(true);
+    setError('');
+    try { setSt(await work.setNodeAccess(!st.enabled)); } catch (x) { setError((x as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <section className="card p-5">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold">Способ 1. По ключу сервера — для программы CRM на компьютере</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Самый простой: <b>роутер настраивать не нужно, «белый» IP не нужен</b>, VPN компании не мешает.
+            Сотрудник вводит ключ подключения, затем логин и пароль — и работает из офиса, из дома, из любой сети.
+          </p>
+        </div>
+        {st && <Button variant={st.enabled ? 'secondary' : 'primary'} busy={busy} onClick={toggle}>{st.enabled ? 'Выключить' : 'Включить'}</Button>}
+      </div>
+      <ErrorText>{error}</ErrorText>
+      {st && (
+        <p className="mt-3 text-sm">Сейчас: {st.running ? <Badge tone="green" dot>включено — сервер на связи</Badge> : st.enabled ? <Badge tone="amber" dot>включено, но узел не запустился — перезапустите сервер</Badge> : <Badge tone="slate" dot>выключено</Badge>}</p>
+      )}
+      {st?.enabled && (
+        <ol className="mt-3 list-decimal pl-5 text-sm text-slate-600 dark:text-slate-300">
+          <li>Кто уже подключён — ничего не делает: программа запомнит новый способ сама при следующем подключении в офисе.</li>
+          <li>Новым и тем, кто не бывает в офисе, выдайте ключ: <b>Сотрудники → Ключ подключения</b>.</li>
+          <li>Сотрудник: программа CRM → «Добавить сервер» → вставить ключ → логин и пароль. Дальше — одна кнопка «Подключиться».</li>
+        </ol>
+      )}
+      <details className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+        <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-200">Как это работает и насколько безопасно</summary>
+        <ul className="mt-2 list-disc pl-5">
+          <li>Сервер сам выходит в интернет и ждёт программу сотрудника; программа находит его по ключу, а не по адресу.</li>
+          <li>Если роутеры позволяют — связь идёт напрямую. Если нет — через узел связи в интернете: он пересылает уже зашифрованные данные и прочитать их не может.</li>
+          <li>В офисе программа по-прежнему подключается по локальной сети, интернет для этого не нужен.</li>
+          <li>Вход из интернета защищён как обычно: пароль и код из приложения (настройка ниже).</li>
+          <li>Узел связи — общедоступный сервис; скорость через него ограничена. Для задач и чата хватает, большие файлы будут идти медленнее.</li>
+        </ul>
+      </details>
+    </section>
+  );
+}
+
 export function AdminRemote() {
   const [info, setInfo] = useState<RemoteInfo | null>(null);
   const [error, setError] = useState('');
@@ -253,9 +302,14 @@ export function AdminRemote() {
   const url = info.address ? `https://${info.address}:${info.port}/` : '';
   return (
     <>
-      <PageHeader title="Удалённый доступ" subtitle="Работа из дома и с телефона через интернет — без VPN. Канал зашифрован, программа проверяет, что это именно ваш сервер." />
+      <PageHeader title="Удалённый доступ" subtitle="Работа из дома и с телефона — без VPN. Два способа: по ключу сервера (компьютеры, без настройки роутера) и по адресу офиса (телефоны и браузер)." />
       <div className="flex max-w-3xl flex-col gap-4">
         <ErrorText>{error}</ErrorText>
+        <NodeAccessCard />
+        <div className="mt-2">
+          <h2 className="text-lg font-semibold">Способ 2. По адресу офиса — для телефонов и браузера</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Нужен, чтобы открывать CRM с телефона или в браузере без программы. Требует «белый» IP (или DDNS) и правило на роутере — шаги ниже.</p>
+        </div>
         {!info.https && <p className="card border-amber-300 p-4 text-sm text-amber-800 dark:text-amber-200">HTTPS выключен — открывать сервер в интернет нельзя. Включите HTTPS в настройках сервера.</p>}
         <section className="card p-5">
           <h2 className="mb-1 font-semibold">1. Внешний адрес офиса</h2>
@@ -305,8 +359,8 @@ export function AdminRemote() {
         <section className="card p-5">
           <h2 className="mb-1 font-semibold">4. Сотрудники и телефоны</h2>
           <ul className="list-disc pl-5 text-sm text-slate-600 dark:text-slate-300">
-            <li>Программа CRM сотрудника узнаёт внешний адрес сама при подключении в офисе — дальше из дома работает без настроек.</li>
-            <li>Кто ни разу не подключался в офисе — выдайте новый ключ (<b>Сотрудники → Ключ подключения</b>): адрес уже в нём.</li>
+            <li>Программа CRM на компьютере пробует по порядку: сеть офиса → адрес офиса → ключ сервера. Сотруднику выбирать ничего не нужно.</li>
+            <li>Кто ни разу не подключался в офисе — выдайте новый ключ (<b>Сотрудники → Ключ подключения</b>): в нём уже всё есть.</li>
             <li>Телефон: <b>Сервер → Вход с телефона</b> — QR-коды для сертификата и для входа из интернета.</li>
           </ul>
         </section>
