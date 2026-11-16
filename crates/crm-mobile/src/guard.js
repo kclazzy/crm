@@ -14,6 +14,21 @@
     document.body.appendChild(a);
   }
   if (document.body) add(); else document.addEventListener('DOMContentLoaded', add);
+  // Интерфейс CRM рассчитан на современный WebView. На телефоне, где системный WebView
+  // давно не обновлялся, страница остаётся пустой — объясняем, что делать.
+  setTimeout(function () {
+    var root = document.getElementById('root');
+    if (!root || root.childElementCount > 0 || document.getElementById('crm-app-old')) return;
+    var box = document.createElement('div');
+    box.id = 'crm-app-old';
+    box.setAttribute('style', 'margin:48px 20px;font:16px/1.5 system-ui,sans-serif;color:#0f172a');
+    box.innerHTML = '<h2 style="margin:0 0 8px">CRM не загрузилась</h2>'
+      + '<p>Скорее всего, на телефоне устарел компонент «Android System WebView». '
+      + 'Обновите его и Chrome в магазине приложений и откройте CRM снова.</p>'
+      + '<p style="color:#475569">Если не помогло — нажмите «← Серверы» и «Проверить».</p>';
+    document.body.appendChild(box);
+  }, 8000);
+
   // Приложение было свёрнуто дольше пяти минут — возвращаемся на экран серверов:
   // он спросит отпечаток (если блокировка включена) и восстановит подключение.
   var hiddenAt = 0;

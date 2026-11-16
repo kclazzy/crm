@@ -88,9 +88,10 @@ jobs:
       - name: Запуск на эмуляторе
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          # Образ с современным системным WebView: интерфейс CRM на старом не работает.
+          api-level: 34
           arch: x86_64
-          target: default
+          target: google_apis
           disable-animations: true
           working-directory: crates/crm-mobile
           script: ./android/smoke.sh

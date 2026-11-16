@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Системный WebView эмулятора — для журнала.
 # Проверка на эмуляторе: приложение ставится, запускается и показывает экран серверов.
 set -uo pipefail
 out=out/smoke
@@ -66,7 +67,8 @@ adb logcat -d > "$out/logcat.txt"
 if [ $ok -ne 0 ]; then
   echo "Страница входа CRM не открылась. Что на экране:"
   grep -o 'text="[^"]\{3,\}"' "$out/ui3.xml" | head -30
-  grep -E 'RustStdoutStderr|chromium|net::' "$out/logcat.txt" | tail -20
+  grep -E 'chromium.*(Uncaught|Error|CONSOLE)|net::' "$out/logcat.txt" | tail -20
+  adb shell dumpsys webviewupdate | grep -i 'current webview' 
   exit 1
 fi
 echo "Страница входа CRM открыта через приложение."
