@@ -65,6 +65,20 @@ jobs:
         with:
           name: ${{ env.APK_NAME }}
           path: crates/crm-mobile/out/CRM.apk
+      - name: Сервер CRM для проверки подключения
+        working-directory: .
+        run: |
+          (cd web && npm ci --no-audit --no-fund && npm run build)
+          cargo build -p crm-server
+          mkdir -p /tmp/crm
+          printf 'listen = "0.0.0.0:8443"\n[storage]\ndb_dir = "/tmp/crm/data"\nattachments_dir = "/tmp/crm/files"\n' > /tmp/crm/c.toml
+          ./target/debug/crm-server --config /tmp/crm/c.toml > /tmp/crm/server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sk https://127.0.0.1:8443/api/health && break; sleep 1; done
+          api() { curl -sk -H 'content-type: application/json' "$@"; }
+          api https://127.0.0.1:8443/api/setup -d '{"username":"boss","display_name":"Boss","password":"smoke-test-password-1"}' > /dev/null
+          token=$(api https://127.0.0.1:8443/api/auth/login -d '{"username":"boss","password":"smoke-test-password-1","device_id":"ci","device_name":"ci"}' | jq -r .token)
+          api -X POST -H "authorization: Bearer $token" https://127.0.0.1:8443/api/admin/connection-key -d '{"user_id":null,"pin":null}' | jq -r .key > crates/crm-mobile/out/key.txt
+          test "$(cut -c1-5 crates/crm-mobile/out/key.txt)" = "CRM1-"
       - name: KVM для эмулятора
         working-directory: .
         run: |
