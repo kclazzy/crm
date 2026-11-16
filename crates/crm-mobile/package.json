@@ -1,0 +1,11 @@
+{
+  "name": "crm-mobile",
+  "private": true,
+  "description": "Только для сборки: Gradle вызывает «npm run tauri» при компиляции Rust под Android",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

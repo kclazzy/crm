@@ -3,3 +3,4 @@ gen/apple/
 gen/schemas/
 out/
 icons/
+node_modules/

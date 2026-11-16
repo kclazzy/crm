@@ -30,8 +30,9 @@ jobs:
         run: |
           echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          npx -y @tauri-apps/cli@2 android init --ci --skip-targets-install
-          npx -y @tauri-apps/cli@2 icon ../crm-desktop/icons/source.png
+          npm install --no-audit --no-fund
+          npm run tauri -- android init --ci --skip-targets-install
+          npm run tauri -- icon ../crm-desktop/icons/source.png
           ./android/overlay.sh
           git status --short . | head -20
         env:
@@ -39,7 +40,7 @@ jobs:
       - name: Сборка APK
         run: |
           if [ -n "$ANDROID_KEYSTORE_PASSWORD" ]; then kind=""; else kind="--debug"; fi
-          npx -y @tauri-apps/cli@2 android build --apk --ci $kind --target aarch64 --target armv7 --target x86_64
+          npm run tauri -- android build --apk --ci $kind --target aarch64 --target armv7 --target x86_64
           find gen/android/app/build/outputs/apk -name '*.apk' -exec ls -la {} \;
           mkdir -p out && cp "$(find gen/android/app/build/outputs/apk -name '*.apk' | head -1)" out/CRM.apk
         env:
