@@ -105,6 +105,117 @@ async fn health(addr: &str, port: u16, fp: &str) -> Result<Health, ProbeError> {
     })
 }
 
+/// Почему адрес (не) отвечает — по одному на каждый адрес сервера.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    Online,
+    /// Тишина: компьютер выключен, другая сеть или порт закрыт роутером.
+    NoAnswer,
+    /// Компьютер ответил отказом: CRM не запущена или порт не тот.
+    Refused,
+    /// Имя не найдено в сети.
+    NotFound,
+    /// Отвечает другой сервер — сертификат не совпал.
+    WrongServer,
+    /// Отвечает, но не CRM.
+    NotCrm,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AddrCheck {
+    pub addr: String,
+    /// Введён сотрудником — его можно убрать.
+    pub manual: bool,
+    pub via_internet: bool,
+    pub verdict: Verdict,
+    pub latency_ms: Option<u64>,
+    pub version: Option<String>,
+    /// Объяснение для человека.
+    pub message: String,
+}
+
+fn verdict(e: &ProbeError) -> Verdict {
+    use std::io::ErrorKind as K;
+    match e {
+        ProbeError::Timeout => Verdict::NoAnswer,
+        ProbeError::Tls(_) => Verdict::WrongServer,
+        ProbeError::BadAnswer => Verdict::NotCrm,
+        ProbeError::Io(e) => match e.kind() {
+            K::ConnectionRefused | K::ConnectionReset | K::ConnectionAborted => Verdict::Refused,
+            K::TimedOut | K::HostUnreachable | K::NetworkUnreachable => Verdict::NoAnswer,
+            // Имя не нашлось: у ошибки поиска имени нет своего вида.
+            _ => Verdict::NotFound,
+        },
+    }
+}
+
+fn explain(v: Verdict, via_internet: bool, latency_ms: Option<u64>) -> String {
+    match v {
+        Verdict::Online => format!(
+            "отвечает, {} мс — {}",
+            latency_ms.unwrap_or(0),
+            if via_internet {
+                "через интернет"
+            } else {
+                "в сети офиса"
+            }
+        ),
+        Verdict::NoAnswer if via_internet => {
+            "не отвечает: доступ через интернет выключен или порт на роутере закрыт".into()
+        }
+        Verdict::NoAnswer => "не отвечает: компьютер выключен или вы не в сети офиса".into(),
+        Verdict::Refused => {
+            "компьютер на связи, но CRM на нём не отвечает — сервер остановлен".into()
+        }
+        Verdict::NotFound => "адрес не найден — проверьте написание".into(),
+        Verdict::WrongServer => {
+            "отвечает другой сервер (сертификат не совпал) — подключение запрещено".into()
+        }
+        Verdict::NotCrm => "по этому адресу отвечает не CRM".into(),
+    }
+}
+
+/// Проверить все адреса сервера разом — для экрана «Проверить соединение».
+pub async fn diagnose(server: &Server) -> Vec<AddrCheck> {
+    let tasks: Vec<_> = server
+        .addresses_in_order()
+        .into_iter()
+        .map(|addr| {
+            let (port, fp) = (server.port, server.fp.clone());
+            let manual = server.manual.contains(&addr);
+            tokio::spawn(async move {
+                let via_internet = !crm_core::remote::is_office_addr(&addr);
+                let started = Instant::now();
+                let (verdict, latency_ms, version) = match health(&addr, port, &fp).await {
+                    Ok(h) => (
+                        Verdict::Online,
+                        Some(started.elapsed().as_millis() as u64),
+                        Some(h.version),
+                    ),
+                    Err(e) => (verdict(&e), None, None),
+                };
+                AddrCheck {
+                    message: explain(verdict, via_internet, latency_ms),
+                    addr,
+                    manual,
+                    via_internet,
+                    verdict,
+                    latency_ms,
+                    version,
+                }
+            })
+        })
+        .collect();
+    let mut out = Vec::new();
+    for t in tasks {
+        if let Ok(c) = t.await {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Проверить адреса сервера по порядку: последний удачный, затем офис, затем интернет.
 pub async fn probe(server: &Server) -> Probe {
     let mut last_error = None;

@@ -23,6 +23,7 @@ fn server(port: u16, fp: &str, addrs: &[&str]) -> Server {
         addrs: addrs.iter().map(|a| (*a).to_owned()).collect(),
         port,
         fp: fp.into(),
+        manual: Vec::new(),
         last_addr: None,
         local_port: 0,
         user: None,
@@ -53,6 +54,45 @@ async fn probe_tells_online_offline_and_wrong_server() {
         .port();
     let p = probe(&server(free, &fp, &["127.0.0.1"])).await;
     assert_eq!(p.state, State::Offline);
+    running.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn diagnose_reports_every_address_with_a_reason() {
+    use crm_connect::probe::{diagnose, Verdict};
+    let dir = tempfile::tempdir().unwrap();
+    let running = start(dir.path()).await;
+    let port = running.addr.port();
+    let fp = running.ca_fingerprint.clone().unwrap();
+
+    let mut s = server(port, &fp, &["127.0.0.1"]);
+    s.manual = vec!["no-such-host.invalid".into()];
+    let d = diagnose(&s).await;
+    let got: Vec<(&str, Verdict, bool)> = d
+        .iter()
+        .map(|c| (c.addr.as_str(), c.verdict, c.manual))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("no-such-host.invalid", Verdict::NotFound, true),
+            ("127.0.0.1", Verdict::Online, false),
+        ]
+    );
+    assert!(d[1].latency_ms.is_some());
+    assert_eq!(d[1].version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+    assert!(d[0].message.contains("не найден"), "{}", d[0].message);
+
+    let d = diagnose(&server(port, &"00".repeat(32), &["127.0.0.1"])).await;
+    assert_eq!(d[0].verdict, Verdict::WrongServer);
+
+    let free = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let d = diagnose(&server(free, &fp, &["127.0.0.1"])).await;
+    assert_eq!(d[0].verdict, Verdict::Refused);
     running.stop().await.unwrap();
 }
 

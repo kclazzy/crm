@@ -8,27 +8,10 @@ use std::net::IpAddr;
 /// Внешний адрес, как его ввёл владелец: убираем `https://`, `/` и порт сервера.
 /// Пустая строка — доступ через интернет выключен (`Ok(None)`).
 pub fn parse_address(input: &str, port: u16) -> Result<Option<String>, &'static str> {
-    let mut s = input.trim().to_ascii_lowercase();
-    for scheme in ["https://", "http://"] {
-        if let Some(rest) = s.strip_prefix(scheme) {
-            s = rest.to_owned();
-        }
-    }
-    let s = s.trim_end_matches('/');
-    if s.is_empty() {
+    let Some(host) = clean_host(input, port)? else {
         return Ok(None);
-    }
-    let host = match s.rsplit_once(':') {
-        Some((h, p)) if !h.contains(':') => {
-            if p.parse::<u16>().ok() != Some(port) {
-                return Err(
-                    "порт должен совпадать с портом сервера — на роутере перенаправьте его же",
-                );
-            }
-            h
-        }
-        _ => s,
     };
+    let host = host.as_str();
     if let Ok(ip) = host.parse::<IpAddr>() {
         return if is_public_ip(ip) {
             Ok(Some(ip.to_string()))
@@ -40,6 +23,54 @@ pub fn parse_address(input: &str, port: u16) -> Result<Option<String>, &'static 
         Ok(Some(host.to_owned()))
     } else {
         Err("адрес — это IP (85.12.34.56) или имя (office.keenetic.pro)")
+    }
+}
+
+/// Убрать `https://`, `/` и порт (он обязан совпадать с портом сервера). Пусто — `None`.
+fn clean_host(input: &str, port: u16) -> Result<Option<String>, &'static str> {
+    let mut s = input.trim().to_ascii_lowercase();
+    for scheme in ["https://", "http://"] {
+        if let Some(rest) = s.strip_prefix(scheme) {
+            s = rest.to_owned();
+        }
+    }
+    let s = s.trim_end_matches('/');
+    if s.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(match s.rsplit_once(':') {
+        Some((h, p)) if !h.contains(':') => {
+            if p.parse::<u16>().ok() != Some(port) {
+                return Err(
+                    "порт должен совпадать с портом сервера — на роутере перенаправьте его же",
+                );
+            }
+            h.to_owned()
+        }
+        _ => s.to_owned(),
+    }))
+}
+
+/// Адрес сервера, который сотрудник ввёл сам: годится и офисный (имя компьютера,
+/// 192.168.…), и внешний. Подлинность сервера проверяет сертификат, а не адрес.
+pub fn manual_address(input: &str, port: u16) -> Result<String, &'static str> {
+    const HINT: &str = "адрес — это IP (192.168.1.10), имя компьютера или имя в интернете";
+    let host = clean_host(input, port)?.ok_or("введите адрес сервера")?;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(ip.to_string());
+    }
+    let name_ok = host.len() <= 253
+        && host.split('.').all(|part| {
+            !part.is_empty()
+                && part.len() <= 63
+                && !part.starts_with('-')
+                && !part.ends_with('-')
+                && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        });
+    if name_ok {
+        Ok(host)
+    } else {
+        Err(HINT)
     }
 }
 
@@ -94,6 +125,22 @@ pub fn is_office_addr(addr: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_address_allows_office_names_and_checks_port() {
+        let p = |s| manual_address(s, 8443);
+        assert_eq!(
+            p(" https://Office.Example.ru:8443/ "),
+            Ok("office.example.ru".into())
+        );
+        assert_eq!(p("192.168.1.10"), Ok("192.168.1.10".into()));
+        assert_eq!(p("office-pc"), Ok("office-pc".into()));
+        assert_eq!(p("85.12.34.56"), Ok("85.12.34.56".into()));
+        assert!(p("").is_err());
+        assert!(p("office.example.ru:9000").is_err(), "чужой порт");
+        assert!(p("мой сервер").is_err());
+        assert!(p("a b").is_err());
+    }
 
     #[test]
     fn address_is_cleaned_and_checked() {

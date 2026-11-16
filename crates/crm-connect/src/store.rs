@@ -13,6 +13,9 @@ pub struct Server {
     pub addrs: Vec<String>,
     pub port: u16,
     pub fp: String,
+    /// Адреса, которые сотрудник ввёл сам: ключ и сервер их не трогают.
+    #[serde(default)]
+    pub manual: Vec<String>,
     /// Адрес, который ответил в прошлый раз, — пробуем первым.
     #[serde(default)]
     pub last_addr: Option<String>,
@@ -25,7 +28,7 @@ pub struct Server {
 impl Server {
     pub fn addresses_in_order(&self) -> Vec<String> {
         let mut out: Vec<String> = self.last_addr.iter().cloned().collect();
-        for a in &self.addrs {
+        for a in self.manual.iter().chain(&self.addrs) {
             if !out.contains(a) {
                 out.push(a.clone());
             }
@@ -47,6 +50,8 @@ pub enum StoreError {
     Corrupt(String),
     #[error("сервер не найден")]
     NotFound,
+    #[error("{0}")]
+    Address(String),
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -121,6 +126,7 @@ impl Store {
             addrs: k.addrs,
             port: k.port,
             fp: k.fp,
+            manual: Vec::new(),
             last_addr: None,
             local_port: 0,
             user: k.user,
@@ -185,11 +191,51 @@ impl Store {
         if addrs == s.addrs {
             return Ok(());
         }
-        if s.last_addr.as_ref().is_some_and(|l| !addrs.contains(l)) {
+        if s.last_addr
+            .as_ref()
+            .is_some_and(|l| !addrs.contains(l) && !s.manual.contains(l))
+        {
             s.last_addr = None;
         }
         s.addrs = addrs;
         self.save(all)
+    }
+
+    /// Сотрудник ввёл адрес сам (сервер переехал, сменился IP). Повтор ничего не меняет.
+    pub fn add_addr(&self, id: &str, input: &str) -> Result<Server, StoreError> {
+        let mut all = self.list()?;
+        let s = all
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or(StoreError::NotFound)?;
+        let addr = crm_core::remote::manual_address(input, s.port)
+            .map_err(|e| StoreError::Address(e.to_owned()))?;
+        if !s.manual.contains(&addr) && !s.addrs.contains(&addr) {
+            s.manual.push(addr);
+        }
+        let out = s.clone();
+        self.save(all)?;
+        Ok(out)
+    }
+
+    /// Убрать адрес, введённый вручную (адреса из ключа так не убираются).
+    pub fn remove_addr(&self, id: &str, addr: &str) -> Result<Server, StoreError> {
+        let mut all = self.list()?;
+        let s = all
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or(StoreError::NotFound)?;
+        let before = s.manual.len();
+        s.manual.retain(|a| a != addr);
+        if s.manual.len() == before {
+            return Err(StoreError::NotFound);
+        }
+        if s.last_addr.as_deref() == Some(addr) {
+            s.last_addr = None;
+        }
+        let out = s.clone();
+        self.save(all)?;
+        Ok(out)
     }
 
     pub fn rename(&self, id: &str, name: &str) -> Result<(), StoreError> {
@@ -306,6 +352,44 @@ mod tests {
         ));
         store.remove(&a.server.id).unwrap();
         assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn manual_addresses_survive_new_key_and_are_tried_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("servers.json"));
+        let id = store
+            .add_key(&key("AA:BB", &["pc"], None), Some("1234"))
+            .unwrap()
+            .server
+            .id;
+        store.add_addr(&id, " Office.Example.ru:8443 ").unwrap();
+        store.add_addr(&id, "office.example.ru").unwrap();
+        assert!(store.add_addr(&id, "office.example.ru:1").is_err());
+        assert_eq!(store.get(&id).unwrap().manual, ["office.example.ru"]);
+        // Адрес из ключа вручную не дублируется.
+        store.add_addr(&id, "pc").unwrap();
+        assert_eq!(store.get(&id).unwrap().manual, ["office.example.ru"]);
+
+        // Новый ключ и адрес от сервера ручные адреса не стирают.
+        store
+            .add_key(&key("AA:BB", &["pc2"], None), Some("1234"))
+            .unwrap();
+        store.learn_public_addr(&id, Some("85.12.34.56")).unwrap();
+        store.remember_addr(&id, "office.example.ru").unwrap();
+        store.learn_public_addr(&id, None).unwrap();
+        let s = store.get(&id).unwrap();
+        assert_eq!(s.addresses_in_order(), ["office.example.ru", "pc2"]);
+        assert_eq!(s.last_addr.as_deref(), Some("office.example.ru"));
+
+        store.remove_addr(&id, "office.example.ru").unwrap();
+        let s = store.get(&id).unwrap();
+        assert!(s.manual.is_empty());
+        assert_eq!(s.last_addr, None, "убранный адрес больше не пробуем первым");
+        assert!(matches!(
+            store.remove_addr(&id, "pc2"),
+            Err(StoreError::NotFound)
+        ));
     }
 
     #[test]
