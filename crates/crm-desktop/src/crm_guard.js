@@ -38,6 +38,8 @@
         b.style.cssText = 'margin-top:8px;padding:6px 10px;border:0;border-radius:8px;background:#fff;color:#065f46;font-weight:600;cursor:pointer';
         b.onclick = function () { window.crmApp.run('reveal'); };
         box.appendChild(b);
+        // Самопроверка нажимает кнопку сама — когда файл уже сохранён, а не по таймеру.
+        if (__SELFTEST__) setTimeout(function () { b.click(); }, 500);
       }
       document.body.appendChild(box);
       setTimeout(function () { box.remove(); }, 12000);
@@ -113,7 +115,6 @@
         a.click();
         a.remove();
         setTimeout(function () { window.crmApp.run('ping'); }, 500);
-        setTimeout(function () { window.crmApp.run('reveal'); }, 1500);
       }, 4000);
       setTimeout(report, 8000);
     }
