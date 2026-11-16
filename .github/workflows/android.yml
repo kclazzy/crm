@@ -65,3 +65,23 @@ jobs:
         with:
           name: ${{ env.APK_NAME }}
           path: crates/crm-mobile/out/CRM.apk
+      - name: KVM для эмулятора
+        working-directory: .
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Запуск на эмуляторе
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          disable-animations: true
+          working-directory: crates/crm-mobile
+          script: ./android/smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-smoke
+          path: crates/crm-mobile/out/smoke
