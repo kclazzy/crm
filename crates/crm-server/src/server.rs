@@ -47,6 +47,7 @@ pub struct Running {
     backups: JoinHandle<()>,
     workers: JoinHandle<()>,
     upnp: JoinHandle<()>,
+    state: AppState,
 }
 
 pub async fn start(cfg: &Config) -> Result<Running, RunError> {
@@ -77,7 +78,9 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
     let workers = tokio::spawn(crate::workers::run(state.clone()));
     let upnp = tokio::spawn(crate::router::keep_alive(state.clone()));
     let state_for_tls = state.clone();
-    let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
+    let plain = router(state.clone());
+    state.rt.p2p.set_router(plain.clone());
+    let app = plain.into_make_service_with_connect_info::<SocketAddr>();
     let handle = Handle::new();
     let listener = bind_patiently(cfg.listen).await?;
 
@@ -114,6 +117,10 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
             source,
         });
     };
+    // Узел подключения по ключу: его сбой не должен мешать серверу запуститься.
+    if let Err(e) = crate::p2p::apply(&state).await {
+        tracing::warn!("подключение по ключу не запущено: {e}");
+    }
     Ok(Running {
         addr,
         ca_fingerprint: material.map(|m| m.ca_fingerprint),
@@ -123,13 +130,14 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
         backups,
         workers,
         upnp,
+        state,
     })
 }
 
 /// Медленный клиент, который присылает заголовки по байту, не держит соединение
 /// дольше 10 секунд (защита от «медленных» атак). TLS-рукопожатие axum-server
 /// ограничивает 10 секундами сам.
-fn limit_slow_clients(
+pub(crate) fn limit_slow_clients(
     builder: &mut hyper_util::server::conn::auto::Builder<hyper_util::rt::TokioExecutor>,
 ) {
     builder
@@ -209,7 +217,13 @@ async fn keep_certificate_fresh(
 
 impl Running {
     /// Корректная остановка: новые соединения не принимаются, текущие запросы дорабатывают.
+    /// Узел подключения по ключу, если он работает.
+    pub async fn p2p(&self) -> Option<crate::p2p::Node> {
+        self.state.rt.p2p.node().await
+    }
+
     pub async fn stop(self) -> Result<(), RunError> {
+        self.state.rt.p2p.stop().await;
         self.handle.graceful_shutdown(Some(GRACE));
         self.backups.abort();
         self.workers.abort();

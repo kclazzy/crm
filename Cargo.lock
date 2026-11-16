@@ -1128,6 +1128,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "crm-core",
+ "crm-p2p",
  "csv",
  "encoding_rs",
  "fs4",

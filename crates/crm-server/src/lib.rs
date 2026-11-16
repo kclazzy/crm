@@ -19,6 +19,7 @@ pub mod logging;
 pub mod merge;
 pub mod notify;
 pub mod org;
+pub mod p2p;
 pub mod recovery;
 pub mod remote;
 pub mod restore;

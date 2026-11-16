@@ -18,6 +18,10 @@ pub struct Config {
     /// Расписание и сроки хранения резервных копий (выбирает владелец).
     #[serde(default)]
     pub backup: crm_core::backup::Policy,
+    /// Подключение по ключу узла: пользоваться ли ретрансляторами в интернете.
+    /// `false` — только прямые соединения (закрытая сеть, тесты).
+    #[serde(default = "yes")]
+    pub p2p_relay: bool,
     /// Откуда прочитан конфиг — туда же сохраняются изменения из админ-панели.
     #[serde(skip)]
     pub source: Option<PathBuf>,
@@ -57,6 +61,10 @@ impl Default for Storage {
     }
 }
 
+fn yes() -> bool {
+    true
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -64,6 +72,7 @@ impl Default for Config {
             tls: Tls::default(),
             storage: Storage::default(),
             backup: crm_core::backup::Policy::default(),
+            p2p_relay: true,
             source: None,
         }
     }

@@ -27,6 +27,8 @@ pub struct Runtime {
     pub hub: crate::events::Hub,
     /// Перевыпустить сертификат сейчас (сменился внешний адрес).
     pub tls_refresh: tokio::sync::Notify,
+    /// Узел подключения по ключу (если владелец включил).
+    pub p2p: crate::p2p::Slot,
 }
 
 impl Runtime {
@@ -64,6 +66,7 @@ impl AppState {
                 limiter: crate::limits::RateLimiter::default(),
                 hub: crate::events::Hub::default(),
                 tls_refresh: tokio::sync::Notify::new(),
+                p2p: crate::p2p::Slot::default(),
             }),
             ca_pem: None,
             ca_fingerprint: None,
@@ -134,6 +137,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/admin/remote",
             get(crate::remote::info).put(crate::remote::set),
+        )
+        .route(
+            "/api/admin/remote/p2p",
+            get(crate::p2p::info).put(crate::p2p::set),
         )
         .route(
             "/api/admin/remote/router",
