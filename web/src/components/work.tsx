@@ -43,7 +43,7 @@ export function StatusBadge({ s }: { s: Status }) {
 }
 
 /** Что значит цвет полосы — подсказка при наведении и легенда под списком. */
-export const deadlineLegend = 'Полоса слева — срок: зелёная — в запасе, жёлтая — срок скоро, красная — просрочена, серая — работа ещё не начата.';
+export const deadlineLegend = 'Полоса слева — срок: зелёная — в запасе, жёлтая — срок скоро, красная и красный фон строки — просрочена, серая — работа ещё не начата.';
 
 function deadlineHint(t: TaskSummary) {
   if ((t.status === 'waiting' || t.status === 'postponed') && t.deadline_state === 'ok') return 'Срок в запасе, работа не начата';
@@ -79,7 +79,7 @@ export function DeadlineText({ t }: { t: TaskSummary }) {
   const tone = {
     ok: 'text-slate-500',
     due_soon: 'text-amber-700 dark:text-amber-300 font-medium',
-    overdue: 'text-red-700 dark:text-red-300 font-semibold',
+    overdue: 'rounded-full bg-red-600 px-2 py-0.5 font-bold text-white shadow-sm shadow-red-600/30',
     done: 'text-slate-400',
   }[t.deadline_state];
   return (
@@ -123,10 +123,14 @@ export function TaskRow({ t, showClient = false, depth = 0, extra }: { t: TaskSu
     );
   }
   const done = t.status === 'completed';
+  // Просроченная строка залита красным целиком — её видно, не читая срок.
+  const fill = t.deadline_state === 'overdue'
+    ? 'bg-red-50 hover:bg-red-100 dark:bg-red-950/50 dark:hover:bg-red-950/80'
+    : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/60';
   return (
     <Link
       to={`/tasks/${t.id}`}
-      className={`group flex flex-wrap items-center gap-x-3 gap-y-1 border-l-4 bg-white py-2.5 pr-4 transition hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/60 ${deadlineBar(t)} ${done ? 'opacity-60' : ''}`}
+      className={`group flex flex-wrap items-center gap-x-3 gap-y-1 border-l-4 py-2.5 pr-4 transition ${fill} ${deadlineBar(t)} ${done ? 'opacity-60' : ''}`}
       style={{ paddingLeft: depth * 22 + 12 }}
       title={deadlineHint(t)}
     >
