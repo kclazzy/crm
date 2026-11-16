@@ -1,0 +1,51 @@
+name: android
+# Приложение CRM для Android (ветка android, план — docs/ANDROID.md).
+on:
+  push:
+    branches: [android]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/crm-mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Проект Android
+        run: |
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          npx -y @tauri-apps/cli@2 android init --ci --skip-targets-install
+          npx -y @tauri-apps/cli@2 icon ../crm-desktop/icons/source.png
+          ./android/overlay.sh
+          git status --short . | head -20
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      - name: Сборка APK
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_PASSWORD" ]; then kind=""; else kind="--debug"; fi
+          npx -y @tauri-apps/cli@2 android build --apk --ci $kind --target aarch64 --target armv7 --target x86_64
+          find gen/android/app/build/outputs/apk -name '*.apk' -exec ls -la {} \;
+          mkdir -p out && cp "$(find gen/android/app/build/outputs/apk -name '*.apk' | head -1)" out/CRM.apk
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: crm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CRM-Android
+          path: crates/crm-mobile/out/CRM.apk

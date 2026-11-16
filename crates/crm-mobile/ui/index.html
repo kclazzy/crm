@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>CRM</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="lock" hidden>
+    <h1>CRM</h1>
+    <p>Приложение заблокировано.</p>
+    <button id="unlock" class="primary">Разблокировать</button>
+    <p id="lock-error" class="error" hidden></p>
+  </section>
+
+  <main id="app" hidden>
+    <header>
+      <h1>CRM</h1>
+      <button id="add-open" class="primary">Добавить сервер</button>
+    </header>
+    <p id="empty" class="hint" hidden>Серверов пока нет. Получите у владельца CRM ключ подключения (текст или QR-код) и нажмите «Добавить сервер».</p>
+    <ul id="servers"></ul>
+    <label class="switch" id="lock-setting" hidden><input type="checkbox" id="lock-on"> Спрашивать отпечаток или PIN телефона при открытии</label>
+    <p id="toast" class="error" role="alert" hidden></p>
+  </main>
+
+  <dialog id="add">
+    <form id="add-form" method="dialog">
+      <h2>Добавить сервер</h2>
+      <p class="hint">Ключ подключения выдаёт владелец CRM: «Сотрудники» → «Ключ подключения».</p>
+      <button type="button" id="scan" class="primary">Сканировать QR-код</button>
+      <label>или вставьте ключ
+        <textarea id="key" rows="4" required spellcheck="false" autocapitalize="off" placeholder="CRM1-…"></textarea>
+      </label>
+      <label id="pin-row" hidden>PIN ключа
+        <input id="pin" inputmode="numeric" autocomplete="off">
+      </label>
+      <p id="add-error" class="error" hidden></p>
+      <div class="row">
+        <button type="button" id="add-cancel">Отмена</button>
+        <button type="submit" class="primary">Добавить</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="app.js"></script>
+</body>
+</html>

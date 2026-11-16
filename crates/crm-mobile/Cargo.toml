@@ -1,0 +1,27 @@
+[package]
+name = "crm-mobile"
+description = "CRM для Android: подключение по ключу сервера и окно CRM"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "crm_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+tokio = { version = "1", features = ["sync"] }
+crm-connect = { path = "../crm-connect" }
+crm-core = { path = "../crm-core" }
+
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"
+tauri-plugin-biometric = "2"
+
+[lints]
+workspace = true
