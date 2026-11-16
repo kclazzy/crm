@@ -198,5 +198,8 @@ async fn when_no_address_answers_the_node_key_connects() {
     near.node = s.node.clone();
     let p = probe::probe(&near).await;
     assert!(p.state == State::Online && !p.node && p.addr.is_some());
+    // …и сервер сам сообщает свой узел: программа запомнит его в офисе, новый ключ не нужен.
+    assert_eq!(p.node_id.as_deref(), Some(node.id.as_str()));
+    assert_eq!(p.node_udp, Some(node.udp_port));
     running.stop().await.unwrap();
 }

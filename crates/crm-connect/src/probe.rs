@@ -41,6 +41,9 @@ pub struct Probe {
     pub error: Option<String>,
     /// Связь идёт по ключу узла, а не по адресу.
     pub node: bool,
+    /// Узел, который сообщил сам сервер (ответ пришёл по адресу): программа его запоминает.
+    pub node_id: Option<String>,
+    pub node_udp: Option<u16>,
     /// По ключу узла, но через ретранслятор (медленнее прямого пути).
     pub relayed: bool,
 }
@@ -96,6 +99,8 @@ async fn connect_within(
 struct Health {
     version: String,
     public_addr: Option<String>,
+    node: Option<String>,
+    node_udp: Option<u16>,
 }
 
 async fn health(addr: &str, port: u16, fp: &str) -> Result<Health, ProbeError> {
@@ -127,6 +132,8 @@ async fn health_within(
             .map(str::to_owned)
             .ok_or(ProbeError::BadAnswer)?,
         public_addr: v["public_addr"].as_str().map(str::to_owned),
+        node: v["node"].as_str().map(str::to_owned),
+        node_udp: v["node_udp"].as_u64().and_then(|p| u16::try_from(p).ok()),
     })
 }
 
@@ -295,6 +302,8 @@ pub async fn probe(server: &Server) -> Probe {
                     state: State::Online,
                     via_internet: !crm_core::remote::is_office_addr(&addr),
                     public_addr: h.public_addr,
+                    node_id: h.node,
+                    node_udp: h.node_udp,
                     addr: Some(addr),
                     version: Some(h.version),
                     latency_ms: Some(started.elapsed().as_millis() as u64),
@@ -324,6 +333,8 @@ pub async fn probe(server: &Server) -> Probe {
             version: None,
             latency_ms: Some(latency),
             error: None,
+            node_id: None,
+            node_udp: None,
             node: true,
             relayed,
         };
@@ -340,6 +351,8 @@ pub async fn probe(server: &Server) -> Probe {
         version: None,
         latency_ms: None,
         error: last_error,
+        node_id: None,
+        node_udp: None,
         node: false,
         relayed: false,
     }

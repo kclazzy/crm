@@ -232,6 +232,9 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
     let p = probe(&server).await;
     if p.state == ProbeState::Online {
         let _ = st.learn_public_addr(&id, p.public_addr.as_deref());
+        if p.addr.is_some() {
+            let _ = st.learn_node(&id, p.node_id.as_deref(), p.node_udp);
+        }
     }
     let target = Target::of(&server, &p).await;
     let target = match (p.state, target) {
@@ -393,6 +396,9 @@ pub async fn keep_tunnels_fresh(app: AppHandle) {
             let p = probe(&server).await;
             if p.state == ProbeState::Online {
                 let _ = st.learn_public_addr(&id, p.public_addr.as_deref());
+                if p.addr.is_some() {
+                    let _ = st.learn_node(&id, p.node_id.as_deref(), p.node_udp);
+                }
             }
             // Туннель всегда ведём по тому пути, который ответил сейчас
             // (офис → дом → ключ узла и обратно); повтор того же пути ничего не рвёт.

@@ -212,6 +212,26 @@ impl Store {
         self.save(all)
     }
 
+    /// Сервер сообщил свой узел (или что владелец его выключил) — запомнить.
+    pub fn learn_node(
+        &self,
+        id: &str,
+        node: Option<&str>,
+        udp: Option<u16>,
+    ) -> Result<(), StoreError> {
+        let mut all = self.list()?;
+        let s = all
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or(StoreError::NotFound)?;
+        if s.node.as_deref() == node && s.udp == udp {
+            return Ok(());
+        }
+        s.node = node.map(str::to_owned);
+        s.udp = udp;
+        self.save(all)
+    }
+
     /// Сотрудник ввёл адрес сам (сервер переехал, сменился IP). Повтор ничего не меняет.
     pub fn add_addr(&self, id: &str, input: &str) -> Result<Server, StoreError> {
         let mut all = self.list()?;
@@ -403,6 +423,22 @@ mod tests {
             store.remove_addr(&id, "pc2"),
             Err(StoreError::NotFound)
         ));
+    }
+
+    #[test]
+    fn node_is_learned_from_the_server_and_forgotten_when_switched_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("servers.json"));
+        let id = store
+            .add_key(&key("AA:BB", &["pc"], None), Some("1234"))
+            .unwrap()
+            .server
+            .id;
+        store.learn_node(&id, Some("abcd"), Some(8443)).unwrap();
+        let s = store.get(&id).unwrap();
+        assert_eq!((s.node.as_deref(), s.udp), (Some("abcd"), Some(8443)));
+        store.learn_node(&id, None, None).unwrap();
+        assert_eq!(store.get(&id).unwrap().node, None);
     }
 
     #[test]

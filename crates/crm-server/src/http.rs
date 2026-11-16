@@ -290,15 +290,23 @@ struct Health {
     ca_fingerprint: Option<Arc<str>>,
     /// Внешний адрес (доступ через интернет): программа сотрудника запоминает его в офисе.
     public_addr: Option<String>,
+    /// Узел подключения по ключу (если владелец включил) — программа запоминает и его.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node_udp: Option<u16>,
 }
 
 async fn health(State(app): State<AppState>) -> Result<Json<Health>, ApiError> {
     sqlx::query("SELECT 1").execute(&app.pool).await?;
+    let node = app.rt.p2p.node().await;
     Ok(Json(Health {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
-        ca_fingerprint: app.ca_fingerprint,
         public_addr: crate::remote::address(&app.pool).await?,
+        node_udp: node.as_ref().map(|n| n.udp_port),
+        node: node.map(|n| n.id),
+        ca_fingerprint: app.ca_fingerprint,
     }))
 }
 
