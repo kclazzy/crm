@@ -138,7 +138,7 @@ function describe(p) {
     return `В сети · ${how} · ${p.latency_ms} мс`;
   }
   if (p.state === 'wrong_server') return 'Чужой сертификат — подключение запрещено';
-  return 'Не отвечает — проверьте интернет или сеть офиса';
+  return 'Не отвечает — нажмите «Проверить»';
 }
 
 async function loadServers() {
@@ -173,10 +173,99 @@ async function loadServers() {
       await invoke('server_remove', { id: s.id });
       loadServers();
     };
-    actions.append(open, del);
+    const check = document.createElement('button');
+    check.textContent = 'Проверить';
+    check.title = 'Проверить соединение и адреса сервера';
+    check.onclick = () => {
+      expanded = expanded === s.id ? null : s.id;
+      loadServers();
+    };
+    actions.append(open, check, del);
     li.append(dot, info, actions);
+    if (expanded === s.id) li.append(checkPanel(s));
     ul.append(li);
   }
+}
+
+// ---------- Проверка соединения и адреса сервера ----------
+
+// Сервер, у которого раскрыта проверка (пока раскрыта — список сам не перерисовывается).
+let expanded = null;
+
+function checkPanel(s) {
+  const box = document.createElement('div');
+  box.className = 'check-panel';
+  const rows = document.createElement('ul');
+  rows.className = 'checks';
+  const wait = document.createElement('li');
+  wait.textContent = 'Проверяю адреса…';
+  rows.append(wait);
+
+  const run = async () => {
+    const list = await invoke('server_check', { id: s.id });
+    rows.replaceChildren();
+    for (const c of list) {
+      const li = document.createElement('li');
+      const dot = document.createElement('i');
+      dot.className = `dot ${c.verdict === 'online' ? 'online' : c.verdict === 'wrong_server' ? 'wrong_server' : ''}`;
+      const text = document.createElement('span');
+      const addr = document.createElement('b');
+      addr.textContent = c.addr;
+      text.append(addr, ` — ${c.message}`);
+      li.append(dot, text);
+      if (c.manual) {
+        const x = document.createElement('button');
+        x.textContent = 'Убрать';
+        x.onclick = async () => {
+          await invoke('server_remove_addr', { id: s.id, addr: c.addr });
+          run().catch((e) => toast(String(e)));
+        };
+        li.append(x);
+      }
+      rows.append(li);
+    }
+    if (!list.length) {
+      const li = document.createElement('li');
+      li.textContent = 'У сервера нет адресов — добавьте адрес ниже.';
+      rows.append(li);
+    }
+  };
+
+  const form = document.createElement('form');
+  form.className = 'addr-form';
+  const input = document.createElement('input');
+  input.placeholder = 'Адрес сервера: 192.168.1.10 или office.example.ru';
+  input.required = true;
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Адрес сервера');
+  const add = document.createElement('button');
+  add.type = 'submit';
+  add.textContent = 'Добавить адрес';
+  const again = document.createElement('button');
+  again.type = 'button';
+  again.textContent = 'Проверить ещё раз';
+  again.onclick = () => run().catch((e) => toast(String(e)));
+  const err = document.createElement('p');
+  err.className = 'error';
+  err.hidden = true;
+  form.append(input, add, again);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    try {
+      await invoke('server_add_addr', { id: s.id, addr: input.value });
+      input.value = '';
+      await run();
+    } catch (x) {
+      err.textContent = String(x);
+      err.hidden = false;
+    }
+  };
+  const hint = document.createElement('small');
+  hint.textContent = 'Адрес можно ввести самому, если сервер переехал или сменился IP. Чужой сервер по неверному адресу не подключится: программа сверяет сертификат из ключа.';
+  box.append(rows, form, err, hint);
+  run().catch((e) => { wait.textContent = String(e); });
+  return box;
 }
 
 async function connect(button, id, invite) {
@@ -186,6 +275,7 @@ async function connect(button, id, invite) {
     await invoke('server_open', { id, invite });
   } catch (e) {
     toast(String(e));
+    expanded = id; // не подключились — сразу показать, какой адрес почему не отвечает
     loadServers();
   } finally {
     button.classList.remove('busy');
@@ -233,6 +323,8 @@ $('add-form').onsubmit = async (e) => {
       await invoke('server_open', { id: added.id, invite: added.invite });
     } else {
       toast(`Сервер «${added.name}» добавлен, но сейчас ${describe(added.probe).toLowerCase()}`);
+      expanded = added.id;
+      loadServers();
     }
   } catch (x) {
     err.textContent = String(x);
@@ -254,7 +346,7 @@ invoke('servers')
 
 // Статус серверов обновляется, пока список на экране.
 setInterval(() => {
-  if (!$('servers').hidden) loadServers().catch(() => {});
+  if (!$('servers').hidden && !expanded) loadServers().catch(() => {});
 }, 10000);
 
 // «Назад» на каждом экране: к выбору «сервер или подключение»; у владельца сервера — к панели.

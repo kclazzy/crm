@@ -196,6 +196,33 @@ pub fn server_rename(app: AppHandle, id: String, name: String) -> Result<(), Str
     store(&app)?.rename(&id, &name).map_err(|e| e.to_string())
 }
 
+/// «Проверить соединение»: каждый адрес сервера и почему он (не) отвечает.
+#[tauri::command]
+pub async fn server_check(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<crm_connect::probe::AddrCheck>, String> {
+    let server = store(&app)?.get(&id).map_err(|e| e.to_string())?;
+    Ok(crm_connect::probe::diagnose(&server).await)
+}
+
+/// Сотрудник ввёл адрес сервера сам. Подлинность всё равно проверит сертификат.
+#[tauri::command]
+pub fn server_add_addr(app: AppHandle, id: String, addr: String) -> Result<(), String> {
+    store(&app)?
+        .add_addr(&id, &addr)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn server_remove_addr(app: AppHandle, id: String, addr: String) -> Result<(), String> {
+    store(&app)?
+        .remove_addr(&id, &addr)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Подключиться: найти отвечающий адрес, открыть туннель, показать CRM в окне.
 /// `invite` — ключ был для нового сотрудника: сразу экран «Задайте пароль».
 #[tauri::command]
@@ -217,7 +244,7 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
         }
         _ => {
             return Err(format!(
-                "Сервер не отвечает. В офисе проверьте сеть; из дома — включил ли владелец доступ через интернет (раздел «Удалённый доступ»).{}",
+                "Сервер не отвечает — ниже проверка по каждому адресу.{}",
                 p.error.map(|e| format!(" ({e})")).unwrap_or_default()
             ))
         }
@@ -339,6 +366,7 @@ pub async fn open_own(app: AppHandle) -> Result<(), String> {
             addrs: vec!["127.0.0.1".into()],
             port: crate::server_ctl::PORT,
             fp,
+            manual: Vec::new(),
             last_addr: None,
             local_port: 0,
             user: None,

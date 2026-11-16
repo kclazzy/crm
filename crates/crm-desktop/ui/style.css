@@ -87,6 +87,16 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .servers .meta { color: var(--muted); font-size: 13px; }
 .servers .row-actions { display: flex; gap: 8px; }
 .servers .row-actions button { padding: 7px 12px; font-size: 13.5px; }
+.servers li { flex-wrap: wrap; }
+.check-panel { flex-basis: 100%; border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.check-panel small { color: var(--muted); font-size: 12.5px; }
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.servers .checks li { background: none; border: 0; box-shadow: none; padding: 0; gap: 10px; font-size: 13.5px; flex-wrap: nowrap; }
+.checks li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.checks li button { padding: 3px 9px; font-size: 12.5px; }
+.addr-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.addr-form input { flex: 1; min-width: 220px; }
+.addr-form button { padding: 7px 12px; font-size: 13.5px; }
 .empty { color: var(--muted); text-align: center; margin: 0 0 22px; }
 
 .back { align-self: flex-start; background: none; border: none; box-shadow: none; color: var(--muted); padding: 6px 10px 6px 0; margin-bottom: 8px; font-weight: 550; }
