@@ -1,6 +1,9 @@
 //! Подключение по ключу узла к настоящему серверу CRM: без адреса и без TLS-порта.
 #![allow(clippy::unwrap_used)]
 
+mod common;
+
+use axum::http::StatusCode;
 use crm_p2p::{Client, Dial, Relay};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -89,4 +92,33 @@ fn only_devices_inside_the_office_network_count_as_office() {
     };
     assert_ne!(origin(&peer(None)).ip(), origin(&other).ip());
     assert_eq!(origin(&peer(None)).ip(), origin(&peer(None)).ip());
+}
+
+/// Адрес устройства при входе по ключу сервера задаёт сам подключающийся (это его ключ),
+/// поэтому смена ключа не должна давать новые попытки подбора пароля.
+#[tokio::test]
+async fn changing_the_device_key_does_not_reset_password_guess_limit() {
+    let app = common::App::new().await;
+    app.owner().await;
+    let device = |n: u16| {
+        let peer = crm_p2p::Peer {
+            id: format!("{n:04x}").repeat(16),
+            direct: None,
+        };
+        format!("[{}]", crm_server::p2p::origin(&peer).ip())
+    };
+    for n in 0..crm_server::auth::LOCKOUT_LIMIT as u16 {
+        let (s, _) = app.try_login("owner", "не тот пароль", &device(n)).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+    }
+    // Новое «устройство» — а попыток больше нет, даже с верным паролем.
+    let (s, v) = app
+        .try_login("owner", "очень-надёжный-пароль", &device(999))
+        .await;
+    assert_eq!(s, StatusCode::TOO_MANY_REQUESTS, "{v}");
+    // В офисе владелец входит как обычно: блокировка касается только входа по ключу.
+    let (s, _) = app
+        .try_login("owner", "очень-надёжный-пароль", common::OFFICE_PC)
+        .await;
+    assert_eq!(s, StatusCode::OK);
 }

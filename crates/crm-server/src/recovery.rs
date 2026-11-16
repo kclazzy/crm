@@ -188,8 +188,8 @@ pub async fn forgot(
 ) -> Result<Json<Done>, ApiError> {
     let ip = addr.ip().to_string();
     let key = req.username.trim().to_lowercase();
-    let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action = 'reset.requested' AND ip = ? AND created_at > ?")
-        .bind(&ip)
+    let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action = 'reset.requested' AND ip LIKE ? AND created_at > ?")
+        .bind(crate::p2p::lockout_scope(&ip))
         .bind(now_ms() - Duration::minutes(15).num_milliseconds())
         .fetch_one(&app.pool)
         .await?;

@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "crm-connect"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "crm-core",
  "crm-p2p",
@@ -1077,7 +1077,7 @@ dependencies = [
 
 [[package]]
 name = "crm-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "crm-desktop"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "crm-connect",
  "crm-core",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "crm-p2p"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "iroh",
  "thiserror 2.0.21",
@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "crm-server"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "argon2",
  "axum",

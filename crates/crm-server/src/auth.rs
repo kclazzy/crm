@@ -227,11 +227,11 @@ pub(crate) async fn ensure_not_locked(
     let since = now_ms() - LOCKOUT_WINDOW.num_milliseconds();
     let failures: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_log
-         WHERE action = ? AND entity_id = ? AND ip = ? AND created_at > ?",
+         WHERE action = ? AND entity_id = ? AND ip LIKE ? AND created_at > ?",
     )
     .bind(action)
     .bind(key)
-    .bind(ip)
+    .bind(crate::p2p::lockout_scope(ip))
     .bind(since)
     .fetch_one(pool)
     .await?;
@@ -247,9 +247,9 @@ pub(crate) async fn ensure_ip_not_spraying(pool: &SqlitePool, ip: &str) -> Resul
     const IP_LIMIT: i64 = 20;
     let since = now_ms() - LOCKOUT_WINDOW.num_milliseconds();
     let failures: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit_log WHERE action = 'login.failed' AND ip = ? AND created_at > ?",
+        "SELECT count(*) FROM audit_log WHERE action = 'login.failed' AND ip LIKE ? AND created_at > ?",
     )
-    .bind(ip)
+    .bind(crate::p2p::lockout_scope(ip))
     .bind(since)
     .fetch_one(pool)
     .await?;
