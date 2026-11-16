@@ -89,11 +89,12 @@ async fn client(id: &str, direct: &[String]) -> Result<(), AnyError> {
         },
     )
     .await?;
-    println!(
-        "Проверяю связь 60 секунд. Можно включать и выключать VPN — смотрите, что меняется.\n"
-    );
+    println!("Проверяю связь 3 минуты. Можно включать и выключать VPN — смотрите, что меняется.\n");
     let (mut ok, mut fail) = (0u32, 0u32);
-    for n in 1..=20 {
+    let began = Instant::now();
+    for n in 1..=60 {
+        let at = began.elapsed().as_secs();
+        let at = format!("{}:{:02}", at / 60, at % 60);
         match round_trip(client.port()).await {
             Ok(t) => {
                 ok += 1;
@@ -104,11 +105,11 @@ async fn client(id: &str, direct: &[String]) -> Result<(), AnyError> {
                     Path::Relayed { rtt_ms } => format!("через ретранслятор, задержка {rtt_ms} мс"),
                     Path::None => "путь не определён".into(),
                 };
-                println!("{n:>2}. ответ за {:>4} мс — {how}", t.as_millis());
+                println!("{n:>2}. [{at}] ответ за {:>4} мс — {how}", t.as_millis());
             }
             Err(e) => {
                 fail += 1;
-                println!("{n:>2}. НЕТ СВЯЗИ: {e}");
+                println!("{n:>2}. [{at}] НЕТ СВЯЗИ: {e}");
             }
         }
         tokio::time::sleep(Duration::from_secs(3)).await;
