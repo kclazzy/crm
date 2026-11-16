@@ -77,6 +77,7 @@ pub async fn connection_key(
         user = Some(username);
     }
     let addrs = server_addrs(&app).await?;
+    let node = app.rt.p2p.node().await;
     let key = ServerKey {
         name: gethostname::gethostname().to_string_lossy().into_owned(),
         addrs: addrs.clone(),
@@ -84,6 +85,8 @@ pub async fn connection_key(
         fp,
         invite,
         user,
+        udp: node.as_ref().map(|n| n.udp_port),
+        node: node.map(|n| n.id),
     };
     let mut random = [0u8; 40];
     getrandom::fill(&mut random)

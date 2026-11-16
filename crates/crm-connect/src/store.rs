@@ -13,6 +13,12 @@ pub struct Server {
     pub addrs: Vec<String>,
     pub port: u16,
     pub fp: String,
+    /// Ключ узла сервера: подключение без адреса (из дома, за любым роутером).
+    #[serde(default)]
+    pub node: Option<String>,
+    /// UDP-порт узла — для прямого соединения в сети офиса.
+    #[serde(default)]
+    pub udp: Option<u16>,
     /// Адреса, которые сотрудник ввёл сам: ключ и сервер их не трогают.
     #[serde(default)]
     pub manual: Vec<String>,
@@ -126,6 +132,8 @@ impl Store {
             addrs: k.addrs,
             port: k.port,
             fp: k.fp,
+            node: k.node,
+            udp: k.udp,
             manual: Vec::new(),
             last_addr: None,
             local_port: 0,
@@ -144,6 +152,9 @@ impl Store {
         let updated = if let Some(old) = all.iter_mut().find(|x| x.id == s.id) {
             old.addrs = s.addrs;
             old.port = s.port;
+            // Ключ без узла (владелец выключил) убирает и узел.
+            old.node = s.node;
+            old.udp = s.udp;
             old.name = s.name;
             if s.user.is_some() {
                 old.user = s.user;
@@ -309,6 +320,8 @@ mod tests {
                 fp: fp.into(),
                 invite: invite.map(Into::into),
                 user: Some("ivan".into()),
+                node: None,
+                udp: None,
             },
             Some("1234"),
             [3; 40],

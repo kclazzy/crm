@@ -134,7 +134,9 @@ let knownServers = [];
 
 function describe(p) {
   if (p.state === 'online') {
-    const how = p.via_internet ? 'через интернет' : 'в сети офиса';
+    const how = p.node
+      ? (p.relayed ? 'по ключу сервера, через узел связи' : p.via_internet ? 'по ключу сервера, напрямую' : 'в сети офиса')
+      : p.via_internet ? 'через интернет' : 'в сети офиса';
     return `В сети · ${how} · ${p.latency_ms} мс`;
   }
   if (p.state === 'wrong_server') return 'Чужой сертификат — подключение запрещено';

@@ -23,6 +23,8 @@ fn server(port: u16, fp: &str, addrs: &[&str]) -> Server {
         addrs: addrs.iter().map(|a| (*a).to_owned()).collect(),
         port,
         fp: fp.into(),
+        node: None,
+        udp: None,
         manual: Vec::new(),
         last_addr: None,
         local_port: 0,
@@ -103,7 +105,7 @@ async fn tunnel_carries_plain_http_to_pinned_tls() {
     let fp = running.ca_fingerprint.clone().unwrap();
     let t = Tunnel::open(
         0,
-        Target {
+        Target::Tls {
             addr: "127.0.0.1".into(),
             port: running.addr.port(),
             fp: fp.clone(),
@@ -123,7 +125,7 @@ async fn tunnel_carries_plain_http_to_pinned_tls() {
     assert!(buf.contains(&fp));
 
     // Сервер с чужим сертификатом — понятная страница вместо соединения.
-    t.retarget(Target {
+    t.retarget(Target::Tls {
         addr: "127.0.0.1".into(),
         port: running.addr.port(),
         fp: "11".repeat(32),
@@ -139,5 +141,62 @@ async fn tunnel_carries_plain_http_to_pinned_tls() {
         buf.starts_with("HTTP/1.1 502") && buf.contains("не отвечает"),
         "{buf}"
     );
+    running.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn when_no_address_answers_the_node_key_connects() {
+    // Только прямые соединения: в тесте нет интернета.
+    std::env::set_var("CRM_P2P_RELAY", "off");
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = crm_server::config::Config::from_toml(&format!(
+        "listen = \"127.0.0.1:0\"\np2p_relay = false\n[storage]\ndb_dir = {:?}\nattachments_dir = {:?}\n",
+        dir.path().join("data"),
+        dir.path().join("files"),
+    ))
+    .unwrap();
+    let pool = crm_server::db::open(&cfg.storage).await.unwrap();
+    crm_server::p2p::set_enabled(&pool, true).await.unwrap();
+    pool.close().await;
+    let running = crm_server::server::start(&cfg).await.unwrap();
+    let node = running.p2p().await.unwrap();
+    let fp = running.ca_fingerprint.clone().unwrap();
+
+    // TCP-порт сервера «недоступен» (как из дома без открытого порта на роутере).
+    let dead = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut s = server(dead, &fp, &["127.0.0.1"]);
+    assert_eq!(
+        probe::probe(&s).await.state,
+        State::Offline,
+        "без узла связи нет"
+    );
+    s.node = Some(node.id.clone());
+    s.udp = Some(node.udp_port);
+
+    let p = probe::probe(&s).await;
+    assert_eq!(p.state, State::Online, "{:?}", p.error);
+    assert!(p.node && p.addr.is_none());
+    assert!(!p.via_internet, "прямой путь внутри сети — это офис");
+
+    let t = Tunnel::open(0, Target::of(&s, &p).await.unwrap())
+        .await
+        .unwrap();
+    let mut c = tokio::net::TcpStream::connect(t.local).await.unwrap();
+    c.write_all(b"GET /api/health HTTP/1.1\r\nHost: crm\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = String::new();
+    c.read_to_string(&mut buf).await.unwrap();
+    assert!(buf.starts_with("HTTP/1.1 200"), "{buf}");
+
+    // Если адрес отвечает — он в приоритете, узел не нужен.
+    let mut near = server(running.addr.port(), &fp, &["127.0.0.1"]);
+    near.node = s.node.clone();
+    let p = probe::probe(&near).await;
+    assert!(p.state == State::Online && !p.node && p.addr.is_some());
     running.stop().await.unwrap();
 }

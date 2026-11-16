@@ -233,8 +233,9 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
     if p.state == ProbeState::Online {
         let _ = st.learn_public_addr(&id, p.public_addr.as_deref());
     }
-    let addr = match (p.state, p.addr) {
-        (ProbeState::Online, Some(a)) => a,
+    let target = Target::of(&server, &p).await;
+    let target = match (p.state, target) {
+        (ProbeState::Online, Some(t)) => t,
         (ProbeState::WrongServer, _) => {
             return Err(
                 "Сервер отвечает с чужим сертификатом — подключение остановлено. \
@@ -249,12 +250,9 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
             ))
         }
     };
-    let _ = st.remember_addr(&id, &addr);
-    let target = Target {
-        addr,
-        port: server.port,
-        fp: server.fp.clone(),
-    };
+    if let Some(addr) = &p.addr {
+        let _ = st.remember_addr(&id, addr);
+    }
     let url = {
         let tunnels = app.state::<Tunnels>();
         let mut map = tunnels.0.lock().await;
@@ -366,6 +364,8 @@ pub async fn open_own(app: AppHandle) -> Result<(), String> {
             addrs: vec!["127.0.0.1".into()],
             port: crate::server_ctl::PORT,
             fp,
+            node: None,
+            udp: None,
             manual: Vec::new(),
             last_addr: None,
             local_port: 0,
@@ -394,16 +394,19 @@ pub async fn keep_tunnels_fresh(app: AppHandle) {
             if p.state == ProbeState::Online {
                 let _ = st.learn_public_addr(&id, p.public_addr.as_deref());
             }
-            if let (ProbeState::Online, Some(addr)) = (p.state, p.addr) {
-                if server.last_addr.as_deref() != Some(addr.as_str()) {
-                    let _ = st.remember_addr(&id, &addr);
+            // Туннель всегда ведём по тому пути, который ответил сейчас
+            // (офис → дом → ключ узла и обратно); повтор того же пути ничего не рвёт.
+            if p.state == ProbeState::Online {
+                if let Some(addr) = p
+                    .addr
+                    .as_ref()
+                    .filter(|a| server.last_addr.as_ref() != Some(*a))
+                {
+                    let _ = st.remember_addr(&id, addr);
+                }
+                if let Some(target) = Target::of(&server, &p).await {
                     if let Some(t) = app.state::<Tunnels>().0.lock().await.get(&id) {
-                        t.retarget(Target {
-                            addr,
-                            port: server.port,
-                            fp: server.fp.clone(),
-                        })
-                        .await;
+                        t.retarget(target).await;
                     }
                 }
             }

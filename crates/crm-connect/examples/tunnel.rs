@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
             return Ok(());
         }
     };
-    let t = Tunnel::open(local, Target { addr, port, fp }).await?;
+    let t = Tunnel::open(local, Target::Tls { addr, port, fp }).await?;
     println!("{}", t.url());
     std::future::pending::<()>().await;
     Ok(())

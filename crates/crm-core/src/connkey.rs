@@ -34,6 +34,13 @@ pub struct ServerKey {
     /// Логин приглашённого — для подсказки на экране.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    /// Ключ узла сервера: по нему программа находит сервер без адреса
+    /// (из дома, за любым роутером). `None` — владелец не включал.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    /// UDP-порт узла — для прямого соединения в сети офиса.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udp: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -163,7 +170,18 @@ mod tests {
             fp: "AB:CD:EF".into(),
             invite: Some("tok".into()),
             user: Some("ivan".into()),
+            node: Some("ab".repeat(32)),
+            udp: Some(8443),
         }
+    }
+
+    #[test]
+    fn key_from_older_server_has_no_node() {
+        let json = br#"{"name":"A","addrs":["pc"],"port":8443,"fp":"AB"}"#;
+        let mut raw = vec![PLAIN];
+        raw.extend_from_slice(json);
+        let k = decode(&format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(raw)), None).unwrap();
+        assert_eq!((k.node, k.udp), (None, None));
     }
 
     #[test]

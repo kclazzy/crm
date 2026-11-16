@@ -39,6 +39,10 @@ pub struct Probe {
     pub version: Option<String>,
     pub latency_ms: Option<u64>,
     pub error: Option<String>,
+    /// Связь идёт по ключу узла, а не по адресу.
+    pub node: bool,
+    /// По ключу узла, но через ретранслятор (медленнее прямого пути).
+    pub relayed: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -235,7 +239,48 @@ pub async fn diagnose(server: &Server) -> Vec<AddrCheck> {
             out.push(c);
         }
     }
+    if let Some(found) = crate::node::check(server).await {
+        out.push(node_check(found));
+    }
     out
+}
+
+/// Строка проверки «по ключу сервера» — без адреса, сервер находится сам.
+fn node_check(found: Result<crm_p2p::Path, String>) -> AddrCheck {
+    let (verdict, latency_ms, via_internet, message) = match &found {
+        Ok(path) => {
+            let office = crate::node::in_office(path);
+            let (how, ms) = match path {
+                crm_p2p::Path::Relayed { rtt_ms } => ("через узел связи в интернете", *rtt_ms),
+                crm_p2p::Path::Direct { rtt_ms, .. } if office => {
+                    ("напрямую в сети офиса", *rtt_ms)
+                }
+                crm_p2p::Path::Direct { rtt_ms, .. } => ("напрямую через интернет", *rtt_ms),
+                crm_p2p::Path::None => ("", 0),
+            };
+            (
+                Verdict::Online,
+                Some(ms),
+                !office,
+                format!("отвечает, {ms} мс — {how}"),
+            )
+        }
+        Err(_) => (
+            Verdict::NoAnswer,
+            None,
+            true,
+            "не отвечает: нет интернета или сервер выключен".to_owned(),
+        ),
+    };
+    AddrCheck {
+        addr: "По ключу сервера (без адреса)".into(),
+        manual: false,
+        via_internet,
+        verdict,
+        latency_ms,
+        version: None,
+        message,
+    }
 }
 
 /// Проверить адреса сервера по порядку: последний удачный, затем офис, затем интернет.
@@ -254,6 +299,8 @@ pub async fn probe(server: &Server) -> Probe {
                     version: Some(h.version),
                     latency_ms: Some(started.elapsed().as_millis() as u64),
                     error: None,
+                    node: false,
+                    relayed: false,
                 }
             }
             Err(e) => {
@@ -261,6 +308,25 @@ pub async fn probe(server: &Server) -> Probe {
                 last_error = Some(format!("{addr}: {e}"));
             }
         }
+    }
+    // Адреса не ответили — пробуем по ключу узла (если владелец его включил).
+    if let Some(Ok(path)) = crate::node::check(server).await {
+        let (relayed, latency) = match path {
+            crm_p2p::Path::Relayed { rtt_ms } => (true, rtt_ms),
+            crm_p2p::Path::Direct { rtt_ms, .. } => (false, rtt_ms),
+            crm_p2p::Path::None => (false, 0),
+        };
+        return Probe {
+            state: State::Online,
+            addr: None,
+            via_internet: !crate::node::in_office(&path),
+            public_addr: None,
+            version: None,
+            latency_ms: Some(latency),
+            error: None,
+            node: true,
+            relayed,
+        };
     }
     Probe {
         state: if wrong {
@@ -274,5 +340,7 @@ pub async fn probe(server: &Server) -> Probe {
         version: None,
         latency_ms: None,
         error: last_error,
+        node: false,
+        relayed: false,
     }
 }
