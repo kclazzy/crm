@@ -158,6 +158,11 @@ export function ConnectionKey({ userId, name, onClose }: { userId: string | null
       ) : (
         <div className="flex flex-col gap-4">
           <div className="max-h-40 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs break-all select-all dark:border-slate-700 dark:bg-slate-950">{key.key}</div>
+          <details className="text-sm">
+            <summary className="cursor-pointer font-medium">QR-код для приложения на телефоне</summary>
+            <img alt="QR-код ключа подключения" className="mt-2 w-64 max-w-full rounded-xl bg-white p-2" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(key.qr_svg)}`} />
+            <p className="mt-1 text-xs text-slate-500">В приложении CRM для Android: «Добавить сервер» → «Сканировать QR-код».</p>
+          </details>
           {key.with_pin && <p className="text-sm">PIN: <b className="font-mono text-lg tracking-widest">{pin}</b> — передайте отдельно.</p>}
           {key.invite_expires_at && <p className="text-xs text-slate-500">Приглашение действует до {new Date(key.invite_expires_at).toLocaleString('ru-RU')}.</p>}
           <p className="text-xs text-slate-500">Адреса в ключе: {key.addrs.join(', ')}</p>

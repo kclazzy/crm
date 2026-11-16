@@ -19,6 +19,8 @@ pub struct KeyIn {
 #[derive(Serialize)]
 pub struct KeyOut {
     key: String,
+    /// Тот же ключ QR-кодом — для приложения на телефоне.
+    qr_svg: String,
     with_pin: bool,
     /// До какого времени действует приглашение внутри ключа.
     invite_expires_at: Option<i64>,
@@ -93,6 +95,7 @@ pub async fn connection_key(
         .map_err(|e| ApiError::Failed(format!("генератор случайных чисел: {e}")))?;
     let key = encode(&key, pin, random).map_err(|e| ApiError::BadRequest(e.to_string()))?;
     Ok(Json(KeyOut {
+        qr_svg: qr(&key)?,
         key,
         with_pin: pin.is_some(),
         invite_expires_at: expires,

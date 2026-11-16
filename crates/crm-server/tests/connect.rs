@@ -25,6 +25,8 @@ async fn key_with_pin_carries_invite_that_works_once() {
     assert_eq!(s, StatusCode::OK, "{v}");
     let key = v["key"].as_str().unwrap();
     assert!(key.starts_with("CRM1-"));
+    // Тот же ключ — QR-кодом, для приложения на телефоне.
+    assert!(v["qr_svg"].as_str().unwrap().contains("<svg"), "{v}");
     assert!(decode(key, None).is_err(), "без PIN не открыть");
     let k = decode(key, Some("4821")).unwrap();
     assert_eq!(k.fp, "AB:CD:EF:01");
