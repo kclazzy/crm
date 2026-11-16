@@ -18,6 +18,19 @@ jobs:
       # Ядро и сервер (default-members); приложение Tauri — в задаче desktop.
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+  p2p:
+    # Прототип подключения «по ключу узла» (iroh): тест и проверочная программа для двух компьютеров.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p crm-p2p
+      - run: cargo build --release -p crm-p2p
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CRM-P2P-Test
+          path: target/release/crm-p2p-test.exe
   audit:
     runs-on: ubuntu-latest
     steps:

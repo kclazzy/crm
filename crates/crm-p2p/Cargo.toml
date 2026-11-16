@@ -1,0 +1,16 @@
+[package]
+name = "crm-p2p"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+iroh = "1"
+tokio = { version = "1", features = ["net", "io-util", "time", "rt-multi-thread", "macros", "sync", "signal"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

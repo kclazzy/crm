@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/crm-core", "crates/crm-server", "crates/crm-connect", "crates/crm-desktop"]
+members = ["crates/crm-core", "crates/crm-server", "crates/crm-connect", "crates/crm-desktop", "crates/crm-p2p"]
 # Приложение Tauri собирается отдельно (нужен WebView): CI-задача desktop на Windows.
 default-members = ["crates/crm-core", "crates/crm-server", "crates/crm-connect"]
 
