@@ -55,7 +55,7 @@ async fn server() -> Result<(), AnyError> {
             });
         }
     });
-    let key = iroh::SecretKey::generate().to_bytes();
+    let key = crm_p2p::new_key();
     let host = Host::start(key, UDP_PORT, crm, Relay::Public).await?;
     let direct = lan_ip().map_or(String::new(), |ip| format!(" {ip}:{}", host.udp_port()));
     println!("Узел сервера запущен. На втором компьютере выполните:\n");
