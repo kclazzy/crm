@@ -58,9 +58,15 @@ async fn servers(app: AppHandle) -> Result<Vec<ServerView>, String> {
     Ok(out)
 }
 
+/// Ключ, как его ввёл человек: из мессенджера он приходит с переносами строк и
+/// пробелами, а клавиатура телефона может вставить их сама.
+fn clean_key(input: &str) -> String {
+    input.split_whitespace().collect()
+}
+
 #[tauri::command]
 fn key_needs_pin(key: String) -> Result<bool, String> {
-    crm_core::connkey::needs_pin(key.trim()).map_err(|e| e.to_string())
+    crm_core::connkey::needs_pin(&clean_key(&key)).map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
@@ -73,7 +79,7 @@ struct AddedView {
 #[tauri::command]
 fn server_add(app: AppHandle, key: String, pin: Option<String>) -> Result<AddedView, String> {
     let Added { server, invite, .. } = store(&app)?
-        .add_key(key.trim(), pin.as_deref())
+        .add_key(&clean_key(&key), pin.as_deref())
         .map_err(|e| e.to_string())?;
     Ok(AddedView {
         id: server.id,
@@ -215,4 +221,18 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить приложение CRM");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_key;
+
+    #[test]
+    fn key_pasted_with_line_breaks_and_spaces_is_accepted() {
+        assert_eq!(
+            clean_key("  CRM1-AHsi\nbmFt ZSI6\r\n Imlw \t"),
+            "CRM1-AHsibmFtZSI6Imlw"
+        );
+        assert_eq!(clean_key("CRM1-abc"), "CRM1-abc");
+    }
 }

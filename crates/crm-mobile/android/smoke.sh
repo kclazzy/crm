@@ -50,7 +50,13 @@ print((x1 + x2) // 2, (y1 + y2) // 2)
 PY
 )
 sleep 1
-adb shell input text "$(cat out/key.txt)"
+# Длинную строку эмулятор вводит с потерями — подаём частями.
+key=$(cat out/key.txt)
+while [ -n "$key" ]; do
+  adb shell input text "${key:0:40}"
+  key=${key:40}
+  sleep 0.3
+done
 sleep 2
 adb exec-out screencap -p > "$out/screen-key.png"
 # К кнопке «Добавить» — клавишами: экранная клавиатура может её закрывать.
