@@ -143,6 +143,14 @@ pub fn router(state: AppState) -> Router {
             get(crate::p2p::info).put(crate::p2p::set),
         )
         .route(
+            "/api/admin/remote/devices",
+            get(crate::p2p::devices).put(crate::p2p::set_approval),
+        )
+        .route(
+            "/api/admin/remote/devices/{id}",
+            axum::routing::put(crate::p2p::set_device).delete(crate::p2p::remove_device),
+        )
+        .route(
             "/api/admin/remote/router",
             post(crate::router::open).delete(crate::router::close),
         )
@@ -297,8 +305,26 @@ struct Health {
     node_udp: Option<u16>,
 }
 
-async fn health(State(app): State<AppState>) -> Result<Json<Health>, ApiError> {
+#[derive(serde::Deserialize)]
+struct HealthQuery {
+    /// Ключ устройства программы сотрудника (подключение по ключу сервера).
+    device: Option<String>,
+}
+
+async fn health(
+    State(app): State<AppState>,
+    from: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    axum::extract::Query(q): axum::extract::Query<HealthQuery>,
+) -> Result<Json<Health>, ApiError> {
     sqlx::query("SELECT 1").execute(&app.pool).await?;
+    if let Some(device) = &q.device {
+        // Откуда запрос, неизвестно — устройство не одобряем.
+        let office =
+            from.is_some_and(|f| crm_core::remote::is_office_addr(&f.0 .0.ip().to_string()));
+        if office {
+            crate::p2p::seen_in_office(&app.pool, device).await?;
+        }
+    }
     let node = app.rt.p2p.node().await;
     Ok(Json(Health {
         status: "ok",

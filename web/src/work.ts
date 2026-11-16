@@ -3,6 +3,8 @@ import { ApiError } from './api';
 
 export type Priority = 1 | 2 | 3;
 export type Status = 'waiting' | 'in_progress' | 'postponed' | 'completed';
+export interface NodeDevice { id: string; code: string; name: string; approved: boolean; first_seen: number; last_seen: number }
+export interface NodeDevices { approval_required: boolean; devices: NodeDevice[] }
 export type DeadlineState = 'ok' | 'due_soon' | 'overdue' | 'done';
 export type TaskAccess = 'none' | 'path_only' | 'participant' | 'manage';
 export type ClientAccess = 'none' | 'view' | 'manage';
@@ -255,6 +257,10 @@ export const work = {
   routerClose: () => req<void>('DELETE', '/api/admin/remote/router'),
   nodeAccess: () => req<{ enabled: boolean; running: boolean }>('GET', '/api/admin/remote/p2p'),
   setNodeAccess: (enabled: boolean) => req<{ enabled: boolean; running: boolean }>('PUT', '/api/admin/remote/p2p', { enabled }),
+  nodeDevices: () => req<NodeDevices>('GET', '/api/admin/remote/devices'),
+  setDeviceApproval: (approval_required: boolean) => req<NodeDevices>('PUT', '/api/admin/remote/devices', { approval_required }),
+  setNodeDevice: (id: string, approved: boolean, name: string) => req<{ ok: true }>('PUT', `/api/admin/remote/devices/${id}`, { approved, name }),
+  removeNodeDevice: (id: string) => req<void>('DELETE', `/api/admin/remote/devices/${id}`),
   setRemote: (address: string) => req<RemoteInfo>('PUT', '/api/admin/remote', { address }),
   phone: () => req<{ kind: 'cert' | 'office' | 'internet'; url: string; qr_svg: string }[]>('GET', '/api/admin/phone'),
   restore: (name: string | null, dir: string | null) =>

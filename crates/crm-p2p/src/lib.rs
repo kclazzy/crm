@@ -43,21 +43,32 @@ pub enum Relay {
     Public,
 }
 
+/// Публичный ключ (имя узла) по секрету.
+pub fn public_id(key: &[u8; 32]) -> String {
+    SecretKey::from_bytes(key).public().to_string()
+}
+
 /// Новый случайный секрет узла.
 pub fn new_key() -> [u8; 32] {
     SecretKey::generate().to_bytes()
 }
 
-async fn endpoint(key: Option<[u8; 32]>, udp_port: u16, relay: Relay) -> Result<Endpoint, Error> {
+async fn endpoint(
+    key: Option<[u8; 32]>,
+    udp_port: u16,
+    relay: Relay,
+    accept: bool,
+) -> Result<Endpoint, Error> {
     let bind = |e: &dyn std::fmt::Display| Error::Bind(e.to_string());
     let mut b = match relay {
         Relay::Off => Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled),
         Relay::Public => Endpoint::builder(presets::N0),
     };
     if let Some(k) = key {
-        b = b
-            .secret_key(SecretKey::from_bytes(&k))
-            .alpns(vec![ALPN.to_vec()]);
+        b = b.secret_key(SecretKey::from_bytes(&k));
+    }
+    if accept {
+        b = b.alpns(vec![ALPN.to_vec()]);
     }
     b.bind_addr(SocketAddr::from(([0, 0, 0, 0], udp_port)))
         .map_err(|e| bind(&e))?
@@ -101,7 +112,7 @@ impl Host {
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
         let handler: Handler = Arc::new(move |p, s| Box::pin(handler(p, s)));
-        let endpoint = endpoint(Some(key), udp_port, relay).await?;
+        let endpoint = endpoint(Some(key), udp_port, relay, true).await?;
         let ep = endpoint.clone();
         let task = tokio::spawn(async move {
             while let Some(incoming) = ep.accept().await {
@@ -180,6 +191,9 @@ pub struct Dial {
     /// Прямые адреса (офис): работают без интернета.
     pub direct: Vec<SocketAddr>,
     pub relay: Relay,
+    /// Постоянный секрет этого устройства: по нему сервер узнаёт одобренный компьютер.
+    /// `None` — случайный на время работы.
+    pub key: Option<[u8; 32]>,
 }
 
 /// Каким путём сейчас идёт трафик.
@@ -213,7 +227,7 @@ impl Dialer {
             .iter()
             .fold(EndpointAddr::new(id), |a, d| a.with_ip_addr(*d));
         Ok(Self {
-            endpoint: endpoint(None, 0, dial.relay).await?,
+            endpoint: endpoint(dial.key, 0, dial.relay, false).await?,
             addr,
             conn: Mutex::new(None),
         })

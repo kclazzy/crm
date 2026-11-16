@@ -20,6 +20,37 @@ fn dialers() -> &'static Mutex<HashMap<String, Arc<Dialer>>> {
     ALL.get_or_init(Default::default)
 }
 
+/// Постоянный секрет этого компьютера (лежит рядом со списком серверов).
+static DEVICE_KEY: OnceLock<[u8; 32]> = OnceLock::new();
+
+/// Прочитать или создать секрет устройства в `dir`. Без него сервер видит программу
+/// каждый раз как новое устройство, и одобрение владельца не запоминается.
+pub fn use_device_key(dir: &std::path::Path) -> std::io::Result<()> {
+    if DEVICE_KEY.get().is_some() {
+        return Ok(());
+    }
+    let path = dir.join("device.key");
+    let key = match std::fs::read(&path)
+        .ok()
+        .and_then(|b| <[u8; 32]>::try_from(b).ok())
+    {
+        Some(k) => k,
+        None => {
+            let k = crm_p2p::new_key();
+            std::fs::create_dir_all(dir)?;
+            std::fs::write(&path, k)?;
+            k
+        }
+    };
+    let _ = DEVICE_KEY.set(key);
+    Ok(())
+}
+
+/// Имя этого устройства для сервера (`None` — секрет устройства не задан).
+pub fn device_id() -> Option<String> {
+    DEVICE_KEY.get().map(crm_p2p::public_id)
+}
+
 /// `CRM_P2P_RELAY=off` — только прямые соединения (закрытая сеть, тесты).
 fn relay() -> Relay {
     match std::env::var("CRM_P2P_RELAY").as_deref() {
@@ -61,6 +92,7 @@ pub async fn dialer(server: &Server) -> Option<Result<Arc<Dialer>, crm_p2p::Erro
         id: id.clone(),
         direct: direct(server).await,
         relay: relay(),
+        key: DEVICE_KEY.get().copied(),
     })
     .await
     .map(Arc::new);

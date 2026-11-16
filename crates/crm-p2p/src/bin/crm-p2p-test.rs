@@ -86,6 +86,7 @@ async fn client(id: &str, direct: &[String]) -> Result<(), AnyError> {
             id: id.to_owned(),
             direct,
             relay: Relay::Public,
+            key: None,
         },
     )
     .await?;

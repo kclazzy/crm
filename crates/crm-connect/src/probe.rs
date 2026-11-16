@@ -114,7 +114,10 @@ async fn health_within(
     wait: Duration,
 ) -> Result<Health, ProbeError> {
     let mut s = connect_within(addr, port, fp, wait).await?;
-    let req = format!("GET /api/health HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    // Называем серверу своё устройство: подключавшееся в офисе одобрять вне офиса не нужно.
+    let device = crate::node::device_id().map_or(String::new(), |d| format!("?device={d}"));
+    let req =
+        format!("GET /api/health{device} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes()).await?;
     let mut buf = Vec::new();
     tokio::time::timeout(READ_TIMEOUT, s.read_to_end(&mut buf))

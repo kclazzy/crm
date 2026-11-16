@@ -39,6 +39,7 @@ async fn requests_travel_by_key_without_internet_and_survive_host_restart() {
         id: host.id(),
         direct: vec![([127, 0, 0, 1], host.udp_port()).into()],
         relay: Relay::Off,
+        key: None,
     };
 
     let client = Client::open(0, dial.clone()).await.unwrap();
@@ -55,7 +56,18 @@ async fn requests_travel_by_key_without_internet_and_survive_host_restart() {
     // Сервер перезапустили с тем же ключом — программа подключается заново сама.
     let port = host.udp_port();
     host.stop().await;
-    let host = Host::start(key, port, crm, Relay::Off).await.unwrap();
+    // Порт освобождается не мгновенно — как и при настоящем перезапуске, пробуем несколько раз.
+    let mut restarted = None;
+    for _ in 0..20 {
+        match Host::start(key, port, crm, Relay::Off).await {
+            Ok(h) => {
+                restarted = Some(h);
+                break;
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+        }
+    }
+    let host = restarted.expect("узел перезапустился на том же порту");
     assert_eq!(host.id(), dial.id, "ключ тот же — адрес узла тот же");
     assert_eq!(ask(client.port(), "again").await, "crm got: again");
 

@@ -118,6 +118,8 @@ mod browser_tests {
 
 fn store(app: &AppHandle) -> Result<Store, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    // Секрет устройства — чтобы сервер узнавал этот компьютер после одобрения владельцем.
+    let _ = crm_connect::node::use_device_key(&dir);
     Ok(Store::new(dir.join("servers.json")))
 }
 

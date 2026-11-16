@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { Check, Copy, KeyRound, Plus, Trash2, UsersRound, Wand2 } from 'lucide-react';
 import { api, type TwoFactorPolicy } from '../api';
-import { type Group, type OrgSettings, type RemoteInfo, work } from '../work';
+import { dateTime, type Group, type NodeDevices, type OrgSettings, type RemoteInfo, work } from '../work';
 import { Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 import { PeoplePicker, usePeople } from '../components/work';
 
@@ -292,6 +292,75 @@ function NodeAccessCard() {
   );
 }
 
+/** Устройства, подключающиеся по ключу сервера вне офиса: заявки и одобренные. */
+function NodeDevicesCard() {
+  const [data, setData] = useState<NodeDevices | null>(null);
+  const [error, setError] = useState('');
+  const [names, setNames] = useState<Record<string, string>>({});
+  const load = useCallback(() => work.nodeDevices().then(setData).catch((e) => setError(e.message)), []);
+  useEffect(() => {
+    void load();
+    const t = setInterval(load, 10_000); // заявка появляется, когда сотрудник нажал «Подключиться»
+    return () => clearInterval(t);
+  }, [load]);
+  const act = async (f: () => Promise<unknown>) => {
+    setError('');
+    try { await f(); await load(); } catch (x) { setError((x as Error).message); }
+  };
+  if (!data) return <ErrorText>{error}</ErrorText>;
+  const pending = data.devices.filter((d) => !d.approved);
+  const approved = data.devices.filter((d) => d.approved);
+  return (
+    <section className="card p-5">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold">Устройства вне офиса</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Новый компьютер вне офиса не увидит даже страницу входа, пока вы его не одобрите. Сотрудник видит на экране код устройства и сообщает его вам. Компьютеры, которые хоть раз подключались программой в офисе, одобряются сами — в том числе ваш.
+          </p>
+        </div>
+        <label className="flex shrink-0 items-center gap-2 text-sm font-medium">
+          <input type="checkbox" checked={data.approval_required} onChange={(e) => act(() => work.setDeviceApproval(e.target.checked))} />Одобрять новые устройства
+        </label>
+      </div>
+      <ErrorText>{error}</ErrorText>
+      {!data.approval_required && <p className="mt-3 rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">Одобрение выключено: войти можно с любого компьютера, где есть ключ, пароль и код из приложения.</p>}
+      {pending.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-2 text-sm font-semibold">Ждут одобрения</h3>
+          <ul className="flex flex-col gap-2">
+            {pending.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50/60 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+                <b className="font-mono text-lg tracking-wider">{d.code}</b>
+                <span className="text-xs text-slate-500">запрос {dateTime(d.last_seen)}</span>
+                <input className="input min-w-40 flex-1 py-1.5 text-sm" placeholder="Чьё устройство: Ноутбук Ивана" aria-label={`Название устройства ${d.code}`} value={names[d.id] ?? ''} onChange={(e) => setNames({ ...names, [d.id]: e.target.value })} maxLength={80} />
+                <Button className="px-3 py-1.5 text-sm" onClick={() => act(() => work.setNodeDevice(d.id, true, names[d.id] ?? ''))}>Одобрить</Button>
+                <Button variant="secondary" className="px-3 py-1.5 text-sm" onClick={() => act(() => work.removeNodeDevice(d.id))}>Отклонить</Button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-slate-500">Одобряйте только код, который сотрудник назвал вам сам. Незнакомые заявки отклоняйте.</p>
+        </div>
+      )}
+      <div className="mt-4">
+        <h3 className="mb-2 text-sm font-semibold">Одобренные</h3>
+        {approved.length === 0 ? <p className="text-sm text-slate-500">Пока нет. Заявка появится здесь, когда сотрудник вне офиса нажмёт «Подключиться».</p> : (
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {approved.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+                <span className="font-mono">{d.code}</span>
+                <span className="min-w-0 flex-1 truncate">{d.name || 'без названия'}</span>
+                <span className="text-xs text-slate-500">был на связи {dateTime(d.last_seen)}</span>
+                <Button variant="secondary" className="px-3 py-1 text-sm" onClick={() => act(() => work.removeNodeDevice(d.id))} title="Ноутбук потерян или сотрудник ушёл">Отозвать</Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function AdminRemote() {
   const [info, setInfo] = useState<RemoteInfo | null>(null);
   const [error, setError] = useState('');
@@ -306,6 +375,7 @@ export function AdminRemote() {
       <div className="flex max-w-3xl flex-col gap-4">
         <ErrorText>{error}</ErrorText>
         <NodeAccessCard />
+        <NodeDevicesCard />
         <div className="mt-2">
           <h2 className="text-lg font-semibold">Способ 2. По адресу офиса — для телефонов и браузера</h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Нужен, чтобы открывать CRM с телефона или в браузере без программы. Требует «белый» IP (или DDNS) и правило на роутере — шаги ниже.</p>
