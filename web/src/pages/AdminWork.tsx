@@ -134,7 +134,8 @@ export function AdminOrg() {
 // ---------- Ключ подключения ----------
 
 export function ConnectionKey({ userId, name, onClose }: { userId: string | null; name?: string; onClose: () => void }) {
-  const [pin, setPin] = useState(() => String(Math.floor(1000 + Math.random() * 9000)));
+  // 6 цифр из криптографического генератора: ключ с PIN можно перебирать без сервера.
+  const [pin, setPin] = useState(() => String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000)));
   const [usePin, setUsePin] = useState(true);
   const [key, setKey] = useState<Awaited<ReturnType<typeof work.connectionKey>> | null>(null);
   const [error, setError] = useState('');

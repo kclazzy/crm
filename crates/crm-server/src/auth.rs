@@ -591,6 +591,21 @@ pub async fn accept_invite(
     .await?;
     let (invite_id, id, username, display_name, role) = row.ok_or(ApiError::BadInvite)?;
 
+    // Приглашение лежит в ключе подключения, который пересылают по почте и в
+    // мессенджерах. Если для этого адреса нужен код из приложения, принять
+    // приглашение из интернета нельзя: иначе перехвативший ключ привяжет свой
+    // телефон. В офисе — можно; по ключу сервера — тоже: устройство уже одобрил владелец.
+    let ip = addr.ip().to_string();
+    let required = match crate::two_factor::policy(&app.pool).await? {
+        crm_core::totp::Policy::All => true,
+        crm_core::totp::Policy::Remote => !crm_core::remote::is_office_addr(&ip),
+        crm_core::totp::Policy::Off => false,
+    };
+    let trusted = crm_core::remote::is_office_addr(&ip) || crate::p2p::is_device_addr(&ip);
+    if required && !trusted {
+        return Err(ApiError::InviteInOffice);
+    }
+
     check_password(&req.password, &Username::parse(&username)?)?;
     let hash = hash_password(req.password).await?;
 
@@ -620,14 +635,7 @@ pub async fn accept_invite(
             .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
         session_id: String::new(),
     };
-    let ip = addr.ip().to_string();
-    // Приглашение — личная одноразовая ссылка: оно и есть второе доказательство.
-    // Если организация требует код, его настраивают сразу после пароля — и не только в офисе.
-    let required = match crate::two_factor::policy(&app.pool).await? {
-        crm_core::totp::Policy::All => true,
-        crm_core::totp::Policy::Remote => !crm_core::remote::is_office_addr(&ip),
-        crm_core::totp::Policy::Off => false,
-    };
+    // Если организация требует код, его настраивают сразу после пароля.
     let needs_setup = required && !crate::two_factor::enrolled(&app.pool, &user.id).await?;
     let out = start_session(&app.pool, user, &req.device, &ip, needs_setup).await?;
     Ok(with_cookie(set_cookie(&out.token), Json(out)))

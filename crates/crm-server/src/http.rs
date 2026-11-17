@@ -359,6 +359,9 @@ pub enum ApiError {
     /// Из интернета — только с кодом, а он ещё не настроен.
     #[error("из интернета вход только с кодом из приложения — настройте его в офисе: меню «Код из приложения», или спросите владельца")]
     TwoFactorInOffice,
+    /// Приглашение из интернета, когда нужен код из приложения.
+    #[error("приглашение из интернета не принимается — примите его в офисе или в программе CRM на одобренном владельцем устройстве")]
+    InviteInOffice,
     /// Сессия есть, но до настройки кода работать нельзя.
     #[error("сначала настройте код из приложения: меню «Код из приложения»")]
     SetupTwoFactor,
@@ -403,9 +406,10 @@ impl IntoResponse for ApiError {
             | Self::BadCode
             | Self::NeedCode
             | Self::BadTwoFactorCode => StatusCode::UNAUTHORIZED,
-            Self::Forbidden | Self::TwoFactorInOffice | Self::SetupTwoFactor => {
-                StatusCode::FORBIDDEN
-            }
+            Self::Forbidden
+            | Self::TwoFactorInOffice
+            | Self::InviteInOffice
+            | Self::SetupTwoFactor => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) | Self::ConflictWith(_) => StatusCode::CONFLICT,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
