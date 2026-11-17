@@ -35,9 +35,8 @@ async fn oracle(pool: &SqlitePool, task: &str) -> Vec<String> {
     out
 }
 
-#[tokio::test]
-async fn event_audience_matches_full_access_check() {
-    let app = App::new().await;
+/// База с группами, руководителями, подзадачами, корзиной и отключёнными сотрудниками.
+async fn varied(app: &App) {
     app.owner().await;
     let p = &app.pool;
     let user = |id: &str, role: &str, active: i32| {
@@ -86,21 +85,68 @@ async fn event_audience_matches_full_access_check() {
         ('t4', 'e1'), ('t41', 'e5'), ('t41', 'e2'), ('t5', 'e1'), ('t111', 'm3')",
     )
     .await;
+}
 
-    for t in [
-        "t1",
-        "t11",
-        "t111",
-        "t2",
-        "t3",
-        "t31",
-        "t4",
-        "t41",
-        "t5",
-        "нет-такой",
-    ] {
+const TASKS: [&str; 10] = [
+    "t1",
+    "t11",
+    "t111",
+    "t2",
+    "t3",
+    "t31",
+    "t4",
+    "t41",
+    "t5",
+    "нет-такой",
+];
+
+#[tokio::test]
+async fn event_audience_matches_full_access_check() {
+    let app = App::new().await;
+    varied(&app).await;
+    let p = &app.pool;
+    for t in TASKS {
         let mut got = audience(p, t).await.unwrap();
         got.sort();
         assert_eq!(got, oracle(p, t).await, "задача {t}");
+    }
+}
+
+/// Проверка прав для одной задачи или одного клиента (обработчики чата, карточки
+/// задачи, этапов) — та же, что полная по всей базе, но без чтения всей базы.
+#[tokio::test]
+async fn narrow_access_checks_match_full_scope() {
+    let app = App::new().await;
+    varied(&app).await;
+    let p = &app.pool;
+    let users: Vec<(String, String)> = sqlx::query_as("SELECT id, role FROM users")
+        .fetch_all(p)
+        .await
+        .unwrap();
+    for (id, role) in users {
+        let role = role.parse().unwrap();
+        let full = Scope::load_for(p, &id, role).await.unwrap();
+        for t in TASKS {
+            let one = Scope::for_task(p, &id, role, t).await.unwrap();
+            assert_eq!(
+                (one.task(t).can_read(), one.task(t).can_manage()),
+                (full.task(t).can_read(), full.task(t).can_manage()),
+                "{id} → задача {t}"
+            );
+        }
+        for c in ["cA", "cB", "cD", "нет-такого"] {
+            let one = Scope::for_client(p, &id, role, c).await.unwrap();
+            assert_eq!(one.client(c), full.client(c), "{id} → клиент {c}");
+            // Задачи клиента — тоже как в полной проверке.
+            for t in TASKS {
+                if full.client_of(t) == Some(c) {
+                    assert_eq!(
+                        (one.task(t).can_read(), one.task(t).can_manage()),
+                        (full.task(t).can_read(), full.task(t).can_manage()),
+                        "{id} → клиент {c}, задача {t}"
+                    );
+                }
+            }
+        }
     }
 }

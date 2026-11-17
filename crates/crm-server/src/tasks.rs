@@ -682,7 +682,7 @@ pub async fn update(
     Path(id): Path<String>,
     Json(req): Json<TaskPatch>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     let access = scope.task_or_404(&id)?;
     let who = involvement(&app.pool, &id, &user).await?;
     check_edit(who, access.can_manage()).map_err(|_| ApiError::Forbidden)?;
@@ -820,7 +820,7 @@ pub async fn reassign(
     Path(id): Path<String>,
     Json(req): Json<AssigneesIn>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     let access = scope.task_or_404(&id)?;
     let mut ids: Vec<String> = Vec::new();
     for a in req.assignees {
@@ -927,7 +927,7 @@ pub async fn set_status(
     Path(id): Path<String>,
     Json(req): Json<StatusIn>,
 ) -> Result<Json<StatusOut>, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     scope.task_or_404(&id)?;
     check_status_change(involvement(&app.pool, &id, &user).await?)
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -1019,7 +1019,7 @@ pub async fn add_stage(
     Path(id): Path<String>,
     Json(req): Json<StageIn>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     scope.require_manage_task(&id)?;
     let title = parse_title(&req.title)?;
     let mut tx = crate::db::write_tx(&app.pool).await?;
@@ -1048,7 +1048,7 @@ pub async fn update_stage(
     Json(req): Json<StagePatch>,
 ) -> Result<StatusCode, ApiError> {
     let (task, title, done_at) = stage_task(&app.pool, &sid).await?;
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     let access = scope.task_or_404(&task)?;
     let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(t) = &req.title {
@@ -1102,7 +1102,7 @@ pub async fn delete_stage(
     Path(sid): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let (task, _, _) = stage_task(&app.pool, &sid).await?;
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.require_manage_task(&task)?;
     sqlx::query("DELETE FROM task_stages WHERE id = ?")
         .bind(&sid)
@@ -1119,7 +1119,7 @@ pub async fn trash(
     user: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     scope.require_manage_task(&id)?;
     let created_by: String = sqlx::query_scalar("SELECT created_by FROM tasks WHERE id = ?")
         .bind(&id)
@@ -1174,7 +1174,7 @@ pub async fn restore(
 
 /// Проверка прав на архив: задача видна, завершена, пользователь — исполнитель или владелец.
 async fn archive_check(app: &AppState, user: &CurrentUser, id: &str) -> Result<Current, ApiError> {
-    let scope = Scope::load(&app.pool, user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, id).await?;
     scope.task_or_404(id)?;
     let cur = current(&app.pool, id).await?;
     let status: TaskStatus = cur

@@ -18,31 +18,43 @@ pub struct Scope {
     client_group: HashMap<String, String>,
 }
 
+/// Задача: id, родитель, клиент, группа клиента, назначена ли пользователю.
+type Row = (String, Option<String>, String, String, bool);
+
+/// Кто спрашивает: роль и группы.
+async fn actor(
+    pool: &SqlitePool,
+    user_id: &str,
+    role: crm_core::auth::Role,
+) -> Result<Actor, ApiError> {
+    let groups: Vec<String> =
+        sqlx::query_scalar("SELECT group_id FROM group_members WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+    Ok(Actor {
+        id: user_id.to_owned(),
+        role,
+        groups: groups.into_iter().collect(),
+    })
+}
+
 impl Scope {
     pub async fn load(pool: &SqlitePool, user: &CurrentUser) -> Result<Self, ApiError> {
         Self::load_for(pool, &user.id, user.role).await
     }
 
+    /// Права на все клиенты и задачи — для списков и поиска.
     pub async fn load_for(
         pool: &SqlitePool,
         user_id: &str,
         role: crm_core::auth::Role,
     ) -> Result<Self, ApiError> {
-        let groups: Vec<String> =
-            sqlx::query_scalar("SELECT group_id FROM group_members WHERE user_id = ?")
-                .bind(user_id)
-                .fetch_all(pool)
-                .await?;
-        let actor = Actor {
-            id: user_id.to_owned(),
-            role,
-            groups: groups.into_iter().collect(),
-        };
         let clients: Vec<(String, String)> =
             sqlx::query_as("SELECT id, group_id FROM clients WHERE deleted_at IS NULL")
                 .fetch_all(pool)
                 .await?;
-        let rows: Vec<(String, Option<String>, String, String, bool)> = sqlx::query_as(
+        let rows: Vec<Row> = sqlx::query_as(
             "SELECT t.id, t.parent_task_id, t.client_id, c.group_id,
                     EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?)
              FROM tasks t JOIN clients c ON c.id = t.client_id
@@ -51,6 +63,69 @@ impl Scope {
         .bind(user_id)
         .fetch_all(pool)
         .await?;
+        Self::build(actor(pool, user_id, role).await?, clients, rows)
+    }
+
+    /// Права на одну задачу (карточка, чат, этапы, статус) — по цепочке «задача →
+    /// родители»: читать и управлять задачей дают роль, группа клиента и назначение
+    /// на неё или на родителя. Что задача у других — здесь неизвестно.
+    pub async fn for_task(
+        pool: &SqlitePool,
+        user_id: &str,
+        role: crm_core::auth::Role,
+        task_id: &str,
+    ) -> Result<Self, ApiError> {
+        let rows: Vec<Row> = sqlx::query_as(
+            "WITH RECURSIVE up(id, parent, client, grp, depth) AS (
+                 SELECT t.id, t.parent_task_id, t.client_id, c.group_id, 0
+                   FROM tasks t JOIN clients c ON c.id = t.client_id
+                  WHERE t.id = ? AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+                 UNION ALL
+                 SELECT t.id, t.parent_task_id, t.client_id, c.group_id, up.depth + 1
+                   FROM up JOIN tasks t ON t.id = up.parent JOIN clients c ON c.id = t.client_id
+                  WHERE t.deleted_at IS NULL AND c.deleted_at IS NULL AND up.depth < 64)
+             SELECT id, parent, client, grp,
+                    EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = up.id AND a.user_id = ?)
+               FROM up",
+        )
+        .bind(task_id)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+        Self::build(actor(pool, user_id, role).await?, Vec::new(), rows)
+    }
+
+    /// Права на одного клиента и все его задачи (карточка клиента, новая задача).
+    pub async fn for_client(
+        pool: &SqlitePool,
+        user_id: &str,
+        role: crm_core::auth::Role,
+        client_id: &str,
+    ) -> Result<Self, ApiError> {
+        let clients: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, group_id FROM clients WHERE id = ? AND deleted_at IS NULL")
+                .bind(client_id)
+                .fetch_all(pool)
+                .await?;
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT t.id, t.parent_task_id, t.client_id, c.group_id,
+                    EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?)
+             FROM tasks t JOIN clients c ON c.id = t.client_id
+             WHERE t.client_id = ? AND t.deleted_at IS NULL AND c.deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .bind(client_id)
+        .fetch_all(pool)
+        .await?;
+        Self::build(actor(pool, user_id, role).await?, clients, rows)
+    }
+
+    /// Правила `crm_core::access` над загруженными фактами — одно место для всех видов.
+    fn build(
+        actor: Actor,
+        clients: Vec<(String, String)>,
+        rows: Vec<Row>,
+    ) -> Result<Self, ApiError> {
         let mut task_client = HashMap::new();
         let nodes: Vec<TaskNode> = rows
             .into_iter()

@@ -140,7 +140,7 @@ pub async fn messages(
     user: CurrentUser,
     Path(task): Path<String>,
 ) -> Result<Json<Chat>, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.task_or_404(&task)?;
     let rows: Vec<MessageRow> =
         sqlx::query_as(
@@ -254,7 +254,7 @@ pub async fn post(
     Path(task): Path<String>,
     Json(req): Json<PostIn>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     if !scope.task_or_404(&task)?.can_work() {
         return Err(ApiError::Forbidden);
     }
@@ -334,7 +334,7 @@ pub async fn edit(
             .fetch_optional(&app.pool)
             .await?
             .ok_or(ApiError::NotFound)?;
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.task_or_404(&task)?;
     if sender != user.id || kind != "user" {
         return Err(ApiError::Forbidden);
@@ -388,7 +388,7 @@ pub async fn read(
     Path(task): Path<String>,
     Json(req): Json<ReadIn>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.task_or_404(&task)?;
     let last: Option<String> = match req.message_id {
         Some(m) => {
