@@ -307,3 +307,42 @@ async fn office_session_without_code_does_not_work_from_internet() {
         .await;
     assert_eq!(s, StatusCode::OK);
 }
+
+/// Приглашение лежит в ключе подключения, а ключ пересылают через почту и мессенджеры.
+/// Перехватив его (и подобрав короткий PIN), посторонний из интернета не должен
+/// стать сотрудником, привязав свой телефон, — как и при обычном входе без кода.
+#[tokio::test]
+async fn invite_from_the_internet_needs_office_or_an_approved_device() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let internet = "85.12.34.56";
+
+    let (_, invite) = app.invite(&owner, "ivan", "employee").await;
+    let (s, v) = app.accept(&invite, "пароль-сотрудника-1", internet).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("офисе"), "{v}");
+    // Приглашение не сгорело: в офисе сотрудник принимает его как обычно.
+    let (s, v) = app.accept(&invite, "пароль-сотрудника-1", OFFICE_PC).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+
+    // Устройство, пришедшее по ключу сервера, уже прошло одобрение владельца.
+    let (_, invite) = app.invite(&owner, "petr", "employee").await;
+    let device = format!("[2001:db8:{}]", "abcd:".repeat(5) + "abcd");
+    let (s, v) = app.accept(&invite, "пароль-сотрудника-1", &device).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+
+    // Код из приложения выключен владельцем — из интернета и так входят по паролю.
+    let (s, _) = app
+        .call(
+            "PUT",
+            "/api/admin/2fa",
+            LOCAL,
+            Some(&owner),
+            Some(json!({"policy": "off"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, invite) = app.invite(&owner, "olga", "employee").await;
+    let (s, v) = app.accept(&invite, "пароль-сотрудника-1", internet).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+}
