@@ -194,11 +194,7 @@ async fn chat_alert(app: &AppState, task: &str, kind: ReminderKind) -> Result<()
 }
 
 async fn owners(app: &AppState) -> Result<Vec<String>, ApiError> {
-    Ok(
-        sqlx::query_scalar("SELECT id FROM users WHERE role = 'host' AND is_active = 1")
-            .fetch_all(&app.pool)
-            .await?,
-    )
+    notify::owners(app).await
 }
 
 /// Тревоги владельцу: диск заполняется, копии не делаются.

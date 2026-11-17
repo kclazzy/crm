@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Bell as BellIcon, BellRing, Moon } from 'lucide-react';
 import { timeAgo } from '../api';
-import { reminderText, useLive } from '../live';
+import { noteTarget, reminderText, useLive } from '../live';
 import { work } from '../work';
 
 /** Колокольчик: напоминания о сроках и тревоги владельцу. */
@@ -41,7 +41,7 @@ export function Bell() {
             {bell.items.map((n) => {
               const t = reminderText(n);
               return (
-                <button key={n.id} onClick={() => { setOpen(false); if (n.task_id) navigate(`/tasks/${n.task_id}`); else navigate('/admin/storage'); }}
+                <button key={n.id} onClick={() => { setOpen(false); if (n.task_id) navigate(`/tasks/${n.task_id}`); else navigate(noteTarget(n)); }}
                   className={`block w-full border-b border-slate-100 px-4 py-2.5 text-left hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50 ${n.read_at ? 'opacity-60' : ''}`}>
                   <p className="text-sm font-medium">{t.title}</p>
                   <p className="truncate text-xs text-slate-500">{t.body}</p>

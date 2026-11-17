@@ -35,6 +35,20 @@ function osNotify(title: string, body: string) {
   }
 }
 
+function placeText(place: unknown): string {
+  return place === 'office' ? 'в офисе' : place === 'device' ? 'по ключу сервера, вне офиса' : 'из интернета';
+}
+
+/** Куда ведёт уведомление без задачи. */
+export function noteTarget(n: Note): string {
+  switch (n.kind) {
+    case 'login_failed': case 'login_locked': return '/admin/sessions';
+    case 'reset_requested': return '/admin/staff';
+    case 'device_pending': return '/admin/remote';
+    default: return '/admin/storage';
+  }
+}
+
 export function reminderText(n: Note): { title: string; body: string } {
   const p = n.payload as Record<string, string | number | null>;
   switch (n.kind) {
@@ -52,6 +66,14 @@ export function reminderText(n: Note): { title: string; body: string } {
       return { title: 'Диск заполняется', body: p.days_left ? `Том ${p.volume}: хватит примерно на ${p.days_left} дн.` : `Том ${p.volume}` };
     case 'backup_problem':
       return { title: 'Резервные копии не делаются', body: String(p.error ?? 'Проверьте папку копий в «Хранилище и копии»') };
+    case 'login_failed':
+      return { title: 'Неудачная попытка входа', body: `Логин «${p.username}» · ${placeText(p.place)}` };
+    case 'login_locked':
+      return { title: 'Вход заблокирован на 15 минут', body: `Логин «${p.username}»: 5 неудачных попыток · ${placeText(p.place)}` };
+    case 'reset_requested':
+      return { title: 'Просят сбросить пароль', body: `Логин «${p.username}» · «Сотрудники» → «Сбросить доступ»` };
+    case 'device_pending':
+      return { title: 'Новое устройство ждёт одобрения', body: `Код ${p.code} · «Удалённый доступ» → «Устройства вне офиса»` };
     default:
       return { title: 'Уведомление CRM', body: '' };
   }

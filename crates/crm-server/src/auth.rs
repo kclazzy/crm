@@ -242,6 +242,36 @@ pub(crate) async fn ensure_not_locked(
     }
 }
 
+/// Откуда пришёл человек — для уведомлений владельцу.
+fn place(ip: &str) -> &'static str {
+    if crate::p2p::is_device_addr(ip) {
+        "device"
+    } else if crm_core::remote::is_office_addr(ip) {
+        "office"
+    } else {
+        "internet"
+    }
+}
+
+/// Неудачная попытка входа уже записана в журнал: сказать владельцу — о первой
+/// за окно блокировки и о самой блокировке (по одному уведомлению на логин).
+async fn alert_failed_login(app: &AppState, key: &str, ip: &str) -> Result<(), ApiError> {
+    let window = LOCKOUT_WINDOW.num_milliseconds();
+    let failures: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action = 'login.failed' AND entity_id = ? AND created_at > ?",
+    )
+    .bind(key)
+    .bind(now_ms() - window)
+    .fetch_one(&app.pool)
+    .await?;
+    let payload = serde_json::json!({ "username": key, "place": place(ip) });
+    crate::notify::alert_owners(app, "login_failed", "username", payload.clone(), window).await?;
+    if failures >= LOCKOUT_LIMIT {
+        crate::notify::alert_owners(app, "login_locked", "username", payload, window).await?;
+    }
+    Ok(())
+}
+
 /// Медленный перебор разных логинов с одного IP: не больше 20 неудач за 15 минут.
 pub(crate) async fn ensure_ip_not_spraying(pool: &SqlitePool, ip: &str) -> Result<(), ApiError> {
     const IP_LIMIT: i64 = 20;
@@ -466,6 +496,7 @@ pub async fn login(
 
     if !verify_password(req.password, stored).await? {
         audit(&app.pool, None, "login.failed", Some(&key), &ip).await?;
+        alert_failed_login(&app, &key, &ip).await?;
         return Err(ApiError::BadCredentials);
     }
     let (id, display_name, role, _) = row.ok_or(ApiError::BadCredentials)?;
@@ -506,6 +537,7 @@ pub async fn login(
             if !crate::two_factor::check_code(&app.pool, &user.id, code).await? {
                 // Неверный код — та же блокировка, что и для пароля.
                 audit(&app.pool, None, "login.failed", Some(&key), &ip).await?;
+                alert_failed_login(&app, &key, &ip).await?;
                 return Err(ApiError::BadTwoFactorCode);
             }
             mfa_ok = true;
@@ -539,6 +571,7 @@ pub async fn verify(
     ensure_not_locked(&app.pool, "login.failed", &key, &ip).await?;
     if !crate::two_factor::check_code(&app.pool, &user.id, &req.code).await? {
         audit(&app.pool, None, "login.failed", Some(&key), &ip).await?;
+        alert_failed_login(&app, &key, &ip).await?;
         return Err(ApiError::BadTwoFactorCode);
     }
     sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE id = ?")

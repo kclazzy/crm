@@ -35,6 +35,49 @@ pub async fn push(
     Ok(())
 }
 
+/// Активные владельцы — им идут тревоги о сервере и безопасности.
+pub async fn owners(app: &AppState) -> Result<Vec<String>, ApiError> {
+    Ok(
+        sqlx::query_scalar("SELECT id FROM users WHERE role = 'host' AND is_active = 1")
+            .fetch_all(&app.pool)
+            .await?,
+    )
+}
+
+/// Тревога владельцам — если о том же (`kind` и то же значение `about` в payload)
+/// не сообщали за последние `within_ms`: повторы одной причины не засыпают колокольчик.
+pub async fn alert_owners(
+    app: &AppState,
+    kind: &str,
+    about: &str,
+    payload: serde_json::Value,
+    within_ms: i64,
+) -> Result<(), ApiError> {
+    let value = match payload.get(about) {
+        Some(serde_json::Value::String(v)) => v.clone(),
+        Some(v) => v.to_string(),
+        None => String::new(),
+    };
+    for o in owners(app).await? {
+        let told: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM notifications
+             WHERE user_id = ? AND kind = ? AND created_at > ?
+               AND json_extract(payload, '$.' || ?) = ?)",
+        )
+        .bind(&o)
+        .bind(kind)
+        .bind(now_ms() - within_ms)
+        .bind(about)
+        .bind(&value)
+        .fetch_one(&app.pool)
+        .await?;
+        if !told {
+            push(app, &o, None, kind, payload.clone()).await?;
+        }
+    }
+    Ok(())
+}
+
 /// Было ли уже такое уведомление пользователю за последние `within_ms` — чтобы не спамить.
 pub async fn recently(
     pool: &SqlitePool,
