@@ -607,6 +607,28 @@ pub struct AcceptIn {
     device: Device,
 }
 
+#[derive(Deserialize)]
+pub struct InviteCheckIn {
+    code: String,
+}
+
+/// Действует ли приглашение: программа хранит его, пока сотрудник не задал пароль,
+/// и использованное ведёт на обычный вход, а не на «Задайте пароль».
+pub async fn check_invite(
+    State(app): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<InviteCheckIn>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let valid: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM invites i JOIN users u ON u.id = i.user_id
+         WHERE i.token_hash = ? AND i.used_at IS NULL AND i.expires_at > ? AND u.is_active = 1)",
+    )
+    .bind(token_hash(q.code.trim()))
+    .bind(now_ms())
+    .fetch_one(&app.pool)
+    .await?;
+    Ok(Json(serde_json::json!({ "valid": valid })))
+}
+
 pub async fn accept_invite(
     State(app): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,

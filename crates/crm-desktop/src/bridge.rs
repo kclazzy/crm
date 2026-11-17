@@ -17,7 +17,7 @@ use crate::selftest;
 pub const APP_HOST: &str = "crm-app.invalid";
 
 /// Переход на `APP_HOST` — это команда, а не страница. `true` — переход перехвачен.
-pub fn intercept(url: &Url) -> bool {
+pub fn intercept(app: &tauri::AppHandle, url: &Url) -> bool {
     if url.host_str() != Some(APP_HOST) {
         return false;
     }
@@ -31,6 +31,9 @@ pub fn intercept(url: &Url) -> bool {
                 }
             }
         }
+        // Пароль задан (или приглашение устарело) — «Подключиться» больше не ведёт
+        // на «Задайте пароль».
+        "invite-done" => crate::connections::forget_invite(app),
         other => selftest::log(&format!("BRIDGE unknown {other}")),
     }
     true

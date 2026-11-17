@@ -381,3 +381,36 @@ async fn app_can_ask_whether_owner_is_still_needed() {
         .await;
     assert_eq!(v["needs_owner"], false);
 }
+
+/// Программа хранит приглашение, пока сотрудник не задал пароль, и спрашивает
+/// сервер, действует ли оно: использованное ведёт на обычный вход.
+#[tokio::test]
+async fn invite_can_be_checked_before_showing_the_password_form() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (_, invite) = app.invite(&owner, "ivan", "employee").await;
+    let check = |code: String| {
+        let app = &app;
+        async move {
+            let (s, v) = app
+                .call(
+                    "GET",
+                    &format!("/api/invites/check?code={code}"),
+                    OFFICE_PC,
+                    None,
+                    None,
+                )
+                .await;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            v["valid"].as_bool().unwrap()
+        }
+    };
+    assert!(check(invite.clone()).await);
+    assert!(!check("garbage".into()).await);
+    let (s, _) = app.accept(&invite, "пароль-сотрудника-1", OFFICE_PC).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(
+        !check(invite).await,
+        "использованное приглашение не действует"
+    );
+}

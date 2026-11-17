@@ -29,6 +29,11 @@ pub struct Server {
     pub local_port: u16,
     #[serde(default)]
     pub user: Option<String>,
+    /// Приглашение нового сотрудника из ключа — хранится, пока он не задал пароль:
+    /// если сервер не ответил в момент добавления, «Подключиться» откроет
+    /// «Задайте пароль», а не вход, где пароля ещё нет.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invite: Option<String>,
 }
 
 impl Server {
@@ -138,6 +143,7 @@ impl Store {
             last_addr: None,
             local_port: 0,
             user: k.user,
+            invite: k.invite.clone(),
         })
         .map(|(server, updated)| Added {
             server,
@@ -162,6 +168,8 @@ impl Store {
             if s.user.is_some() {
                 old.user = s.user;
             }
+            // Ключ с приглашением — новое приглашение; общий ключ — пароль уже задан.
+            old.invite = s.invite;
             s = old.clone();
             true
         } else {
@@ -234,6 +242,19 @@ impl Store {
         }
         s.node = node.map(str::to_owned);
         s.udp = udp;
+        self.save(all)
+    }
+
+    /// Приглашение использовано или устарело — больше не открывать «Задайте пароль».
+    pub fn forget_invite(&self, id: &str) -> Result<(), StoreError> {
+        let mut all = self.list()?;
+        let s = all
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or(StoreError::NotFound)?;
+        if s.invite.take().is_none() {
+            return Ok(());
+        }
         self.save(all)
     }
 
@@ -459,6 +480,36 @@ mod tests {
         store.learn_node(&id, Some("ef01"), Some(9443)).unwrap();
         let s = store.get(&id).unwrap();
         assert_eq!((s.node.as_deref(), s.udp), (Some("ef01"), Some(9443)));
+    }
+
+    #[test]
+    fn invite_is_kept_until_used_even_if_the_server_was_offline() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("servers.json"));
+        // Ключ нового сотрудника добавлен, а сервер в эту секунду не ответил
+        // (ждали одобрения устройства, пропал интернет): приглашение не теряется.
+        let id = store
+            .add_key(&key("AA:BB", &["pc"], Some("inv-1")), Some("1234"))
+            .unwrap()
+            .server
+            .id;
+        assert_eq!(store.get(&id).unwrap().invite.as_deref(), Some("inv-1"));
+        // Новый ключ с приглашением заменяет старое…
+        store
+            .add_key(&key("AA:BB", &["pc"], Some("inv-2")), Some("1234"))
+            .unwrap();
+        assert_eq!(store.get(&id).unwrap().invite.as_deref(), Some("inv-2"));
+        // …общий ключ без приглашения его убирает: пароль уже задан.
+        store
+            .add_key(&key("AA:BB", &["pc"], None), Some("1234"))
+            .unwrap();
+        assert_eq!(store.get(&id).unwrap().invite, None);
+        // Программа узнала, что приглашение использовано, — забывает его.
+        store
+            .add_key(&key("AA:BB", &["pc"], Some("inv-3")), Some("1234"))
+            .unwrap();
+        store.forget_invite(&id).unwrap();
+        assert_eq!(store.get(&id).unwrap().invite, None);
     }
 
     #[test]

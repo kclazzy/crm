@@ -29,6 +29,7 @@ fn server(port: u16, fp: &str, addrs: &[&str]) -> Server {
         last_addr: None,
         local_port: 0,
         user: None,
+        invite: None,
     }
 }
 

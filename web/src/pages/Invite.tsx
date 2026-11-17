@@ -1,9 +1,14 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { api, SECURITY_PATH } from '../api';
 import { AuthLayout } from '../components/AuthLayout';
 import { Button, ErrorText, Field } from '../components/ui';
 import { useAuth } from '../auth';
+
+/** Сказать программе CRM (если страница открыта в ней), что приглашение больше не нужно. */
+function inviteDone() {
+  (window as { crmApp?: { run?: (a: string) => void } }).crmApp?.run?.('invite-done');
+}
 
 export function Invite() {
   const [params] = useSearchParams();
@@ -11,6 +16,18 @@ export function Invite() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Программа хранит приглашение, пока пароль не задан. Использованное или устаревшее
+  // ведёт на обычный вход — иначе сотрудник застрял бы на «Задайте пароль».
+  useEffect(() => {
+    const code = params.get('code');
+    if (!code) return;
+    api.checkInvite(code).then(({ valid }) => {
+      if (valid) return;
+      inviteDone();
+      navigate('/login', { replace: true, state: { notice: 'Пароль по этому приглашению уже задан — войдите со своим паролем. Не помните его — «Забыли пароль?».' } });
+    }).catch(() => {});
+  }, [params, navigate]);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -21,6 +38,7 @@ export function Invite() {
     try {
       const { user, must_setup_2fa } = await api.acceptInvite(String(f.get('code')).trim(), String(f.get('password')));
       setMe(user);
+      inviteDone();
       navigate(must_setup_2fa ? SECURITY_PATH : '/', { replace: true });
     } catch (x) {
       setError((x as Error).message);
