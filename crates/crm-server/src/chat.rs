@@ -40,15 +40,22 @@ pub async fn system(
 
 /// Непрочитанные пользователем сообщения других людей — по задачам.
 /// ID сообщений — UUIDv7: строковый порядок совпадает с порядком времени.
-pub async fn unread_by_task(pool: &SqlitePool, me: &str) -> Result<HashMap<String, i64>, ApiError> {
+/// Непрочитанные по задачам; `only` — JSON-массив задач, которыми ограничиться.
+pub async fn unread_by_task(
+    pool: &SqlitePool,
+    me: &str,
+    only: Option<&str>,
+) -> Result<HashMap<String, i64>, ApiError> {
     let rows: Vec<(String, i64)> = sqlx::query_as(
         "SELECT m.task_id, count(*) FROM messages m
          LEFT JOIN chat_reads r ON r.task_id = m.task_id AND r.user_id = ?
          WHERE m.sender_id <> ? AND m.id > coalesce(r.last_read_message_id, '')
+           AND (?3 IS NULL OR m.task_id IN (SELECT value FROM json_each(?3)))
          GROUP BY m.task_id",
     )
     .bind(me)
     .bind(me)
+    .bind(only)
     .fetch_all(pool)
     .await?;
     Ok(rows.into_iter().collect())
@@ -66,11 +73,12 @@ pub async fn unread(
     user: CurrentUser,
 ) -> Result<Json<Unread>, ApiError> {
     let scope = Scope::load(&app.pool, &user).await?;
-    let tasks: HashMap<String, i64> = unread_by_task(&app.pool, &user.id)
-        .await?
-        .into_iter()
-        .filter(|(t, _)| scope.task(t).can_read())
-        .collect();
+    let tasks: HashMap<String, i64> =
+        unread_by_task(&app.pool, &user.id, scope.visible_json().as_deref())
+            .await?
+            .into_iter()
+            .filter(|(t, _)| scope.task(t).can_read())
+            .collect();
     Ok(Json(Unread {
         total: tasks.values().sum(),
         tasks,
@@ -140,7 +148,7 @@ pub async fn messages(
     user: CurrentUser,
     Path(task): Path<String>,
 ) -> Result<Json<Chat>, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.task_or_404(&task)?;
     let rows: Vec<MessageRow> =
         sqlx::query_as(
@@ -254,7 +262,7 @@ pub async fn post(
     Path(task): Path<String>,
     Json(req): Json<PostIn>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     if !scope.task_or_404(&task)?.can_work() {
         return Err(ApiError::Forbidden);
     }
@@ -268,7 +276,7 @@ pub async fn post(
         ));
     }
     let id = new_id();
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(r) = &req.reply_to {
         let same: i64 =
             sqlx::query_scalar("SELECT count(*) FROM messages WHERE id = ? AND task_id = ?")
@@ -334,7 +342,7 @@ pub async fn edit(
             .fetch_optional(&app.pool)
             .await?
             .ok_or(ApiError::NotFound)?;
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.task_or_404(&task)?;
     if sender != user.id || kind != "user" {
         return Err(ApiError::Forbidden);
@@ -388,7 +396,7 @@ pub async fn read(
     Path(task): Path<String>,
     Json(req): Json<ReadIn>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.task_or_404(&task)?;
     let last: Option<String> = match req.message_id {
         Some(m) => {
@@ -406,7 +414,7 @@ pub async fn read(
         }
     };
     if let Some(m) = last {
-        let mut tx = app.pool.begin().await?;
+        let mut tx = crate::db::write_tx(&app.pool).await?;
         mark_read(&mut tx, &user.id, &task, &m).await?;
         tx.commit().await?;
         unread_changed(&app, &user.id);
@@ -424,7 +432,7 @@ pub async fn read_all(
         sqlx::query_as("SELECT task_id, max(id) FROM messages GROUP BY task_id")
             .fetch_all(&app.pool)
             .await?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     for (task, m) in last {
         if scope.task(&task).can_read() {
             mark_read(&mut tx, &user.id, &task, &m).await?;

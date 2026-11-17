@@ -118,8 +118,16 @@ impl RateLimiter {
 }
 
 fn class_of(path: &str) -> Class {
-    let strict =
-        path.starts_with("/api/auth/") || path == "/api/invites/accept" || path == "/api/setup";
+    // Двери без входа: пароль, приглашение, код подключения, установщик.
+    let strict = path.starts_with("/api/auth/")
+        || matches!(
+            path,
+            "/api/invites/accept"
+                | "/api/invites/check"
+                | "/api/setup"
+                | "/api/enroll"
+                | "/download/CRM-Setup.exe"
+        );
     if strict {
         Class::Auth
     } else {

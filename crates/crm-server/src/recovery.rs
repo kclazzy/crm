@@ -55,7 +55,7 @@ pub async fn new_codes(
     Owner(owner): Owner,
 ) -> Result<Json<CodesOut>, ApiError> {
     let mut codes = Vec::with_capacity(CODES);
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query("DELETE FROM recovery_codes WHERE user_id = ?")
         .bind(&owner.id)
         .execute(&mut *tx)
@@ -138,7 +138,7 @@ pub async fn recover(
     check_password(&req.new_password, &Username::parse(&key)?)?;
     let hash = hash_password(req.new_password).await?;
 
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let claimed = sqlx::query(
         "UPDATE recovery_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL",
     )
@@ -241,7 +241,7 @@ pub async fn reset_owner_password(
     let (id, username) = owner.ok_or(ResetError::NoOwner)?;
     check_password(new_password, &Username::parse(&username)?)?;
     let hash = hash_password(new_password.to_owned()).await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write_tx(&pool).await?;
     set_password_and_close_sessions(&mut tx, &id, &hash).await?;
     // Телефон с кодом тоже мог потеряться: код настраивается заново после входа.
     sqlx::query(

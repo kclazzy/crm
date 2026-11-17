@@ -69,3 +69,13 @@ pub(crate) fn make_private(dir: &std::path::Path) -> Result<(), DbError> {
     let _ = dir;
     Ok(())
 }
+
+/// Транзакция записи: сразу берёт право писать (`BEGIN IMMEDIATE`). Обычный `BEGIN`
+/// начинает с чтения и пытается стать записью на полпути — если за это время записал
+/// кто-то другой, SQLite отказывает сразу, не дожидаясь `busy_timeout`, и сохранение
+/// теряется с «база заблокирована». IMMEDIATE ждёт своей очереди.
+pub async fn write_tx(
+    pool: &SqlitePool,
+) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, sqlx::Error> {
+    pool.begin_with("BEGIN IMMEDIATE").await
+}

@@ -102,6 +102,7 @@ pub async fn summaries(
     let org = crate::org::load(&app.pool).await?;
     let warn = Duration::hours(org.warn_hours());
     let now = Utc::now();
+    let only = scope.visible_json();
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT t.id, t.client_id, c.name AS client_name, t.parent_task_id, t.title, t.priority,
                 t.status, t.deadline_at, t.completed_at, t.archived_at, t.created_at,
@@ -110,16 +111,20 @@ pub async fn summaries(
                 (SELECT max(m.created_at) FROM messages m WHERE m.task_id = t.id) AS last_message_at
          FROM tasks t JOIN clients c ON c.id = t.client_id
          WHERE t.deleted_at IS NULL AND c.deleted_at IS NULL
+           AND (?1 IS NULL OR t.id IN (SELECT value FROM json_each(?1)))
          ORDER BY t.deadline_at",
     )
+    .bind(&only)
     .fetch_all(&app.pool)
     .await?;
     let mut assignees: HashMap<String, Vec<PersonRef>> = HashMap::new();
     let mut leads: HashMap<String, String> = HashMap::new();
     let pairs: Vec<(String, String, String, bool)> = sqlx::query_as(
         "SELECT a.task_id, u.id, u.display_name, a.is_lead FROM task_assignees a JOIN users u ON u.id = a.user_id
+         WHERE ?1 IS NULL OR a.task_id IN (SELECT value FROM json_each(?1))
          ORDER BY a.is_lead DESC, u.display_name COLLATE NOCASE",
     )
+    .bind(&only)
     .fetch_all(&app.pool)
     .await?;
     for (t, id, name, lead) in pairs {
@@ -136,7 +141,7 @@ pub async fn summaries(
             }
         }
     }
-    let unread = unread_by_task(&app.pool, me).await?;
+    let unread = unread_by_task(&app.pool, me, only.as_deref()).await?;
     let mut out = Vec::new();
     for r in rows {
         let access = scope.task(&r.id);
@@ -321,7 +326,7 @@ pub async fn get(
     user: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<Json<TaskCard>, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_card(&app.pool, &user.id, user.role, &id).await?;
     let access = scope.task_or_404(&id)?;
     let all = summaries(&app, &scope, &user.id).await?;
     let by_id: HashMap<&str, &TaskSummary> = all.iter().map(|t| (t.id.as_str(), t)).collect();
@@ -514,10 +519,11 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let title = parse_title(&req.title)?;
     check_description(&req.description)?;
-    let scope = Scope::load(&app.pool, &user).await?;
     let client_id = match &req.parent_id {
         Some(p) => {
-            scope.require_manage_task(p)?;
+            Scope::for_task(&app.pool, &user.id, user.role, p)
+                .await?
+                .require_manage_task(p)?;
             let parent = parent_of(&app.pool, p).await?;
             if parent.status == TaskStatus::Completed.as_str() || parent.archived_at.is_some() {
                 return Err(ApiError::Conflict(
@@ -532,6 +538,7 @@ pub async fn create(
                 .client_id
                 .clone()
                 .ok_or_else(|| ApiError::BadRequest("не указан клиент".into()))?;
+            let scope = Scope::for_client(&app.pool, &user.id, user.role, &c).await?;
             if scope.client_or_404(&c)? != ClientAccess::Manage {
                 return Err(ApiError::Forbidden);
             }
@@ -540,7 +547,7 @@ pub async fn create(
     };
     let id = new_id();
     let now = now_ms();
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "INSERT INTO tasks(id, client_id, parent_task_id, title, description, priority, status,
                            created_by, created_at, deadline_at)
@@ -682,7 +689,7 @@ pub async fn update(
     Path(id): Path<String>,
     Json(req): Json<TaskPatch>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     let access = scope.task_or_404(&id)?;
     let who = involvement(&app.pool, &id, &user).await?;
     check_edit(who, access.can_manage()).map_err(|_| ApiError::Forbidden)?;
@@ -696,7 +703,7 @@ pub async fn update(
     }
     let tz = crate::org::load(&app.pool).await?.tz();
     let who = &user.display_name;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(t) = &req.title {
         let t = parse_title(t)?;
         if t != cur.title {
@@ -820,7 +827,7 @@ pub async fn reassign(
     Path(id): Path<String>,
     Json(req): Json<AssigneesIn>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     let access = scope.task_or_404(&id)?;
     let mut ids: Vec<String> = Vec::new();
     for a in req.assignees {
@@ -854,7 +861,7 @@ pub async fn reassign(
         names(&app.pool, &before).await?,
         names(&app.pool, &ids).await?
     );
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     set_assignees(&mut tx, &id, &ids).await?;
     system(&mut tx, &id, &user.id, &text).await?;
     tx.commit().await?;
@@ -927,7 +934,7 @@ pub async fn set_status(
     Path(id): Path<String>,
     Json(req): Json<StatusIn>,
 ) -> Result<Json<StatusOut>, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     scope.task_or_404(&id)?;
     check_status_change(involvement(&app.pool, &id, &user).await?)
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -970,7 +977,7 @@ pub async fn set_status(
     .await?;
     if from != req.status {
         let completed = completed_at_after(req.status, cur.completed_at, now_ms());
-        let mut tx = app.pool.begin().await?;
+        let mut tx = crate::db::write_tx(&app.pool).await?;
         sqlx::query("UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?")
             .bind(req.status.as_str())
             .bind(completed)
@@ -1019,10 +1026,10 @@ pub async fn add_stage(
     Path(id): Path<String>,
     Json(req): Json<StageIn>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     scope.require_manage_task(&id)?;
     let title = parse_title(&req.title)?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let order: i64 = sqlx::query_scalar(
         "SELECT coalesce(max(sort_order), -1) + 1 FROM task_stages WHERE task_id = ?",
     )
@@ -1048,9 +1055,9 @@ pub async fn update_stage(
     Json(req): Json<StagePatch>,
 ) -> Result<StatusCode, ApiError> {
     let (task, title, done_at) = stage_task(&app.pool, &sid).await?;
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     let access = scope.task_or_404(&task)?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(t) = &req.title {
         if !access.can_manage() {
             return Err(ApiError::Forbidden);
@@ -1102,7 +1109,7 @@ pub async fn delete_stage(
     Path(sid): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let (task, _, _) = stage_task(&app.pool, &sid).await?;
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &task).await?;
     scope.require_manage_task(&task)?;
     sqlx::query("DELETE FROM task_stages WHERE id = ?")
         .bind(&sid)
@@ -1119,7 +1126,7 @@ pub async fn trash(
     user: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, &id).await?;
     scope.require_manage_task(&id)?;
     let created_by: String = sqlx::query_scalar("SELECT created_by FROM tasks WHERE id = ?")
         .bind(&id)
@@ -1174,7 +1181,7 @@ pub async fn restore(
 
 /// Проверка прав на архив: задача видна, завершена, пользователь — исполнитель или владелец.
 async fn archive_check(app: &AppState, user: &CurrentUser, id: &str) -> Result<Current, ApiError> {
-    let scope = Scope::load(&app.pool, user).await?;
+    let scope = Scope::for_task(&app.pool, &user.id, user.role, id).await?;
     scope.task_or_404(id)?;
     let cur = current(&app.pool, id).await?;
     let status: TaskStatus = cur
@@ -1228,7 +1235,7 @@ async fn archive_one(app: &AppState, user: &CurrentUser, id: &str) -> Result<boo
     if cur.archived_at.is_some() {
         return Ok(false);
     }
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN down ON t.parent_task_id = down.id)
          UPDATE tasks SET archived_at = ?, archived_by = ?
@@ -1283,7 +1290,7 @@ pub async fn unarchive(
             })?;
         }
     }
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN down ON t.parent_task_id = down.id),
               up(id, parent) AS (SELECT id, parent_task_id FROM tasks WHERE id = ?

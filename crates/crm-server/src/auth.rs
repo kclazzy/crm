@@ -480,8 +480,16 @@ pub async fn login(
 ) -> Result<WithCookie<Json<SessionOut>>, ApiError> {
     req.device.check()?;
     let ip = addr.ip().to_string();
-    // Ключ блокировки — то, что ввели, даже если такого логина нет.
-    let key = req.username.trim().to_lowercase();
+    // Ключ блокировки — то, что ввели, даже если такого логина нет. Логины не
+    // длиннее 32 байт, так что обрезка до 64 символов ни с кем не совпадёт,
+    // а в журнал и уведомление не уйдёт мегабайт текста.
+    let key: String = req
+        .username
+        .trim()
+        .to_lowercase()
+        .chars()
+        .take(64)
+        .collect();
 
     ensure_not_locked(&app.pool, "login.failed", &key, &ip).await?;
     ensure_ip_not_spraying(&app.pool, &ip).await?;
@@ -664,7 +672,7 @@ pub async fn accept_invite(
     check_password(&req.password, &Username::parse(&username)?)?;
     let hash = hash_password(req.password).await?;
 
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let claimed = sqlx::query("UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL")
         .bind(now_ms())
         .bind(&invite_id)
@@ -724,7 +732,7 @@ pub async fn create_user(
     let display_name = parse_display_name(&req.display_name)?;
     let id = new_id();
 
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "INSERT INTO users(id, username, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)",
     )
@@ -768,7 +776,7 @@ pub async fn reset_access(
     Owner(owner): Owner,
     Path(id): Path<String>,
 ) -> Result<Json<InviteOut>, ApiError> {
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let username: Option<String> = sqlx::query_scalar(
         "UPDATE users SET password_hash = NULL WHERE id = ? AND role <> 'host' RETURNING username",
     )
@@ -833,7 +841,7 @@ pub async fn disable_user(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let username = staff_username(&app.pool, &id).await?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query("UPDATE users SET is_active = 0 WHERE id = ?")
         .bind(&id)
         .execute(&mut *tx)
@@ -918,7 +926,7 @@ pub async fn delete_user(
         }
         None => None,
     };
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(h) = &heir {
         sqlx::query(
             "INSERT OR IGNORE INTO task_assignees(task_id, user_id)

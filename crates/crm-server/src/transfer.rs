@@ -404,7 +404,7 @@ pub async fn commit(
     let ix = index(&app).await?;
     let batch = new_id();
     let mut stats = Stats::default();
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "INSERT INTO import_batches(id, file_name, created_by, created_at) VALUES (?, ?, ?, ?)",
     )
@@ -517,7 +517,7 @@ pub async fn undo(
             "отменить импорт можно в течение суток и один раз",
         ));
     }
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let removed = sqlx::query(
         "DELETE FROM clients WHERE import_batch_id = ?
          AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.client_id = clients.id)",
