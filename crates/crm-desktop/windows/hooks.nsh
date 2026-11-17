@@ -7,6 +7,9 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Копия установщика рядом с программой: сервер раздаёт её компьютерам офиса
+  ; (https://сервер:8443/download/CRM-Setup.exe) — без флешки и интернета.
+  CopyFiles /SILENT "$EXEPATH" "$INSTDIR\CRM-Setup.exe"
   ; Обновление с «Удалить перед установкой»: возвращаем службу, удалённую старым деинсталлятором,
   ; с теми же данными и автозапуском. Если её не было — команда ничего не делает.
   nsExec::Exec '"$INSTDIR\crm-server.exe" service unpark'
@@ -28,6 +31,8 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; Копию установщика деинсталлятор Tauri не знает — убираем сами.
+  Delete "$INSTDIR\CRM-Setup.exe"
   ; Данные CRM удаляются только если пользователь сам отметил «Удалить данные приложения».
   ${If} $DeleteAppDataCheckboxState = 1
   ${AndIf} $UpdateMode <> 1

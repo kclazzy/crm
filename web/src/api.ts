@@ -169,6 +169,9 @@ export const api = {
   enableUser: (id: string) => request<void>('POST', `/api/admin/users/${id}/enable`),
   deleteUser: (id: string, reassignTo?: string) =>
     request<void>('DELETE', `/api/admin/users/${id}${reassignTo ? `?reassign_to=${encodeURIComponent(reassignTo)}` : ''}`),
+  enrollCode: (id: string) =>
+    request<{ code: string; expires_at: number; name: string; addrs: string[]; port: number }>('POST', `/api/admin/users/${id}/enroll-code`),
+  download: () => request<{ available: boolean; size: number | null }>('GET', '/api/download'),
   resetAccess: (id: string) => request<Invite>('POST', `/api/admin/users/${id}/reset`),
   sessions: () => request<Session[]>('GET', '/api/admin/sessions'),
   revokeSession: (id: string) => request<void>('DELETE', `/api/admin/sessions/${id}`),

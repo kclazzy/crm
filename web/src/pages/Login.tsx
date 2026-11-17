@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { api, ApiError, SECURITY_PATH } from '../api';
 import { AuthLayout } from '../components/AuthLayout';
@@ -10,6 +10,9 @@ export function Login() {
   const navigate = useNavigate();
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
   const [error, setError] = useState('');
+  // Программа CRM для Windows лежит на сервере — её скачивают прямо отсюда.
+  const [download, setDownload] = useState(false);
+  useEffect(() => { api.download().then((d) => setDownload(d.available)).catch(() => {}); }, []);
   const [busy, setBusy] = useState(false);
   // Пароль верный, сервер просит код из приложения (вход из интернета).
   const [creds, setCreds] = useState<{ username: string; password: string } | null>(null);
@@ -72,6 +75,11 @@ export function Login() {
           Есть приглашение?{' '}
           <Link to="/invite" className="font-semibold text-brand-600 hover:underline">Принять приглашение</Link>
         </p>
+        {download && (
+          <a href="/download/CRM-Setup.exe" download className="text-center text-sm font-semibold text-brand-600 hover:underline">
+            Скачать программу CRM для Windows
+          </a>
+        )}
       </form>
     </AuthLayout>
   );

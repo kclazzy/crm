@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, KeyRound, MoreHorizontal, RotateCcw, Smartphone, Trash2, UserCheck, UserPlus, UserX } from 'lucide-react';
+import { Check, Copy, KeyRound, Monitor, MoreHorizontal, RotateCcw, Smartphone, Trash2, UserCheck, UserPlus, UserX } from 'lucide-react';
 import { Menu, MenuItem } from '../components/Menu';
 import { ConnectionKey } from './AdminWork';
 import { api, type Invite, type Role, roleName, type StaffMember } from '../api';
@@ -45,14 +45,50 @@ function DeleteUser({ m, staff, onClose, onDone }: { m: StaffMember; staff: Staf
   );
 }
 
-function InviteResult({ name, invite }: { name: string; invite: Invite }) {
+/** Код для программы в офисе: сотрудник вводит адрес сервера и 8 символов — сам, без интернета. */
+function OfficeCode({ userId, name }: { userId: string; name: string }) {
+  const [c, setC] = useState<{ code: string; expires_at: number; name: string; addrs: string[]; port: number } | null>(null);
+  const [error, setError] = useState('');
+  const load = useCallback(() => { setError(''); api.enrollCode(userId).then(setC).catch((e) => setError(e.message)); }, [userId]);
+  useEffect(() => { load(); }, [load]);
+  if (!c) return <ErrorText>{error}</ErrorText>;
+  // Имя компьютера показано крупно; ниже — только IP-адреса на случай, если имя не находится.
+  const ips = c.addrs.filter((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a));
+  const until = new Date(c.expires_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
+      <p className="flex items-center gap-2 font-semibold"><Monitor className="size-4" />В офисе — программа CRM, без интернета</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <p className="text-xs text-slate-500">Адрес сервера</p>
+          <p className="font-mono text-lg font-semibold select-all">{c.name}</p>
+          {ips.length > 0 && <p className="text-xs text-slate-500">или {ips.join(', ')}</p>}
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Код · {name}</p>
+          <p className="font-mono text-2xl font-bold tracking-widest select-all">{c.code}</p>
+          <p className="text-xs text-slate-500">действует до {until}</p>
+        </div>
+      </div>
+      <ol className="list-decimal pl-5 text-sm text-slate-600 dark:text-slate-300">
+        <li>Установите программу CRM: на компьютере сотрудника откройте в браузере <span className="font-mono select-all">https://{c.name}:{c.port}</span> и внизу страницы входа нажмите «Скачать программу CRM». Браузер предупредит о сертификате — «Дополнительно» → «Перейти».</li>
+        <li>«Подключиться» → «В офисе: адрес сервера и код» → введите адрес и код.</li>
+        <li>Сотрудник сразу задаёт себе пароль — вы его не узнаете.</li>
+      </ol>
+      <p className="text-xs text-slate-500">Код можно продиктовать. Подсмотреть его по сети нельзя, после 10 неверных попыток он сгорает. <button className="font-medium text-brand-600 hover:underline" onClick={load}>Новый код</button></p>
+    </div>
+  );
+}
+
+function InviteResult({ name, invite, userId }: { name: string; invite: Invite; userId?: string }) {
   const link = `${location.origin}/invite?code=${encodeURIComponent(invite.invite_token)}`;
   const [copied, setCopied] = useState(false);
   const until = new Date(invite.invite_expires_at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   return (
     <div className="flex flex-col gap-4">
+      {userId && <OfficeCode userId={userId} name={name} />}
       <p className="text-sm text-slate-600 dark:text-slate-300">
-        Отправьте ссылку <b>{name}</b> лично. По ней сотрудник задаст свой пароль — вы его не узнаете. Ссылка одноразовая и действует до <b>{until}</b>.
+        {userId ? 'Или в браузере: отправьте ссылку' : 'Отправьте ссылку'} <b>{name}</b> лично. По ней сотрудник задаст свой пароль — вы его не узнаете. Ссылка одноразовая и действует до <b>{until}</b>.
       </p>
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs break-all select-all dark:border-slate-700 dark:bg-slate-950">{link}</div>
       <Button
@@ -70,7 +106,8 @@ function InviteResult({ name, invite }: { name: string; invite: Invite }) {
 export function AdminStaff() {
   const [staff, setStaff] = useState<StaffMember[] | null>(null);
   const [adding, setAdding] = useState(false);
-  const [result, setResult] = useState<{ name: string; invite: Invite } | null>(null);
+  const [result, setResult] = useState<{ name: string; invite: Invite; userId?: string } | null>(null);
+  const [codeFor, setCodeFor] = useState<StaffMember | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState<StaffMember | null>(null);
@@ -89,7 +126,7 @@ export function AdminStaff() {
       const name = String(f.get('display_name'));
       const r = await api.addStaff(String(f.get('username')), name, f.get('role') as Role);
       setAdding(false);
-      setResult({ name, invite: r });
+      setResult({ name, invite: r, userId: r.user.id });
       load();
     } catch (x) {
       setError((x as Error).message);
@@ -103,7 +140,7 @@ export function AdminStaff() {
     try {
       const invite = await api.resetAccess(m.id);
       setResetting(null);
-      setResult({ name: m.display_name, invite });
+      setResult({ name: m.display_name, invite, userId: m.id });
       load();
     } catch (x) {
       setError((x as Error).message);
@@ -147,6 +184,11 @@ export function AdminStaff() {
                   <div className="flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.reset_requested && <Badge tone="amber">Просит сбросить пароль</Badge>}{m.two_factor && <Badge tone="green">код ✓</Badge>}</div>
                 </td>
                 <td className="px-5 py-3.5 text-right">
+                  {m.role !== 'host' && m.state !== 'disabled' && (
+                    <Button variant="ghost" className="px-3 py-1.5 text-xs" onClick={() => setCodeFor(m)} title="Код для программы CRM в офисе: адрес сервера и 8 символов">
+                      <Monitor className="size-3.5" />Код
+                    </Button>
+                  )}
                   {m.state === 'invited' && (
                     <Button variant="ghost" className="px-3 py-1.5 text-xs" onClick={() => setKeyFor(m)} title="Ключ для программы CRM со встроенным приглашением">
                       <KeyRound className="size-3.5" />Ключ
@@ -221,6 +263,10 @@ export function AdminStaff() {
       {deleting && <DeleteUser m={deleting} staff={staff ?? []} onClose={() => setDeleting(null)} onDone={() => { setDeleting(null); void load(); }} />}
 
       {keyFor && <ConnectionKey userId={keyFor === 'all' ? null : keyFor.id} name={keyFor === 'all' ? undefined : keyFor.display_name} onClose={() => setKeyFor(null)} />}
+
+      <Modal open={!!codeFor} onClose={() => setCodeFor(null)} title={`Подключить программу — ${codeFor?.display_name ?? ''}`}>
+        {codeFor && <OfficeCode userId={codeFor.id} name={codeFor.display_name} />}
+      </Modal>
 
       <Modal open={!!result} onClose={() => setResult(null)} title="Приглашение готово">
         {result && <InviteResult {...result} />}

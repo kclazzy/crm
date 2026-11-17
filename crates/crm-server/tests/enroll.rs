@@ -63,6 +63,10 @@ async fn new_employee_joins_with_a_short_code_and_sets_a_password() {
     let code = v["code"].as_str().unwrap().to_owned();
     assert_eq!(code.len(), 9, "{v}");
     assert!(v["expires_at"].as_i64().unwrap() > 0);
+    // Вместе с кодом — что вводить в поле «Адрес сервера».
+    assert!(!v["name"].as_str().unwrap().is_empty(), "{v}");
+    assert!(v["addrs"].as_array().is_some_and(|a| !a.is_empty()), "{v}");
+    assert!(v["port"].is_u64(), "{v}");
 
     // Программа вводит код как придётся — строчными и без дефиса.
     let key = enroll(&app, &code.to_lowercase().replace('-', ""), FP)

@@ -20,6 +20,12 @@ const MAX_ATTEMPTS: i64 = 10;
 pub struct CodeOut {
     code: String,
     expires_at: i64,
+    /// Что сотрудник вводит в поле «Адрес сервера»: имя компьютера…
+    name: String,
+    /// …или один из его адресов в сети офиса.
+    addrs: Vec<String>,
+    /// Порт сервера — для адреса в браузере (скачать программу).
+    port: u16,
 }
 
 /// Новый код для сотрудника (прежний его код перестаёт действовать).
@@ -65,7 +71,18 @@ pub async fn new_code(
         }
     };
     tx.commit().await?;
-    Ok(Json(CodeOut { code, expires_at }))
+    let addrs = crate::connect::server_addrs(&app)
+        .await?
+        .into_iter()
+        .filter(|a| crm_core::remote::is_office_addr(a))
+        .collect();
+    Ok(Json(CodeOut {
+        code,
+        expires_at,
+        name: gethostname::gethostname().to_string_lossy().into_owned(),
+        addrs,
+        port: app.rt.config().listen.port(),
+    }))
 }
 
 #[derive(Deserialize)]
