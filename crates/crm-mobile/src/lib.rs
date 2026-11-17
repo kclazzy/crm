@@ -169,18 +169,30 @@ async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> Resu
     })
 }
 
+/// Можно ли окну перейти по адресу: экран серверов приложения и CRM через свой
+/// туннель на 127.0.0.1. Хост проверяется после разбора адреса — «127.0.0.1:1@чужой»
+/// ведёт на чужой сайт, а внутри приложения без адресной строки его не отличить от CRM.
+fn window_may_open(url: &tauri::Url) -> bool {
+    let plain = url.username().is_empty() && url.password().is_none();
+    match (url.scheme(), url.host_str()) {
+        ("tauri", Some("localhost")) => true,
+        ("http" | "https", Some("tauri.localhost" | "127.0.0.1")) => plain,
+        ("about", _) => url.path() == "blank",
+        _ => false,
+    }
+}
+
 /// Перевести окно на страницу CRM (с экрана серверов уйти обычной ссылкой нельзя:
 /// политика безопасности экрана запрещает переходы наружу).
 #[tauri::command]
 fn open_window(app: AppHandle, url: String) -> Result<(), String> {
-    let ok = url.starts_with("http://127.0.0.1:");
-    if !ok {
+    let u: tauri::Url = url.parse().map_err(|e| format!("адрес {url}: {e}"))?;
+    if u.host_str() != Some("127.0.0.1") || !window_may_open(&u) {
         return Err("окно открывает только CRM через своё подключение".into());
     }
     let w = app
         .get_webview_window("main")
         .ok_or_else(|| "окно не найдено".to_owned())?;
-    let u: tauri::Url = url.parse().map_err(|e| format!("адрес {url}: {e}"))?;
     w.navigate(u).map_err(|e| e.to_string())
 }
 
@@ -205,6 +217,7 @@ pub fn run() {
                 tauri::WebviewUrl::App("index.html".into()),
             )
             .initialization_script(guard_script())
+            .on_navigation(window_may_open)
             .build()?;
             Ok(())
         })
@@ -226,6 +239,21 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::clean_key;
+
+    #[test]
+    fn window_opens_only_crm_through_its_own_tunnel() {
+        use super::window_may_open;
+        let ok = |u: &str| window_may_open(&u.parse().unwrap());
+        assert!(ok("http://127.0.0.1:51234/"));
+        assert!(ok("http://tauri.localhost/index.html#list"));
+        assert!(
+            !ok("http://127.0.0.1:1@evil.example/"),
+            "имя пользователя в адресе"
+        );
+        assert!(!ok("http://127.0.0.1.evil.example/"));
+        assert!(!ok("https://evil.example/"));
+        assert!(!ok("http://192.168.1.10:8443/"));
+    }
 
     #[test]
     fn key_pasted_with_line_breaks_and_spaces_is_accepted() {
