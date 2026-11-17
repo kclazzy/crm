@@ -480,8 +480,16 @@ pub async fn login(
 ) -> Result<WithCookie<Json<SessionOut>>, ApiError> {
     req.device.check()?;
     let ip = addr.ip().to_string();
-    // Ключ блокировки — то, что ввели, даже если такого логина нет.
-    let key = req.username.trim().to_lowercase();
+    // Ключ блокировки — то, что ввели, даже если такого логина нет. Логины не
+    // длиннее 32 байт, так что обрезка до 64 символов ни с кем не совпадёт,
+    // а в журнал и уведомление не уйдёт мегабайт текста.
+    let key: String = req
+        .username
+        .trim()
+        .to_lowercase()
+        .chars()
+        .take(64)
+        .collect();
 
     ensure_not_locked(&app.pool, "login.failed", &key, &ip).await?;
     ensure_ip_not_spraying(&app.pool, &ip).await?;

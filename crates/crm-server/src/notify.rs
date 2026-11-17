@@ -44,6 +44,10 @@ pub async fn owners(app: &AppState) -> Result<Vec<String>, ApiError> {
     )
 }
 
+/// Сколько тревог одного вида владелец получает за час — при массовом переборе
+/// с многих адресов колокольчик не тонет; всё остальное есть в журнале.
+const ALERTS_PER_HOUR: i64 = 20;
+
 /// Тревога владельцам — если о том же (`kind` и то же значение `about` в payload)
 /// не сообщали за последние `within_ms`: повторы одной причины не засыпают колокольчик.
 pub async fn alert_owners(
@@ -61,14 +65,18 @@ pub async fn alert_owners(
     for o in owners(app).await? {
         let told: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM notifications
-             WHERE user_id = ? AND kind = ? AND created_at > ?
-               AND json_extract(payload, '$.' || ?) = ?)",
+                             WHERE user_id = ?1 AND kind = ?2 AND created_at > ?3
+                               AND json_extract(payload, '$.' || ?4) = ?5)
+                 OR (SELECT count(*) FROM notifications
+                      WHERE user_id = ?1 AND kind = ?2 AND created_at > ?6) >= ?7",
         )
         .bind(&o)
         .bind(kind)
         .bind(now_ms() - within_ms)
         .bind(about)
         .bind(&value)
+        .bind(now_ms() - 3_600_000)
+        .bind(ALERTS_PER_HOUR)
         .fetch_one(&app.pool)
         .await?;
         if !told {

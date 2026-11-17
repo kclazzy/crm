@@ -120,3 +120,44 @@ async fn owner_hears_about_new_device_waiting_for_approval() {
     );
     assert_eq!(pending[0]["code"], "1A2B-1A2B");
 }
+
+/// Перебор множества разных логинов с многих адресов не засыпает колокольчик:
+/// за час — не больше ограниченного числа тревог одного вида; всё остальное
+/// остаётся в журнале.
+#[tokio::test]
+async fn flood_of_different_logins_is_capped_in_the_bell() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    for i in 0..40 {
+        let ip = format!("85.12.{}.{}", i / 200, i % 200 + 1);
+        app.try_login(&format!("guess{i}"), "123456", &ip).await;
+    }
+    let failed = kinds(&bell(&app, &owner).await, "login_failed").len();
+    assert!((1..=20).contains(&failed), "тревог о входе: {failed}");
+    let logged: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action = 'login.failed'")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(logged, 40, "в журнале — все попытки");
+}
+
+/// Логин длиной в мегабайт не попадает целиком ни в журнал, ни в уведомление.
+#[tokio::test]
+async fn huge_login_is_cut_before_journal_and_bell() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let huge = "я".repeat(100_000);
+    let (s, _) = app.try_login(&huge, "123456", "85.12.34.56").await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let failed = kinds(&bell(&app, &owner).await, "login_failed");
+    let shown = failed[0]["username"].as_str().unwrap().chars().count();
+    assert!(shown <= 64, "в уведомлении {shown} символов");
+    let longest: i64 = sqlx::query_scalar(
+        "SELECT max(length(entity_id)) FROM audit_log WHERE action = 'login.failed'",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert!(longest <= 64, "в журнале {longest} символов");
+}
