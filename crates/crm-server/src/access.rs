@@ -140,22 +140,76 @@ impl Scope {
 }
 
 /// Кто из пользователей видит задачу — им уходят события чата и счётчики.
+///
+/// Читать задачу дают роль, группа её клиента и назначение на неё саму или на
+/// родителя; подзадачи дают лишь «путь». Поэтому правила (`crm_core::access`)
+/// проверяются на цепочке «задача → родители», а не на всей базе: рассылка не
+/// замедляется с ростом числа задач и сотрудников.
 pub async fn audience(pool: &SqlitePool, task_id: &str) -> Result<Vec<String>, ApiError> {
+    // Задача и её родители — как их видит `Scope`: не в корзине, клиент не в корзине.
+    let chain: Vec<(String, Option<String>, String)> = sqlx::query_as(
+        "WITH RECURSIVE up(id, parent, grp, depth) AS (
+             SELECT t.id, t.parent_task_id, c.group_id, 0
+               FROM tasks t JOIN clients c ON c.id = t.client_id
+              WHERE t.id = ? AND t.deleted_at IS NULL AND c.deleted_at IS NULL
+             UNION ALL
+             SELECT t.id, t.parent_task_id, c.group_id, up.depth + 1
+               FROM up JOIN tasks t ON t.id = up.parent JOIN clients c ON c.id = t.client_id
+              WHERE t.deleted_at IS NULL AND c.deleted_at IS NULL AND up.depth < 64)
+         SELECT id, parent, grp FROM up ORDER BY depth",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await?;
+    if chain.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<&str> = chain.iter().map(|(id, _, _)| id.as_str()).collect();
+    let in_chain = serde_json::to_string(&ids).map_err(|e| ApiError::Failed(e.to_string()))?;
+    let assigned: HashSet<(String, String)> = sqlx::query_as(
+        "SELECT task_id, user_id FROM task_assignees WHERE task_id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(&in_chain)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
     let users: Vec<(String, String)> =
         sqlx::query_as("SELECT id, role FROM users WHERE is_active = 1")
             .fetch_all(pool)
             .await?;
+    let mut groups: HashMap<String, HashSet<String>> = HashMap::new();
+    for (user, group) in
+        sqlx::query_as::<_, (String, String)>("SELECT user_id, group_id FROM group_members")
+            .fetch_all(pool)
+            .await?
+    {
+        groups.entry(user).or_default().insert(group);
+    }
+
     let mut out = Vec::new();
     for (id, role) in users {
-        let role = role
-            .parse()
-            .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?;
-        if Scope::load_for(pool, &id, role)
-            .await?
-            .task(task_id)
-            .can_read()
+        let actor = Actor {
+            role: role
+                .parse()
+                .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
+            groups: groups.remove(&id).unwrap_or_default(),
+            id,
+        };
+        let nodes: Vec<TaskNode> = chain
+            .iter()
+            .map(|(t, parent, group)| TaskNode {
+                id: t.clone(),
+                parent: parent.clone(),
+                group: group.clone(),
+                assigned_to_actor: assigned.contains(&(t.clone(), actor.id.clone())),
+            })
+            .collect();
+        if task_access(&actor, &nodes)
+            .get(task_id)
+            .is_some_and(|a| a.can_read())
         {
-            out.push(id);
+            out.push(actor.id);
         }
     }
     Ok(out)
