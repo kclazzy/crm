@@ -15,6 +15,7 @@ hmac = "0.12"
 serde.workspace = true
 serde_json = "1"
 sha1 = "0.10"
+spake2 = "0.4"
 thiserror.workspace = true
 
 [dev-dependencies]
