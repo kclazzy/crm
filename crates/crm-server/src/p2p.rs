@@ -210,6 +210,18 @@ pub async fn seen_in_office(pool: &SqlitePool, device: &str) -> Result<(), sqlx:
     Ok(())
 }
 
+/// Новое устройство ждёт одобрения — сказать владельцу (об одном устройстве — раз в сутки).
+pub async fn alert_pending(app: &AppState, peer: &Peer) -> Result<(), ApiError> {
+    crate::notify::alert_owners(
+        app,
+        "device_pending",
+        "code",
+        serde_json::json!({ "code": device_code(&peer.id) }),
+        24 * 60 * 60 * 1000,
+    )
+    .await
+}
+
 /// Страница вместо CRM для неодобренного устройства.
 async fn refuse(mut stream: Stream, code: &str) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -332,11 +344,14 @@ pub async fn remove_device(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-async fn serve_stream(router: Router, pool: SqlitePool, peer: Peer, stream: Stream) {
+async fn serve_stream(router: Router, app: AppState, peer: Peer, stream: Stream) {
     use hyper_util::rt::{TokioExecutor, TokioIo};
-    match admit(&pool, &peer).await {
+    match admit(&app.pool, &peer).await {
         Ok(Admit::Serve) => {}
-        Ok(Admit::Pending { code }) => return refuse(stream, &code).await,
+        Ok(Admit::Pending { code }) => {
+            let _ = alert_pending(&app, &peer).await;
+            return refuse(stream, &code).await;
+        }
         // База недоступна — не пускаем: безопаснее отказать, чем пропустить.
         Err(_) => return,
     }
@@ -383,9 +398,9 @@ pub async fn apply(app: &AppState) -> Result<Option<Node>, String> {
             Relay::Off
         };
         let serve = |port: u16| {
-            let (router, pool) = (router.clone(), app.pool.clone());
+            let (router, app) = (router.clone(), app.clone());
             Host::serve(key, port, relay, move |peer, stream| {
-                serve_stream(router.clone(), pool.clone(), peer, stream)
+                serve_stream(router.clone(), app.clone(), peer, stream)
             })
         };
         // Постоянный порт (как у сервера) — чтобы в офисе подключаться напрямую;

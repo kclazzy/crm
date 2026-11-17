@@ -89,6 +89,7 @@ pub fn router(state: AppState) -> Router {
             post(crate::recovery::new_codes).get(crate::recovery::codes_status),
         )
         .route("/api/invites/accept", post(auth::accept_invite))
+        .route("/api/invites/check", get(auth::check_invite))
         .route("/api/me", get(auth::me))
         .route("/api/auth/verify", post(auth::verify))
         .route(

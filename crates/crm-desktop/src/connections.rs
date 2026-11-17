@@ -226,7 +226,21 @@ pub fn server_remove_addr(app: AppHandle, id: String, addr: String) -> Result<()
 }
 
 /// Подключиться: найти отвечающий адрес, открыть туннель, показать CRM в окне.
+/// Приглашение последнего открытого сервера больше не нужно.
+pub fn forget_invite(app: &AppHandle) {
+    let id = app
+        .state::<LastOpened>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|l| l.clone());
+    if let (Some(id), Ok(st)) = (id, store(app)) {
+        let _ = st.forget_invite(&id);
+    }
+}
+
 /// `invite` — ключ был для нового сотрудника: сразу экран «Задайте пароль».
+/// Без него берётся приглашение, сохранённое с сервером: сотрудник ещё не задал пароль.
 #[tauri::command]
 pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> Result<(), String> {
     let st = store(&app)?;
@@ -279,7 +293,7 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
     if let Ok(mut last) = app.state::<LastOpened>().0.lock() {
         *last = Some(id.clone());
     }
-    let path = match invite {
+    let path = match invite.or(server.invite.clone()) {
         Some(token) => format!("/invite?code={}", urlencode(&token)),
         None => "/".into(),
     };
@@ -375,6 +389,7 @@ pub async fn open_own(app: AppHandle) -> Result<(), String> {
             last_addr: None,
             local_port: 0,
             user: None,
+            invite: None,
         })
         .map_err(|e| e.to_string())?;
     server_open(app, server.id, None).await

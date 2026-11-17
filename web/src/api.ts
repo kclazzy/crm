@@ -142,6 +142,7 @@ export const api = {
   me: () => request<Me>('GET', '/api/me'),
   login: (username: string, password: string, code?: string) =>
     request<{ user: Me; must_setup_2fa: boolean }>('POST', '/api/auth/login', { username, password, code, ...device() }),
+  checkInvite: (code: string) => request<{ valid: boolean }>('GET', `/api/invites/check?code=${encodeURIComponent(code)}`),
   acceptInvite: (token: string, password: string) =>
     request<{ user: Me; must_setup_2fa: boolean }>('POST', '/api/invites/accept', { token, password, ...device() }),
   verifyCode: (code: string) => request<void>('POST', '/api/auth/verify', { code }),

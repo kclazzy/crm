@@ -199,6 +199,15 @@ pub async fn forgot(
         .await?;
     if exists && recent < FORGOT_LIMIT {
         audit(&app.pool, None, "reset.requested", Some(&key), &ip).await?;
+        // Сотрудник ждёт — владелец узнаёт сразу (о повторных просьбах — раз в сутки).
+        crate::notify::alert_owners(
+            &app,
+            "reset_requested",
+            "username",
+            serde_json::json!({ "username": key }),
+            Duration::hours(24).num_milliseconds(),
+        )
+        .await?;
     }
     Ok(Json(Done { ok: true }))
 }

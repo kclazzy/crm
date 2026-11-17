@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { api, ApiError, SECURITY_PATH } from '../api';
 import { AuthLayout } from '../components/AuthLayout';
 import { Button, ErrorText, Field } from '../components/ui';
@@ -8,6 +8,7 @@ import { useAuth } from '../auth';
 export function Login() {
   const { setMe } = useAuth();
   const navigate = useNavigate();
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   // Пароль верный, сервер просит код из приложения (вход из интернета).
@@ -57,6 +58,7 @@ export function Login() {
   return (
     <AuthLayout title="Вход" subtitle="Войдите под своей учётной записью.">
       <form onSubmit={submit} className="flex flex-col gap-5">
+        {notice && <p role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">{notice}</p>}
         <Field label="Логин">
           <input name="username" className="input" autoComplete="username" autoFocus required spellCheck={false} />
         </Field>
