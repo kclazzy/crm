@@ -2,6 +2,8 @@
 // открытых через туннель (http://127.0.0.1:ПОРТ): добавляет «← Серверы».
 (function () {
   if (location.protocol !== 'http:' || location.hostname !== '127.0.0.1') return;
+  // Сигналы страницы CRM приложению (например, «пароль задан»).
+  window.crmApp = { run: function (action) { location.href = 'http://crm-app.invalid/' + action; } };
   function add() {
     if (document.getElementById('crm-app-back')) return;
     var a = document.createElement('a');

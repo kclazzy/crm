@@ -23,6 +23,33 @@ const APP_URL: &str = "tauri://localhost/index.html";
 #[derive(Default)]
 struct Tunnels(Mutex<HashMap<String, Tunnel>>);
 
+/// Сервер, открытый в окне последним: ему относятся сигналы страницы CRM.
+#[derive(Default)]
+struct LastOpened(std::sync::Mutex<Option<String>>);
+
+/// Адрес «вызова приложения» со страницы CRM: `window.crmApp.run('ДЕЙСТВИЕ')`.
+const APP_HOST: &str = "crm-app.invalid";
+
+/// Сигнал страницы CRM вместо перехода. `true` — это был сигнал.
+fn intercept(app: &AppHandle, url: &tauri::Url) -> bool {
+    if url.host_str() != Some(APP_HOST) {
+        return false;
+    }
+    // Пароль задан или приглашение устарело — «Подключиться» ведёт на обычный вход.
+    if url.path().trim_matches('/') == "invite-done" {
+        let id = app
+            .state::<LastOpened>()
+            .0
+            .lock()
+            .ok()
+            .and_then(|l| l.clone());
+        if let (Some(id), Ok(st)) = (id, store(app)) {
+            let _ = st.forget_invite(&id);
+        }
+    }
+    true
+}
+
 fn store(app: &AppHandle) -> Result<Store, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     // Секрет устройства — чтобы сервер узнавал этот телефон после одобрения владельцем.
@@ -147,6 +174,9 @@ async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> Resu
         let _ = st.learn_public_addr(&id, p.public_addr.as_deref());
         let _ = st.learn_node(&id, p.node_id.as_deref(), p.node_udp);
     }
+    if let Ok(mut last) = app.state::<LastOpened>().0.lock() {
+        *last = Some(id.clone());
+    }
     let tunnels = app.state::<Tunnels>();
     let mut map = tunnels.0.lock().await;
     let url = match map.get(&id) {
@@ -163,7 +193,8 @@ async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> Resu
             u
         }
     };
-    Ok(match invite {
+    // Без приглашения из окна — сохранённое: новый сотрудник ещё не задал пароль.
+    Ok(match invite.or(server.invite.clone()) {
         Some(token) => format!("{url}/invite?code={}", urlencode(&token)),
         None => format!("{url}/"),
     })
@@ -210,6 +241,7 @@ pub fn run() {
         .plugin(tauri_plugin_biometric::init());
     builder
         .manage(Tunnels::default())
+        .manage(LastOpened::default())
         .setup(|app| {
             tauri::WebviewWindowBuilder::new(
                 app,
@@ -217,7 +249,10 @@ pub fn run() {
                 tauri::WebviewUrl::App("index.html".into()),
             )
             .initialization_script(guard_script())
-            .on_navigation(window_may_open)
+            .on_navigation({
+                let handle = app.handle().clone();
+                move |url| !intercept(&handle, url) && window_may_open(url)
+            })
             .build()?;
             Ok(())
         })
