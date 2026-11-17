@@ -150,3 +150,35 @@ async fn narrow_access_checks_match_full_scope() {
         }
     }
 }
+
+/// Права для списков читают только задачи, которые касаются сотрудника, — и дают
+/// ровно то же, что расчёт по всей базе: тот же уровень (включая «только путь»),
+/// те же клиенты.
+#[tokio::test]
+async fn own_scope_matches_scope_over_everything() {
+    let app = App::new().await;
+    varied(&app).await;
+    let p = &app.pool;
+    let users: Vec<(String, String)> = sqlx::query_as("SELECT id, role FROM users")
+        .fetch_all(p)
+        .await
+        .unwrap();
+    for (id, role) in users {
+        let role = role.parse().unwrap();
+        let own = Scope::load_for(p, &id, role).await.unwrap();
+        let all = Scope::load_everything(p, &id, role).await.unwrap();
+        for t in TASKS {
+            assert_eq!(own.task(t), all.task(t), "{id} → задача {t}");
+            if all.task(t).can_read() {
+                assert_eq!(
+                    own.client_of(t),
+                    all.client_of(t),
+                    "{id} → клиент задачи {t}"
+                );
+            }
+        }
+        for c in ["cA", "cB", "cD", "нет-такого"] {
+            assert_eq!(own.client(c), all.client(c), "{id} → клиент {c}");
+        }
+    }
+}

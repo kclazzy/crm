@@ -39,21 +39,70 @@ async fn actor(
     })
 }
 
+async fn all_clients(pool: &SqlitePool) -> Result<Vec<(String, String)>, ApiError> {
+    Ok(
+        sqlx::query_as("SELECT id, group_id FROM clients WHERE deleted_at IS NULL")
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
 impl Scope {
     pub async fn load(pool: &SqlitePool, user: &CurrentUser) -> Result<Self, ApiError> {
         Self::load_for(pool, &user.id, user.role).await
     }
 
-    /// Права на все клиенты и задачи — для списков и поиска.
+    /// Права на все клиенты и задачи — для списков и поиска. Руководителю читаются
+    /// все задачи; остальным — только те, что могут быть им видны: свои (назначен,
+    /// группа клиента у менеджера), подзадачи назначенных и путь к ним вверх.
+    /// Остальные задачи им недоступны и в полном расчёте, так что ответ тот же.
     pub async fn load_for(
         pool: &SqlitePool,
         user_id: &str,
         role: crm_core::auth::Role,
     ) -> Result<Self, ApiError> {
-        let clients: Vec<(String, String)> =
-            sqlx::query_as("SELECT id, group_id FROM clients WHERE deleted_at IS NULL")
-                .fetch_all(pool)
-                .await?;
+        if role == crm_core::auth::Role::Host {
+            return Self::load_everything(pool, user_id, role).await;
+        }
+        let clients = all_clients(pool).await?;
+        let rows: Vec<Row> = sqlx::query_as(
+            "WITH RECURSIVE
+               down(id, depth) AS (
+                 SELECT task_id, 0 FROM task_assignees WHERE user_id = ?1
+                 UNION
+                 SELECT t.id, down.depth + 1 FROM tasks t JOIN down ON t.parent_task_id = down.id
+                  WHERE down.depth < 64),
+               seed(id) AS (
+                 SELECT id FROM down
+                 UNION
+                 SELECT t.id FROM tasks t JOIN clients c ON c.id = t.client_id
+                   JOIN group_members g ON g.group_id = c.group_id AND g.user_id = ?1
+                  WHERE ?2),
+               up(id, depth) AS (
+                 SELECT id, 0 FROM seed
+                 UNION
+                 SELECT t.parent_task_id, up.depth + 1 FROM up JOIN tasks t ON t.id = up.id
+                  WHERE t.parent_task_id IS NOT NULL AND up.depth < 64)
+             SELECT t.id, t.parent_task_id, t.client_id, c.group_id,
+                    EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?1)
+             FROM tasks t JOIN clients c ON c.id = t.client_id
+             WHERE t.id IN (SELECT id FROM up) AND t.deleted_at IS NULL AND c.deleted_at IS NULL",
+        )
+        .bind(user_id)
+        .bind(role == crm_core::auth::Role::Manager)
+        .fetch_all(pool)
+        .await?;
+        Self::build(actor(pool, user_id, role).await?, clients, rows)
+    }
+
+    /// Права по всей базе — эталон для проверки `load_for` и путь руководителя.
+    #[doc(hidden)]
+    pub async fn load_everything(
+        pool: &SqlitePool,
+        user_id: &str,
+        role: crm_core::auth::Role,
+    ) -> Result<Self, ApiError> {
+        let clients = all_clients(pool).await?;
         let rows: Vec<Row> = sqlx::query_as(
             "SELECT t.id, t.parent_task_id, t.client_id, c.group_id,
                     EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?)
@@ -157,6 +206,21 @@ impl Scope {
     /// Клиент задачи (для задач, о которых известно).
     pub fn client_of(&self, task_id: &str) -> Option<&str> {
         self.task_client.get(task_id).map(String::as_str)
+    }
+
+    /// Задачи, видные хотя бы как путь, — JSON-массив для `json_each(?)` в SQL.
+    /// У руководителя `None`: ему видно всё, фильтр не нужен.
+    pub fn visible_json(&self) -> Option<String> {
+        if self.actor.role == crm_core::auth::Role::Host {
+            return None;
+        }
+        let ids: Vec<&str> = self
+            .tasks
+            .iter()
+            .filter(|(_, a)| **a >= TaskAccess::PathOnly)
+            .map(|(t, _)| t.as_str())
+            .collect();
+        Some(serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into()))
     }
 
     pub fn task(&self, id: &str) -> TaskAccess {

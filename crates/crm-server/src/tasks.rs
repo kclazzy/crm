@@ -102,6 +102,7 @@ pub async fn summaries(
     let org = crate::org::load(&app.pool).await?;
     let warn = Duration::hours(org.warn_hours());
     let now = Utc::now();
+    let only = scope.visible_json();
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT t.id, t.client_id, c.name AS client_name, t.parent_task_id, t.title, t.priority,
                 t.status, t.deadline_at, t.completed_at, t.archived_at, t.created_at,
@@ -110,16 +111,20 @@ pub async fn summaries(
                 (SELECT max(m.created_at) FROM messages m WHERE m.task_id = t.id) AS last_message_at
          FROM tasks t JOIN clients c ON c.id = t.client_id
          WHERE t.deleted_at IS NULL AND c.deleted_at IS NULL
+           AND (?1 IS NULL OR t.id IN (SELECT value FROM json_each(?1)))
          ORDER BY t.deadline_at",
     )
+    .bind(&only)
     .fetch_all(&app.pool)
     .await?;
     let mut assignees: HashMap<String, Vec<PersonRef>> = HashMap::new();
     let mut leads: HashMap<String, String> = HashMap::new();
     let pairs: Vec<(String, String, String, bool)> = sqlx::query_as(
         "SELECT a.task_id, u.id, u.display_name, a.is_lead FROM task_assignees a JOIN users u ON u.id = a.user_id
+         WHERE ?1 IS NULL OR a.task_id IN (SELECT value FROM json_each(?1))
          ORDER BY a.is_lead DESC, u.display_name COLLATE NOCASE",
     )
+    .bind(&only)
     .fetch_all(&app.pool)
     .await?;
     for (t, id, name, lead) in pairs {
@@ -136,7 +141,7 @@ pub async fn summaries(
             }
         }
     }
-    let unread = unread_by_task(&app.pool, me).await?;
+    let unread = unread_by_task(&app.pool, me, only.as_deref()).await?;
     let mut out = Vec::new();
     for r in rows {
         let access = scope.task(&r.id);
