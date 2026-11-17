@@ -75,57 +75,38 @@ pub async fn search(
         return Ok(Json(Vec::new()));
     };
     let scope = Scope::load(&app.pool, &user).await?;
-    let rows: Vec<(String, String, String, String)> = sqlx::query_as(
-        "SELECT entity, entity_id, title, body FROM search_index WHERE search_index MATCH ? ORDER BY rank LIMIT 500",
+    // Задача и архивность каждого попадания — в том же запросе: без выборки всех
+    // этапов и задач и без отдельного запроса на каждое сообщение.
+    let rows: Vec<(String, String, String, String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT h.entity, h.entity_id, h.title, h.body, h.task_id,
+                coalesce((SELECT archived_at IS NOT NULL FROM tasks WHERE id = h.task_id), 0)
+         FROM (SELECT s.entity, s.entity_id, s.title, s.body, s.rank,
+                      CASE s.entity
+                        WHEN 'task' THEN s.entity_id
+                        WHEN 'stage' THEN (SELECT task_id FROM task_stages WHERE id = s.entity_id)
+                        WHEN 'message' THEN (SELECT task_id FROM messages WHERE id = s.entity_id)
+                      END AS task_id
+                 FROM (SELECT entity, entity_id, title, body, rank FROM search_index
+                        WHERE search_index MATCH ? ORDER BY rank LIMIT 500) s) h
+         ORDER BY h.rank",
     )
     .bind(&fts)
     .fetch_all(&app.pool)
     .await?;
-    let stage_task: HashMap<String, String> = sqlx::query_as("SELECT id, task_id FROM task_stages")
-        .fetch_all(&app.pool)
-        .await?
-        .into_iter()
-        .collect();
-    let archived: std::collections::HashSet<String> =
-        sqlx::query_scalar("SELECT id FROM tasks WHERE archived_at IS NOT NULL")
-            .fetch_all(&app.pool)
-            .await?
-            .into_iter()
-            .collect();
-    let mut msg_task: HashMap<String, String> = HashMap::new();
-    for (entity, id, _, _) in &rows {
-        if entity == "message" {
-            if let Some(t) =
-                sqlx::query_scalar::<_, String>("SELECT task_id FROM messages WHERE id = ?")
-                    .bind(id)
-                    .fetch_optional(&app.pool)
-                    .await?
-            {
-                msg_task.insert(id.clone(), t);
-            }
-        }
-    }
-    let task_ok = |t: &str| scope.task(t).can_read() && (q.archive || !archived.contains(t));
+    let task_ok = |t: &str, archived: bool| scope.task(t).can_read() && (q.archive || !archived);
     let mut counts: HashMap<&'static str, usize> = HashMap::new();
     let mut out = Vec::new();
-    for (entity, id, title, body) in rows {
-        let (kind, task_id, client_id) = match entity.as_str() {
-            "client" if scope.client(&id) != ClientAccess::None => {
+    for (entity, id, title, body, task, archived) in rows {
+        let (kind, task_id, client_id) = match (entity.as_str(), task) {
+            ("client", _) if scope.client(&id) != ClientAccess::None => {
                 ("client", None, Some(id.clone()))
             }
-            "task" if task_ok(&id) => (
-                "task",
-                Some(id.clone()),
-                scope.client_of(&id).map(str::to_owned),
-            ),
-            "stage" => match stage_task.get(&id) {
-                Some(t) if task_ok(t) => ("stage", Some(t.clone()), None),
-                _ => continue,
-            },
-            "message" => match msg_task.get(&id) {
-                Some(t) if task_ok(t) => ("message", Some(t.clone()), None),
-                _ => continue,
-            },
+            ("task", Some(t)) if task_ok(&t, archived) => {
+                let client = scope.client_of(&t).map(str::to_owned);
+                ("task", Some(t), client)
+            }
+            ("stage", Some(t)) if task_ok(&t, archived) => ("stage", Some(t), None),
+            ("message", Some(t)) if task_ok(&t, archived) => ("message", Some(t), None),
             _ => continue,
         };
         let n = counts.entry(kind).or_default();

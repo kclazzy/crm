@@ -293,6 +293,50 @@ async fn search_finds_only_what_user_may_see() {
     for k in ["client", "task", "stage", "message"] {
         assert!(kinds.contains(&k), "{k} в {hits}");
     }
+    for h in hits.as_array().unwrap() {
+        if h["kind"] != "client" {
+            assert_eq!(
+                h["task_id"],
+                t.as_str(),
+                "этап и сообщение ведут в задачу: {h}"
+            );
+        }
+    }
+    // Архивная задача (и её этапы, чат) — только при поиске по архиву.
+    sqlx::query(
+        "UPDATE tasks SET status = 'completed', completed_at = 1, archived_at = 1 WHERE id = ?",
+    )
+    .bind(&t)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    let (_, hits) = app
+        .call("GET", "/api/search?q=договор", LOCAL, Some(&owner), None)
+        .await;
+    let kinds: Vec<&str> = hits
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["client"], "без архива: {hits}");
+    let (_, hits) = app
+        .call(
+            "GET",
+            "/api/search?q=договор&archive=true",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(hits.as_array().unwrap().len(), 4, "с архивом: {hits}");
+    sqlx::query(
+        "UPDATE tasks SET status = 'waiting', completed_at = NULL, archived_at = NULL WHERE id = ?",
+    )
+    .bind(&t)
+    .execute(&app.pool)
+    .await
+    .unwrap();
     let (_, hits) = app
         .call("GET", "/api/search?q=договор", LOCAL, Some(&emp), None)
         .await;
