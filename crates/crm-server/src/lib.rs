@@ -11,6 +11,7 @@ pub mod clients;
 pub mod config;
 pub mod connect;
 pub mod db;
+pub mod enroll;
 pub mod events;
 pub mod folders;
 pub mod http;

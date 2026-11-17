@@ -42,21 +42,24 @@ pub async fn server_addrs(app: &AppState) -> Result<Vec<String>, ApiError> {
     Ok(out)
 }
 
-pub async fn connection_key(
-    State(app): State<AppState>,
-    Owner(_): Owner,
-    Json(req): Json<KeyIn>,
-) -> Result<Json<KeyOut>, ApiError> {
+/// Ключ подключения: адреса и отпечаток сервера, узел, а для сотрудника — его логин
+/// и, если пароль ещё не задан, свежее приглашение. Одна сборка для длинного ключа
+/// и для короткого кода.
+pub(crate) struct Built {
+    pub key: ServerKey,
+    pub invite_expires_at: Option<i64>,
+}
+
+pub(crate) async fn build_key(app: &AppState, user_id: Option<&str>) -> Result<Built, ApiError> {
     let fp = app
         .ca_fingerprint
         .as_deref()
         .ok_or_else(|| ApiError::BadRequest("ключ работает только с включённым HTTPS".into()))?
         .to_owned();
-    let pin = req.pin.as_deref().map(str::trim).filter(|p| !p.is_empty());
     let mut invite = None;
     let mut user = None;
     let mut expires = None;
-    if let Some(id) = &req.user_id {
+    if let Some(id) = user_id {
         let row: Option<(String, Option<String>)> = sqlx::query_as(
             "SELECT username, password_hash FROM users WHERE id = ? AND is_active = 1",
         )
@@ -64,39 +67,65 @@ pub async fn connection_key(
         .fetch_optional(&app.pool)
         .await?;
         let (username, hash) = row.ok_or(ApiError::NotFound)?;
-        if hash.is_some() {
+        if hash.is_none() {
+            let mut tx = app.pool.begin().await?;
+            let inv = issue_invite(&mut tx, id).await?;
+            tx.commit().await?;
+            invite = Some(inv.invite_token);
+            expires = Some(inv.invite_expires_at);
+        }
+        user = Some(username);
+    }
+    let node = app.rt.p2p.node().await;
+    Ok(Built {
+        key: ServerKey {
+            name: gethostname::gethostname().to_string_lossy().into_owned(),
+            addrs: server_addrs(app).await?,
+            port: app.rt.config().listen.port(),
+            fp,
+            invite,
+            user,
+            udp: node.as_ref().map(|n| n.udp_port),
+            node: node.map(|n| n.id),
+        },
+        invite_expires_at: expires,
+    })
+}
+
+/// Строка ключа `CRM1-…` (с PIN — зашифрованная).
+pub(crate) fn key_string(key: &ServerKey, pin: Option<&str>) -> Result<String, ApiError> {
+    let mut random = [0u8; 40];
+    getrandom::fill(&mut random)
+        .map_err(|e| ApiError::Failed(format!("генератор случайных чисел: {e}")))?;
+    encode(key, pin, random).map_err(|e| ApiError::BadRequest(e.to_string()))
+}
+
+pub async fn connection_key(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+    Json(req): Json<KeyIn>,
+) -> Result<Json<KeyOut>, ApiError> {
+    let pin = req.pin.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    if let Some(id) = &req.user_id {
+        let has_password: Option<bool> = sqlx::query_scalar(
+            "SELECT password_hash IS NOT NULL FROM users WHERE id = ? AND is_active = 1",
+        )
+        .bind(id)
+        .fetch_optional(&app.pool)
+        .await?;
+        if has_password.ok_or(ApiError::NotFound)? {
             return Err(ApiError::Conflict(
                 "сотрудник уже задал пароль — дайте ему общий ключ без приглашения",
             ));
         }
-        let mut tx = app.pool.begin().await?;
-        let inv = issue_invite(&mut tx, id).await?;
-        tx.commit().await?;
-        invite = Some(inv.invite_token);
-        expires = Some(inv.invite_expires_at);
-        user = Some(username);
     }
-    let addrs = server_addrs(&app).await?;
-    let node = app.rt.p2p.node().await;
-    let key = ServerKey {
-        name: gethostname::gethostname().to_string_lossy().into_owned(),
-        addrs: addrs.clone(),
-        port: app.rt.config().listen.port(),
-        fp,
-        invite,
-        user,
-        udp: node.as_ref().map(|n| n.udp_port),
-        node: node.map(|n| n.id),
-    };
-    let mut random = [0u8; 40];
-    getrandom::fill(&mut random)
-        .map_err(|e| ApiError::Failed(format!("генератор случайных чисел: {e}")))?;
-    let key = encode(&key, pin, random).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let built = build_key(&app, req.user_id.as_deref()).await?;
+    let key = key_string(&built.key, pin)?;
     Ok(Json(KeyOut {
         key,
         with_pin: pin.is_some(),
-        invite_expires_at: expires,
-        addrs,
+        invite_expires_at: built.invite_expires_at,
+        addrs: built.key.addrs,
     }))
 }
 
