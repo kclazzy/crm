@@ -126,3 +126,34 @@ async fn owner_sees_who_was_throttled() {
         .iter()
         .any(|r| r["ip"] == ATTACKER));
 }
+
+/// Вход по коду, проверка приглашения и скачивание программы доступны без входа —
+/// значит, на них тот же строгий лимит, что на вход: код не перебрать,
+/// канал скачиванием не забить.
+#[tokio::test]
+async fn doors_without_login_have_the_login_limit() {
+    let app = App::new().await;
+    app.owner().await;
+    for (method, path, body) in [
+        (
+            "POST",
+            "/api/enroll",
+            Some(json!({"id": "ABCD", "msg": "AAAA"})),
+        ),
+        ("GET", "/api/invites/check?token=x", None),
+        ("GET", "/download/CRM-Setup.exe", None),
+    ] {
+        let mut last = StatusCode::OK;
+        for _ in 0..15 {
+            last = app.call(method, path, ATTACKER, None, body.clone()).await.0;
+        }
+        assert_eq!(last, StatusCode::TOO_MANY_REQUESTS, "{path}");
+        assert_ne!(
+            app.call(method, path, OFFICE_PC, None, body.clone())
+                .await
+                .0,
+            StatusCode::TOO_MANY_REQUESTS,
+            "{path}: другие адреса не страдают"
+        );
+    }
+}

@@ -26,14 +26,19 @@ async fn new_code(app: &App, owner: &str, user_id: &str) -> (StatusCode, Value) 
 }
 
 /// То, что делает программа: обмен по коду, ответ сервера, расшифровка ключа.
+/// Каждая попытка — с нового адреса: лимит попыток кода не должен зависеть
+/// от лимита запросов по IP (перебор может идти с многих машин).
 async fn enroll(app: &App, code: &str, fp: &str) -> Result<String, String> {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let ip = format!("10.0.{}.{}", n / 250, n % 250 + 1);
     let code = Code::parse(code).map_err(|e| e.to_string())?;
     let (program, msg) = program_start(&code, fp);
     let (s, v) = app
         .call(
             "POST",
             "/api/enroll",
-            OFFICE_PC,
+            &ip,
             None,
             Some(json!({ "id": code.id(), "msg": B64.encode(msg) })),
         )
