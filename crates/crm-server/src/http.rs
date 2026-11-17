@@ -90,6 +90,13 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/invites/accept", post(auth::accept_invite))
         .route("/api/invites/check", get(auth::check_invite))
+        .route("/api/enroll", post(crate::enroll::enroll))
+        .route("/api/download", get(crate::download::info))
+        .route("/download/CRM-Setup.exe", get(crate::download::file))
+        .route(
+            "/api/admin/users/{id}/enroll-code",
+            post(crate::enroll::new_code),
+        )
         .route("/api/me", get(auth::me))
         .route("/api/auth/verify", post(auth::verify))
         .route(

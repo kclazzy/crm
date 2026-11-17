@@ -31,8 +31,8 @@
         <article class="choice">
           <div class="icon">💻</div>
           <h2>Подключиться к серверу</h2>
-          <p>Для сотрудников: вставьте ключ подключения, который прислал владелец.</p>
-          <button id="to-servers" class="primary">Подключиться по ключу</button>
+          <p>Для сотрудников. В офисе — адрес сервера и код от владельца, из дома — ключ подключения.</p>
+          <button id="to-servers" class="primary">Подключиться</button>
           <small>Сертификаты ставить не нужно — программа сама проверит, что сервер ваш.</small>
         </article>
       </div>
@@ -88,9 +88,20 @@
       <h1>Мои серверы</h1>
       <p class="lead">Статус проверяется перед подключением: зелёный — сервер отвечает. «Проверить» покажет каждый адрес и позволит ввести свой.</p>
       <ul id="server-list" class="servers"></ul>
-      <p id="servers-empty" class="empty" hidden>Пока нет серверов — добавьте первый по ключу.</p>
+      <p id="servers-empty" class="empty" hidden>Пока нет серверов — подключитесь по коду от владельца или по ключу.</p>
+      <form id="enroll-form" class="card form">
+        <h3>В офисе: адрес сервера и код</h3>
+        <label>Адрес сервера
+          <input name="addr" required spellcheck="false" autocomplete="off" placeholder="OFFICE-PC или 192.168.1.10">
+          <small>Имя или адрес компьютера с CRM — их показывает владелец вместе с кодом.</small></label>
+        <label>Код от владельца
+          <input name="code" required spellcheck="false" autocomplete="off" maxlength="12" placeholder="K7M4-QXZ9" style="text-transform:uppercase;letter-spacing:.08em">
+          <small>8 букв и цифр. Интернет не нужен — только сеть офиса.</small></label>
+        <p id="enroll-error" class="error" hidden></p>
+        <button class="primary" type="submit">Подключиться</button>
+      </form>
       <form id="add-form" class="card form">
-        <h3>Добавить сервер по ключу</h3>
+        <h3>Из дома или с длинным ключом</h3>
         <label>Ключ подключения
           <textarea name="key" rows="3" required spellcheck="false" placeholder="CRM1-…"></textarea>
           <small>Ключ присылает владелец CRM. Можно вставить вместе с переносами строк.</small></label>

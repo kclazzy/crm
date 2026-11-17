@@ -31,6 +31,116 @@ fn hex(der: &[u8]) -> String {
         .collect()
 }
 
+/// Сертификат сервера подписан этим CA (имя не важно: адрес мог смениться).
+fn signed_by(
+    ca: &CertificateDer<'_>,
+    end_entity: &CertificateDer<'_>,
+    server_name: &ServerName<'_>,
+    ocsp: &[u8],
+    now: UnixTime,
+    provider: &Arc<CryptoProvider>,
+) -> Result<ServerCertVerified, Error> {
+    let mut roots = RootCertStore::empty();
+    roots
+        .add(ca.clone().into_owned())
+        .map_err(|e| Error::General(format!("CA сервера: {e}")))?;
+    let inner = WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider.clone())
+        .build()
+        .map_err(|e| Error::General(e.to_string()))?;
+    match inner.verify_server_cert(end_entity, &[], server_name, ocsp, now) {
+        // Имя/адрес мог смениться (новый IP, внешний адрес) — подпись нашим CA важнее.
+        Err(Error::InvalidCertificate(
+            CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
+        )) => Ok(ServerCertVerified::assertion()),
+        other => other,
+    }
+}
+
+/// Первое знакомство (подключение по коду): отпечаток CA ещё неизвестен. Принимаем CA
+/// из цепочки, если он действительно подписал сертификат, и запоминаем его отпечаток —
+/// подлинность сервера потом докажет обмен по коду, привязанный к этому отпечатку.
+#[derive(Debug)]
+pub struct Learning {
+    seen: Arc<std::sync::Mutex<Option<String>>>,
+    provider: Arc<CryptoProvider>,
+}
+
+impl Learning {
+    pub fn new() -> (Self, Arc<std::sync::Mutex<Option<String>>>) {
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        (
+            Self {
+                seen: seen.clone(),
+                provider: Arc::new(rustls::crypto::ring::default_provider()),
+            },
+            seen,
+        )
+    }
+}
+
+macro_rules! signatures {
+    () => {
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, Error> {
+            rustls::crypto::verify_tls12_signature(
+                message,
+                cert,
+                dss,
+                &self.provider.signature_verification_algorithms,
+            )
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, Error> {
+            rustls::crypto::verify_tls13_signature(
+                message,
+                cert,
+                dss,
+                &self.provider.signature_verification_algorithms,
+            )
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            self.provider
+                .signature_verification_algorithms
+                .supported_schemes()
+        }
+    };
+}
+
+impl ServerCertVerifier for Learning {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, Error> {
+        for ca in intermediates {
+            if let Ok(ok) = signed_by(ca, end_entity, server_name, ocsp, now, &self.provider) {
+                if let Ok(mut seen) = self.seen.lock() {
+                    *seen = Some(hex(ca));
+                }
+                return Ok(ok);
+            }
+        }
+        Err(Error::General(
+            "по этому адресу отвечает не сервер CRM".into(),
+        ))
+    }
+
+    signatures!();
+}
+
 impl ServerCertVerifier for Pinned {
     fn verify_server_cert(
         &self,
@@ -50,56 +160,27 @@ impl ServerCertVerifier for Pinned {
                         .into(),
                 )
             })?;
-        let mut roots = RootCertStore::empty();
-        roots
-            .add(ca.clone().into_owned())
-            .map_err(|e| Error::General(format!("CA сервера: {e}")))?;
-        let inner =
-            WebPkiServerVerifier::builder_with_provider(Arc::new(roots), self.provider.clone())
-                .build()
-                .map_err(|e| Error::General(e.to_string()))?;
-        match inner.verify_server_cert(end_entity, &[], server_name, ocsp, now) {
-            // Имя/адрес мог смениться (новый IP, внешний адрес) — подпись нашим CA важнее.
-            Err(Error::InvalidCertificate(
-                CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
-            )) => Ok(ServerCertVerified::assertion()),
-            other => other,
-        }
+        signed_by(ca, end_entity, server_name, ocsp, now, &self.provider)
     }
 
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, Error> {
-        rustls::crypto::verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &self.provider.signature_verification_algorithms,
-        )
-    }
+    signatures!();
+}
 
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, Error> {
-        rustls::crypto::verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &self.provider.signature_verification_algorithms,
-        )
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.provider
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
+/// Настройка TLS, которая узнаёт отпечаток CA сервера (подключение по коду).
+pub fn learning_config() -> (
+    Arc<rustls::ClientConfig>,
+    Arc<std::sync::Mutex<Option<String>>>,
+) {
+    let (verifier, seen) = Learning::new();
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    #[allow(clippy::expect_used)] // набор протоколов по умолчанию всегда поддержан
+    let cfg = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("TLS по умолчанию")
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth();
+    (Arc::new(cfg), seen)
 }
 
 /// Клиентская настройка TLS с закреплённым CA.

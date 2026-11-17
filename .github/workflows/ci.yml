@@ -164,11 +164,16 @@ jobs:
 
           Write-Host "Установщик: $setup ($([math]::Round((Get-Item $setup).Length / 1MB, 1)) МБ)"
           Start-Process $setup -ArgumentList '/S' -Wait
-          foreach ($f in 'CRM.exe', 'crm-server.exe', 'uninstall.exe') {
+          foreach ($f in 'CRM.exe', 'crm-server.exe', 'uninstall.exe', 'CRM-Setup.exe') {
             if (-not (Test-Path "$dir\$f")) { Get-ChildItem $dir; throw "после установки нет $f" }
           }
           & "$dir\crm-server.exe" service install; if ($LASTEXITCODE) { throw "service install" }
           Write-Host "работает: $(Health)"
+          # Компьютеры офиса скачивают программу с сервера: это тот же установщик.
+          $got = "$env:RUNNER_TEMP\downloaded-setup.exe"
+          curl.exe -s --ssl-no-revoke --cacert C:\ProgramData\CRM\data\tls\ca.crt -o $got https://localhost:8443/download/CRM-Setup.exe
+          if ((Get-FileHash $got).Hash -ne (Get-FileHash $setup).Hash) { throw "сервер раздаёт не тот установщик" }
+          Write-Host "раздача программы с сервера: ок"
 
           # Самопроверка окна программы: CRM в окне (WebView2) и кнопка «Остановить сервер» — обязательны.
           $report = "$env:RUNNER_TEMP\selftest.txt"
