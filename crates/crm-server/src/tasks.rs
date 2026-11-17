@@ -514,10 +514,11 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let title = parse_title(&req.title)?;
     check_description(&req.description)?;
-    let scope = Scope::load(&app.pool, &user).await?;
     let client_id = match &req.parent_id {
         Some(p) => {
-            scope.require_manage_task(p)?;
+            Scope::for_task(&app.pool, &user.id, user.role, p)
+                .await?
+                .require_manage_task(p)?;
             let parent = parent_of(&app.pool, p).await?;
             if parent.status == TaskStatus::Completed.as_str() || parent.archived_at.is_some() {
                 return Err(ApiError::Conflict(
@@ -532,6 +533,7 @@ pub async fn create(
                 .client_id
                 .clone()
                 .ok_or_else(|| ApiError::BadRequest("не указан клиент".into()))?;
+            let scope = Scope::for_client(&app.pool, &user.id, user.role, &c).await?;
             if scope.client_or_404(&c)? != ClientAccess::Manage {
                 return Err(ApiError::Forbidden);
             }
