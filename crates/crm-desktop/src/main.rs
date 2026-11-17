@@ -335,7 +335,10 @@ fn main() {
                         if bridge::intercept(url) {
                             return false;
                         }
-                        !selftest::enabled() || selftest::on_navigation(&handle, url)
+                        if selftest::enabled() && !selftest::on_navigation(&handle, url) {
+                            return false;
+                        }
+                        bridge::window_may_open(url)
                     })
                     .on_download(|webview, event| bridge::on_download(&webview, event))
                     .on_page_load(|_, payload| {

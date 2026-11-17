@@ -36,6 +36,21 @@ pub fn intercept(url: &Url) -> bool {
     true
 }
 
+/// Можно ли окну перейти по адресу: экраны программы и CRM на этом компьютере
+/// (туннель или локальный сервер). Чужой сайт внутри программы без адресной строки
+/// не отличить от CRM — на него окно не уходит.
+pub fn window_may_open(url: &Url) -> bool {
+    // Хост проверяется после разбора адреса: «127.0.0.1:1@evil» — это evil.
+    match (url.scheme(), url.host_str()) {
+        ("about", _) => url.path() == "blank",
+        ("tauri", Some("localhost")) => true,
+        ("http" | "https", Some("tauri.localhost" | "127.0.0.1" | "localhost")) => {
+            url.username().is_empty() && url.password().is_none()
+        }
+        _ => false,
+    }
+}
+
 /// Последний сохранённый файл — для «Показать в папке».
 static LAST_SAVED: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -109,6 +124,23 @@ fn reveal(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_goes_only_to_the_app_and_crm() {
+        let ok = |u: &str| window_may_open(&u.parse().unwrap());
+        // Экраны программы, CRM через туннель и сервер на этом компьютере.
+        assert!(ok("http://tauri.localhost/index.html"));
+        assert!(ok("tauri://localhost/index.html"));
+        assert!(ok("http://127.0.0.1:51234/tasks/1"));
+        assert!(ok("https://127.0.0.1:8443/"));
+        assert!(ok("about:blank"));
+        // Чужие сайты — нет: внутри программы без адресной строки их не отличить от CRM.
+        assert!(!ok("https://evil.example/login"));
+        assert!(!ok("http://127.0.0.1.evil.example/"));
+        assert!(!ok("http://127.0.0.1:1@evil.example/"));
+        assert!(!ok("http://192.168.1.10:8443/"));
+        assert!(!ok("file:///C:/Windows/"));
+    }
 
     #[test]
     fn free_name_never_overwrites() {
