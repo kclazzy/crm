@@ -187,6 +187,19 @@ pub async fn server_add(
     })
 }
 
+/// В офисе: адрес сервера и код от владельца — программа сама получает ключ.
+#[tauri::command]
+pub async fn server_enroll(
+    app: AppHandle,
+    addr: String,
+    code: String,
+) -> Result<AddedView, String> {
+    let key = crm_connect::enroll::enroll(&addr, &code)
+        .await
+        .map_err(|e| e.to_string())?;
+    server_add(app, key, None).await
+}
+
 #[tauri::command]
 pub async fn server_remove(app: AppHandle, id: String) -> Result<(), String> {
     app.state::<Tunnels>().0.lock().await.remove(&id);

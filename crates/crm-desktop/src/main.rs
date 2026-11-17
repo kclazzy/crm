@@ -302,6 +302,7 @@ fn main() {
             connections::server_remove,
             connections::server_rename,
             connections::server_check,
+            connections::server_enroll,
             connections::server_add_addr,
             connections::server_remove_addr,
             connections::server_open,

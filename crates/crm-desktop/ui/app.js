@@ -307,6 +307,41 @@ keyInput.addEventListener('input', async () => {
   } catch { $('pin-row').hidden = true; }
 });
 
+// Сервер добавлен (по ключу или по коду): сразу открыть — «Задайте пароль» для нового
+// сотрудника; не отвечает — показать, какой адрес почему.
+async function openAdded(added) {
+  await loadServers();
+  if (added.probe.state === 'online') {
+    await invoke('server_open', { id: added.id, invite: added.invite });
+  } else {
+    toast(`Сервер «${added.name}» добавлен, но сейчас ${describe(added.probe).toLowerCase()}`);
+    expanded = added.id;
+    loadServers();
+  }
+}
+
+$('enroll-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const f = new FormData(form);
+  const err = $('enroll-error');
+  err.hidden = true;
+  const button = form.querySelector('button');
+  button.classList.add('busy');
+  button.disabled = true;
+  try {
+    const added = await invoke('server_enroll', { addr: f.get('addr'), code: f.get('code') });
+    form.reset();
+    await openAdded(added);
+  } catch (x) {
+    err.textContent = String(x);
+    err.hidden = false;
+  } finally {
+    button.classList.remove('busy');
+    button.disabled = false;
+  }
+};
+
 $('add-form').onsubmit = async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
@@ -320,14 +355,7 @@ $('add-form').onsubmit = async (e) => {
     const added = await invoke('server_add', { key: f.get('key'), pin: f.get('pin') || null });
     form.reset();
     $('pin-row').hidden = true;
-    await loadServers();
-    if (added.probe.state === 'online') {
-      await invoke('server_open', { id: added.id, invite: added.invite });
-    } else {
-      toast(`Сервер «${added.name}» добавлен, но сейчас ${describe(added.probe).toLowerCase()}`);
-      expanded = added.id;
-      loadServers();
-    }
+    await openAdded(added);
   } catch (x) {
     err.textContent = String(x);
     err.hidden = false;
