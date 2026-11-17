@@ -228,9 +228,10 @@ async fn cards_are_the_same_for_everyone_as_pinned() {
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(&file, &got).unwrap();
     }
-    let want = std::fs::read_to_string(&file).unwrap();
+    // На Windows git может отдать файл с CRLF.
+    let want = std::fs::read_to_string(&file).unwrap().replace('\r', "");
     assert!(
-        got == want,
+        got.trim_end() == want.trim_end(),
         "карточки изменились: сравните с {}",
         file.display()
     );
