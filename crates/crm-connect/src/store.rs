@@ -152,9 +152,12 @@ impl Store {
         let updated = if let Some(old) = all.iter_mut().find(|x| x.id == s.id) {
             old.addrs = s.addrs;
             old.port = s.port;
-            // Ключ без узла (владелец выключил) убирает и узел.
-            old.node = s.node;
-            old.udp = s.udp;
+            // Ключ без узла (выдан, когда способ 1 был выключен) узел не стирает:
+            // ключ узла постоянен, включат снова — заработает без нового ключа.
+            if s.node.is_some() {
+                old.node = s.node;
+                old.udp = s.udp;
+            }
             old.name = s.name;
             if s.user.is_some() {
                 old.user = s.user;
@@ -212,7 +215,7 @@ impl Store {
         self.save(all)
     }
 
-    /// Сервер сообщил свой узел (или что владелец его выключил) — запомнить.
+    /// Сервер сообщил свой узел — запомнить (новый узел заменяет прежний).
     pub fn learn_node(
         &self,
         id: &str,
@@ -224,7 +227,9 @@ impl Store {
             .iter_mut()
             .find(|x| x.id == id)
             .ok_or(StoreError::NotFound)?;
-        if s.node.as_deref() == node && s.udp == udp {
+        // Сервер не сообщил узел — значит, способ 1 сейчас выключен, а не ключ сменился:
+        // помним прежний, чтобы после включения из дома всё работало само.
+        if node.is_none() || (s.node.as_deref() == node && s.udp == udp) {
             return Ok(());
         }
         s.node = node.map(str::to_owned);
@@ -426,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn node_is_learned_from_the_server_and_forgotten_when_switched_off() {
+    fn node_survives_switching_method_one_off_and_on() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().join("servers.json"));
         let id = store
@@ -437,8 +442,23 @@ mod tests {
         store.learn_node(&id, Some("abcd"), Some(8443)).unwrap();
         let s = store.get(&id).unwrap();
         assert_eq!((s.node.as_deref(), s.udp), (Some("abcd"), Some(8443)));
+
+        // Владелец выключил способ 1, сотрудник в это время подключился в офисе:
+        // сервер узел не сообщает, а программа его помнит — включат снова, и из дома
+        // всё заработает без нового ключа.
         store.learn_node(&id, None, None).unwrap();
-        assert_eq!(store.get(&id).unwrap().node, None);
+        let s = store.get(&id).unwrap();
+        assert_eq!((s.node.as_deref(), s.udp), (Some("abcd"), Some(8443)));
+        // Новый ключ, выданный при выключенном способе 1, узел тоже не стирает.
+        store
+            .add_key(&key("AA:BB", &["pc"], None), Some("1234"))
+            .unwrap();
+        assert_eq!(store.get(&id).unwrap().node.as_deref(), Some("abcd"));
+
+        // Сервер переехал на другой компьютер — узел другой, программа берёт новый.
+        store.learn_node(&id, Some("ef01"), Some(9443)).unwrap();
+        let s = store.get(&id).unwrap();
+        assert_eq!((s.node.as_deref(), s.udp), (Some("ef01"), Some(9443)));
     }
 
     #[test]
