@@ -1062,6 +1062,7 @@ dependencies = [
 name = "crm-connect"
 version = "0.4.4"
 dependencies = [
+ "base64 0.22.1",
  "crm-core",
  "crm-p2p",
  "crm-server",
@@ -1069,6 +1070,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

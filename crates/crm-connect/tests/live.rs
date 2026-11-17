@@ -204,3 +204,76 @@ async fn when_no_address_answers_the_node_key_connects() {
     assert_eq!(p.node_udp, Some(node.udp_port));
     running.stop().await.unwrap();
 }
+
+/// Сотрудник в офисе вводит адрес сервера и короткий код — программа сама получает
+/// ключ подключения (с приглашением «Задайте пароль»), без длинной строки и интернета.
+#[tokio::test(flavor = "multi_thread")]
+async fn short_code_in_the_office_gives_the_connection_key() {
+    use crm_connect::enroll::{enroll, EnrollFailure};
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = crm_server::config::Config::from_toml(&format!(
+        "listen = \"127.0.0.1:0\"\n[storage]\ndb_dir = {:?}\nattachments_dir = {:?}\n",
+        dir.path().join("data"),
+        dir.path().join("files"),
+    ))
+    .unwrap();
+    let pool = crm_server::db::open(&cfg.storage).await.unwrap();
+    sqlx::query(
+        "INSERT INTO users(id, username, display_name, role, created_at) VALUES ('u1', 'ivan', 'Иван', 'employee', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO enroll_codes(id, secret, user_id, expires_at) VALUES ('K7M4', 'QXZ9', 'u1', 9999999999999)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    let running = crm_server::server::start(&cfg).await.unwrap();
+    let port = running.addr.port();
+    let fp = running.ca_fingerprint.clone().unwrap();
+
+    // Адрес — как его ввёл человек: с портом.
+    let key = enroll(&format!("127.0.0.1:{port}"), "k7m4 qxz9")
+        .await
+        .unwrap();
+    let k = crm_core::connkey::decode(&key, None).unwrap();
+    assert_eq!(
+        crm_core::connkey::normalize_fp(&k.fp),
+        crm_core::connkey::normalize_fp(&fp)
+    );
+    assert_eq!(k.user.as_deref(), Some("ivan"));
+    assert!(
+        k.invite.is_some(),
+        "новый сотрудник — сразу «Задайте пароль»"
+    );
+
+    // Ошибка в коде — понятный ответ, а не «ошибка TLS».
+    assert_eq!(
+        enroll(&format!("127.0.0.1:{port}"), "K7M4-QXZ8").await,
+        Err(EnrollFailure::WrongCode)
+    );
+    assert_eq!(
+        enroll(&format!("127.0.0.1:{port}"), "AAAA-BBBB").await,
+        Err(EnrollFailure::WrongCode)
+    );
+    assert_eq!(
+        enroll(&format!("127.0.0.1:{port}"), "K7M4").await,
+        Err(EnrollFailure::BadInput(
+            crm_core::enroll::EnrollError::Format.to_string()
+        ))
+    );
+    // Сервер выключен или адрес не тот.
+    let free = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    assert!(matches!(
+        enroll(&format!("127.0.0.1:{free}"), "K7M4-QXZ9").await,
+        Err(EnrollFailure::NoServer(_))
+    ));
+    running.stop().await.unwrap();
+}
