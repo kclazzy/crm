@@ -182,3 +182,56 @@ async fn own_scope_matches_scope_over_everything() {
         }
     }
 }
+
+/// Карточка задачи у каждого пользователя набора — путь, подзадачи, права на
+/// кнопки — закреплена эталоном: ускорение не должно её менять.
+/// Обновить эталон: UPDATE_GOLDEN=1 cargo test --test audience cards
+#[tokio::test]
+async fn cards_are_the_same_for_everyone_as_pinned() {
+    use axum::extract::{Path, State};
+    let app = App::new().await;
+    varied(&app).await;
+    // Подзадача в другом клиенте и архивная — края, где легко ошибиться.
+    exec(&app.pool, "INSERT INTO tasks(id, client_id, parent_task_id, title, priority, status, created_by, created_at, deadline_at, completed_at, archived_at) VALUES
+        ('t12', 'cB', 't1', 't12', 1, 'completed', 'e1', 0, 0, 5, 6),
+        ('t121', 'cB', 't12', 't121', 1, 'waiting', 'e1', 0, 0, NULL, NULL)").await;
+    exec(
+        &app.pool,
+        "INSERT INTO task_assignees(task_id, user_id) VALUES ('t121', 'e3')",
+    )
+    .await;
+    let users: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT id, username, role FROM users ORDER BY username")
+            .fetch_all(&app.pool)
+            .await
+            .unwrap();
+    let mut got = serde_json::Map::new();
+    for (id, username, role) in users {
+        for t in TASKS.iter().chain(&["t12", "t121"]) {
+            let user = crm_server::auth::CurrentUser {
+                id: id.clone(),
+                username: username.clone(),
+                display_name: username.clone(),
+                role: role.parse().unwrap(),
+                session_id: String::new(),
+            };
+            let card = crm_server::tasks::get(State(app.state.clone()), user, Path(t.to_string()))
+                .await
+                .map(|c| serde_json::to_value(c.0).unwrap())
+                .unwrap_or_else(|e| serde_json::json!(format!("{e:?}")));
+            got.insert(format!("{username} → {t}"), card);
+        }
+    }
+    let got = serde_json::to_string_pretty(&got).unwrap();
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/cards.json");
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, &got).unwrap();
+    }
+    let want = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        got == want,
+        "карточки изменились: сравните с {}",
+        file.display()
+    );
+}

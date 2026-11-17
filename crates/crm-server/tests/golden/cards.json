@@ -1,0 +1,2548 @@
+{
+  "e1 → t1": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e1",
+        "name": "e1"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 2,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t1",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "participant",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e2",
+            "name": "e2"
+          }
+        ],
+        "children": 1,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t11",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t1",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t11",
+        "unread": 0
+      },
+      {
+        "access": "participant",
+        "archived_at": 6,
+        "assignees": [],
+        "children": 1,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": 5,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "done",
+        "id": "t12",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t1",
+        "priority": 1,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "completed",
+        "title": "t12",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t1",
+    "unread": 0
+  },
+  "e1 → t11": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t11",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "participant",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "m3",
+            "name": "m3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t111",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t11",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t111",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t11",
+    "unread": 0
+  },
+  "e1 → t111": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m3",
+        "name": "m3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t111",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t11",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      },
+      {
+        "id": "t11",
+        "readable": true,
+        "title": "t11"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t111",
+    "unread": 0
+  },
+  "e1 → t12": {
+    "access": "participant",
+    "archived_at": 6,
+    "archived_by": null,
+    "assignees": [],
+    "can_archive": false,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": 5,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "done",
+    "description": "",
+    "id": "t12",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      }
+    ],
+    "priority": 1,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "completed",
+    "subtasks": [
+      {
+        "access": "participant",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e3",
+            "name": "e3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t121",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t12",
+        "priority": 1,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "waiting",
+        "title": "t121",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "m2"
+    ],
+    "title": "t12",
+    "unread": 0
+  },
+  "e1 → t121": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t121",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t12",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      },
+      {
+        "id": "t12",
+        "readable": true,
+        "title": "t12"
+      }
+    ],
+    "priority": 1,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "waiting",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t121",
+    "unread": 0
+  },
+  "e1 → t2": "NotFound",
+  "e1 → t3": "NotFound",
+  "e1 → t31": "NotFound",
+  "e1 → t4": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e1",
+        "name": "e1"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t4",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "participant",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e2",
+            "name": "e2"
+          },
+          {
+            "id": "e5",
+            "name": "e5"
+          }
+        ],
+        "children": 0,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t41",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t4",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t41",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "m2"
+    ],
+    "title": "t4",
+    "unread": 0
+  },
+  "e1 → t41": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      },
+      {
+        "id": "e5",
+        "name": "e5"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t41",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t4",
+    "path": [
+      {
+        "id": "t4",
+        "readable": true,
+        "title": "t4"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t41",
+    "unread": 0
+  },
+  "e1 → t5": "NotFound",
+  "e1 → нет-такой": "NotFound",
+  "e2 → t1": "NotFound",
+  "e2 → t11": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": false,
+    "can_reassign": false,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t11",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": false,
+        "title": "t1"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "participant",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "m3",
+            "name": "m3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t111",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t11",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t111",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t11",
+    "unread": 0
+  },
+  "e2 → t111": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m3",
+        "name": "m3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": false,
+    "can_reassign": false,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t111",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t11",
+    "path": [
+      {
+        "id": "t1",
+        "readable": false,
+        "title": "t1"
+      },
+      {
+        "id": "t11",
+        "readable": true,
+        "title": "t11"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t111",
+    "unread": 0
+  },
+  "e2 → t12": "NotFound",
+  "e2 → t121": "NotFound",
+  "e2 → t2": "NotFound",
+  "e2 → t3": "NotFound",
+  "e2 → t31": "NotFound",
+  "e2 → t4": "NotFound",
+  "e2 → t41": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      },
+      {
+        "id": "e5",
+        "name": "e5"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": false,
+    "can_reassign": false,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t41",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t4",
+    "path": [
+      {
+        "id": "t4",
+        "readable": false,
+        "title": "t4"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t41",
+    "unread": 0
+  },
+  "e2 → t5": "NotFound",
+  "e2 → нет-такой": "NotFound",
+  "e3 → t1": "NotFound",
+  "e3 → t11": "NotFound",
+  "e3 → t111": "NotFound",
+  "e3 → t12": "NotFound",
+  "e3 → t121": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": false,
+    "can_reassign": false,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t121",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t12",
+    "path": [
+      {
+        "id": "t1",
+        "readable": false,
+        "title": "t1"
+      },
+      {
+        "id": "t12",
+        "readable": false,
+        "title": "t12"
+      }
+    ],
+    "priority": 1,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "waiting",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t121",
+    "unread": 0
+  },
+  "e3 → t2": "NotFound",
+  "e3 → t3": "NotFound",
+  "e3 → t31": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": false,
+    "can_reassign": false,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t31",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t3",
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t31",
+    "unread": 0
+  },
+  "e3 → t4": "NotFound",
+  "e3 → t41": "NotFound",
+  "e3 → t5": "NotFound",
+  "e3 → нет-такой": "NotFound",
+  "e4 → t1": "NotFound",
+  "e4 → t11": "NotFound",
+  "e4 → t111": "NotFound",
+  "e4 → t12": "NotFound",
+  "e4 → t121": "NotFound",
+  "e4 → t2": "NotFound",
+  "e4 → t3": "NotFound",
+  "e4 → t31": "NotFound",
+  "e4 → t4": "NotFound",
+  "e4 → t41": "NotFound",
+  "e4 → t5": "NotFound",
+  "e4 → нет-такой": "NotFound",
+  "e5 → t1": "NotFound",
+  "e5 → t11": "NotFound",
+  "e5 → t111": "NotFound",
+  "e5 → t12": "NotFound",
+  "e5 → t121": "NotFound",
+  "e5 → t2": "NotFound",
+  "e5 → t3": "NotFound",
+  "e5 → t31": "NotFound",
+  "e5 → t4": "NotFound",
+  "e5 → t41": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      },
+      {
+        "id": "e5",
+        "name": "e5"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": false,
+    "can_reassign": false,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t41",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t4",
+    "path": [
+      {
+        "id": "t4",
+        "readable": false,
+        "title": "t4"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t41",
+    "unread": 0
+  },
+  "e5 → t5": "NotFound",
+  "e5 → нет-такой": "NotFound",
+  "m1 → t1": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e1",
+        "name": "e1"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t1",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e2",
+            "name": "e2"
+          }
+        ],
+        "children": 1,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t11",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t1",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t11",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t1",
+    "unread": 0
+  },
+  "m1 → t11": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t11",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "m3",
+            "name": "m3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t111",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t11",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t111",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t11",
+    "unread": 0
+  },
+  "m1 → t111": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m3",
+        "name": "m3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t111",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t11",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      },
+      {
+        "id": "t11",
+        "readable": true,
+        "title": "t11"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t111",
+    "unread": 0
+  },
+  "m1 → t12": "NotFound",
+  "m1 → t121": "NotFound",
+  "m1 → t2": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m2",
+        "name": "m2"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t2",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t2",
+    "unread": 0
+  },
+  "m1 → t3": "NotFound",
+  "m1 → t31": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t31",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t3",
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t31",
+    "unread": 0
+  },
+  "m1 → t4": "NotFound",
+  "m1 → t41": "NotFound",
+  "m1 → t5": "NotFound",
+  "m1 → нет-такой": "NotFound",
+  "m2 → t1": "NotFound",
+  "m2 → t11": "NotFound",
+  "m2 → t111": "NotFound",
+  "m2 → t12": {
+    "access": "manage",
+    "archived_at": 6,
+    "archived_by": null,
+    "assignees": [],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": 5,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "done",
+    "description": "",
+    "id": "t12",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": false,
+        "title": "t1"
+      }
+    ],
+    "priority": 1,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "completed",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e3",
+            "name": "e3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t121",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t12",
+        "priority": 1,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "waiting",
+        "title": "t121",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "m2"
+    ],
+    "title": "t12",
+    "unread": 0
+  },
+  "m2 → t121": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t121",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t12",
+    "path": [
+      {
+        "id": "t1",
+        "readable": false,
+        "title": "t1"
+      },
+      {
+        "id": "t12",
+        "readable": true,
+        "title": "t12"
+      }
+    ],
+    "priority": 1,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "waiting",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t121",
+    "unread": 0
+  },
+  "m2 → t2": {
+    "access": "participant",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m2",
+        "name": "m2"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": false,
+    "can_reassign": false,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t2",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t2",
+    "unread": 0
+  },
+  "m2 → t3": "NotFound",
+  "m2 → t31": "NotFound",
+  "m2 → t4": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e1",
+        "name": "e1"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t4",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e2",
+            "name": "e2"
+          },
+          {
+            "id": "e5",
+            "name": "e5"
+          }
+        ],
+        "children": 0,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t41",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t4",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t41",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "m2"
+    ],
+    "title": "t4",
+    "unread": 0
+  },
+  "m2 → t41": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      },
+      {
+        "id": "e5",
+        "name": "e5"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t41",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t4",
+    "path": [
+      {
+        "id": "t4",
+        "readable": true,
+        "title": "t4"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t41",
+    "unread": 0
+  },
+  "m2 → t5": "NotFound",
+  "m2 → нет-такой": "NotFound",
+  "m3 → t1": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e1",
+        "name": "e1"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t1",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e2",
+            "name": "e2"
+          }
+        ],
+        "children": 1,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t11",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t1",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t11",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t1",
+    "unread": 0
+  },
+  "m3 → t11": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 1,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t11",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "m3",
+            "name": "m3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t111",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t11",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t111",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t11",
+    "unread": 0
+  },
+  "m3 → t111": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m3",
+        "name": "m3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t111",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t11",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      },
+      {
+        "id": "t11",
+        "readable": true,
+        "title": "t11"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t111",
+    "unread": 0
+  },
+  "m3 → t12": "NotFound",
+  "m3 → t121": "NotFound",
+  "m3 → t2": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m2",
+        "name": "m2"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t2",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t2",
+    "unread": 0
+  },
+  "m3 → t3": "NotFound",
+  "m3 → t31": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": false,
+    "can_change_status": false,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": false,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t31",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t3",
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t31",
+    "unread": 0
+  },
+  "m3 → t4": "NotFound",
+  "m3 → t41": "NotFound",
+  "m3 → t5": "NotFound",
+  "m3 → нет-такой": "NotFound",
+  "owner → t1": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e1",
+        "name": "e1"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 2,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t1",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e2",
+            "name": "e2"
+          }
+        ],
+        "children": 1,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t11",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t1",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t11",
+        "unread": 0
+      },
+      {
+        "access": "manage",
+        "archived_at": 6,
+        "assignees": [],
+        "children": 1,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": 5,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "done",
+        "id": "t12",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t1",
+        "priority": 1,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "completed",
+        "title": "t12",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t1",
+    "unread": 0
+  },
+  "owner → t11": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 1,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t11",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "m3",
+            "name": "m3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cA",
+        "client_name": "cA",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t111",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t11",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t111",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t11",
+    "unread": 0
+  },
+  "owner → t111": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m3",
+        "name": "m3"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t111",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t11",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      },
+      {
+        "id": "t11",
+        "readable": true,
+        "title": "t11"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t111",
+    "unread": 0
+  },
+  "owner → t12": {
+    "access": "manage",
+    "archived_at": 6,
+    "archived_by": null,
+    "assignees": [],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 1,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": 5,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "done",
+    "description": "",
+    "id": "t12",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t1",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      }
+    ],
+    "priority": 1,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "completed",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e3",
+            "name": "e3"
+          }
+        ],
+        "children": 0,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t121",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t12",
+        "priority": 1,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "waiting",
+        "title": "t121",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "m2"
+    ],
+    "title": "t12",
+    "unread": 0
+  },
+  "owner → t121": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t121",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t12",
+    "path": [
+      {
+        "id": "t1",
+        "readable": true,
+        "title": "t1"
+      },
+      {
+        "id": "t12",
+        "readable": true,
+        "title": "t12"
+      }
+    ],
+    "priority": 1,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "waiting",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t121",
+    "unread": 0
+  },
+  "owner → t2": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "m2",
+        "name": "m2"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t2",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t2",
+    "unread": 0
+  },
+  "owner → t3": "NotFound",
+  "owner → t31": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e3",
+        "name": "e3"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 0,
+    "client_id": "cA",
+    "client_name": "cA",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t31",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": "t3",
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "e1",
+      "m1",
+      "m3"
+    ],
+    "title": "t31",
+    "unread": 0
+  },
+  "owner → t4": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e1",
+        "name": "e1"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 1,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t4",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": null,
+    "parent_id": null,
+    "path": [],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [
+      {
+        "access": "manage",
+        "archived_at": null,
+        "assignees": [
+          {
+            "id": "e2",
+            "name": "e2"
+          },
+          {
+            "id": "e5",
+            "name": "e5"
+          }
+        ],
+        "children": 0,
+        "client_id": "cB",
+        "client_name": "cB",
+        "completed_at": null,
+        "created_at": 0,
+        "deadline_at": 0,
+        "deadline_state": "overdue",
+        "id": "t41",
+        "last_message_at": null,
+        "lead_id": null,
+        "parent_id": "t4",
+        "priority": 2,
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "status": "in_progress",
+        "title": "t41",
+        "unread": 0
+      }
+    ],
+    "team": [
+      "m2"
+    ],
+    "title": "t4",
+    "unread": 0
+  },
+  "owner → t41": {
+    "access": "manage",
+    "archived_at": null,
+    "archived_by": null,
+    "assignees": [
+      {
+        "id": "e2",
+        "name": "e2"
+      },
+      {
+        "id": "e5",
+        "name": "e5"
+      }
+    ],
+    "can_archive": true,
+    "can_change_status": true,
+    "can_edit": true,
+    "can_reassign": true,
+    "can_trash": true,
+    "children": 0,
+    "client_id": "cB",
+    "client_name": "cB",
+    "completed_at": null,
+    "created_at": 0,
+    "created_by": {
+      "id": "e1",
+      "name": "e1"
+    },
+    "deadline_at": 0,
+    "deadline_state": "overdue",
+    "description": "",
+    "id": "t41",
+    "last_message_at": null,
+    "lead_id": null,
+    "parent_deadline_at": 0,
+    "parent_id": "t4",
+    "path": [
+      {
+        "id": "t4",
+        "readable": true,
+        "title": "t4"
+      }
+    ],
+    "priority": 2,
+    "progress": {
+      "done": 0,
+      "total": 0
+    },
+    "stages": [],
+    "status": "in_progress",
+    "subtasks": [],
+    "team": [
+      "m2"
+    ],
+    "title": "t41",
+    "unread": 0
+  },
+  "owner → t5": "NotFound",
+  "owner → нет-такой": "NotFound"
+}

@@ -16,6 +16,8 @@ pub struct Scope {
     /// Клиенты, у которых есть хотя бы одна читаемая задача пользователя.
     working_on: HashSet<String>,
     client_group: HashMap<String, String>,
+    /// Загружены все задачи базы (а не часть под один экран).
+    complete: bool,
 }
 
 /// Задача: id, родитель, клиент, группа клиента, назначена ли пользователю.
@@ -112,7 +114,9 @@ impl Scope {
         .bind(user_id)
         .fetch_all(pool)
         .await?;
-        Self::build(actor(pool, user_id, role).await?, clients, rows)
+        let mut scope = Self::build(actor(pool, user_id, role).await?, clients, rows)?;
+        scope.complete = true;
+        Ok(scope)
     }
 
     /// Права на одну задачу (карточка, чат, этапы, статус) — по цепочке «задача →
@@ -136,6 +140,39 @@ impl Scope {
              SELECT id, parent, client, grp,
                     EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = up.id AND a.user_id = ?)
                FROM up",
+        )
+        .bind(task_id)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+        Self::build(actor(pool, user_id, role).await?, Vec::new(), rows)
+    }
+
+    /// Права для карточки задачи: цепочка родителей (путь) и всё поддерево
+    /// (подзадачи и то, что поднимает их до «только путь»).
+    pub async fn for_card(
+        pool: &SqlitePool,
+        user_id: &str,
+        role: crm_core::auth::Role,
+        task_id: &str,
+    ) -> Result<Self, ApiError> {
+        let rows: Vec<Row> = sqlx::query_as(
+            "WITH RECURSIVE
+               up(id, depth) AS (
+                 SELECT ?1, 0
+                 UNION
+                 SELECT t.parent_task_id, up.depth + 1 FROM up JOIN tasks t ON t.id = up.id
+                  WHERE t.parent_task_id IS NOT NULL AND up.depth < 64),
+               down(id, depth) AS (
+                 SELECT ?1, 0
+                 UNION
+                 SELECT t.id, down.depth + 1 FROM tasks t JOIN down ON t.parent_task_id = down.id
+                  WHERE down.depth < 64)
+             SELECT t.id, t.parent_task_id, t.client_id, c.group_id,
+                    EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?2)
+             FROM tasks t JOIN clients c ON c.id = t.client_id
+             WHERE t.id IN (SELECT id FROM up UNION SELECT id FROM down)
+               AND t.deleted_at IS NULL AND c.deleted_at IS NULL",
         )
         .bind(task_id)
         .bind(user_id)
@@ -200,6 +237,7 @@ impl Scope {
             actor,
             task_client,
             client_group: clients.into_iter().collect(),
+            complete: false,
         })
     }
 
@@ -211,7 +249,7 @@ impl Scope {
     /// Задачи, видные хотя бы как путь, — JSON-массив для `json_each(?)` в SQL.
     /// У руководителя `None`: ему видно всё, фильтр не нужен.
     pub fn visible_json(&self) -> Option<String> {
-        if self.actor.role == crm_core::auth::Role::Host {
+        if self.complete && self.actor.role == crm_core::auth::Role::Host {
             return None;
         }
         let ids: Vec<&str> = self

@@ -326,7 +326,7 @@ pub async fn get(
     user: CurrentUser,
     Path(id): Path<String>,
 ) -> Result<Json<TaskCard>, ApiError> {
-    let scope = Scope::load(&app.pool, &user).await?;
+    let scope = Scope::for_card(&app.pool, &user.id, user.role, &id).await?;
     let access = scope.task_or_404(&id)?;
     let all = summaries(&app, &scope, &user.id).await?;
     let by_id: HashMap<&str, &TaskSummary> = all.iter().map(|t| (t.id.as_str(), t)).collect();
