@@ -196,7 +196,7 @@ pub async fn confirm(
         ApiError::BadRequest("код не подошёл — проверьте время на телефоне и введите новый".into())
     })?;
     let codes = new_backup_codes()?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_last_step = ? WHERE id = ?",
     )
@@ -239,7 +239,7 @@ pub async fn confirm(
 }
 
 async fn clear(pool: &SqlitePool, user_id: &str) -> Result<(), ApiError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write_tx(pool).await?;
     sqlx::query(
         "UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_last_step = NULL WHERE id = ?",
     )

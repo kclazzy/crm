@@ -421,7 +421,7 @@ pub async fn create(
     if !can_create_client(&scope.actor, &v.group_id) {
         return Err(ApiError::Forbidden);
     }
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let id = insert(&mut tx, &v, &user.id, None).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
@@ -487,7 +487,7 @@ pub async fn update(
     if !can_create_client(&scope.actor, &v.group_id) {
         return Err(ApiError::Forbidden);
     }
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     update_row(&mut tx, &id, &v).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)

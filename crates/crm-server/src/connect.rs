@@ -68,7 +68,7 @@ pub(crate) async fn build_key(app: &AppState, user_id: Option<&str>) -> Result<B
         .await?;
         let (username, hash) = row.ok_or(ApiError::NotFound)?;
         if hash.is_none() {
-            let mut tx = app.pool.begin().await?;
+            let mut tx = crate::db::write_tx(&app.pool).await?;
             let inv = issue_invite(&mut tx, id).await?;
             tx.commit().await?;
             invite = Some(inv.invite_token);

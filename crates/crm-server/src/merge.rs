@@ -251,7 +251,7 @@ async fn merge_db(app: &AppState, db: &Path) -> Result<(BTreeMap<String, u64>, u
 async fn merge_attached(
     conn: &mut SqliteConnection,
 ) -> Result<(BTreeMap<String, u64>, u64), ApiError> {
-    let mut tx = conn.begin().await?;
+    let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
     // Ссылки проверяются в конце: порядок вставки внутри таблицы (подзадачи) не важен.
     sqlx::query("PRAGMA defer_foreign_keys = ON")
         .execute(&mut *tx)

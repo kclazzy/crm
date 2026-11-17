@@ -268,7 +268,7 @@ pub async fn post(
         ));
     }
     let id = new_id();
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(r) = &req.reply_to {
         let same: i64 =
             sqlx::query_scalar("SELECT count(*) FROM messages WHERE id = ? AND task_id = ?")
@@ -406,7 +406,7 @@ pub async fn read(
         }
     };
     if let Some(m) = last {
-        let mut tx = app.pool.begin().await?;
+        let mut tx = crate::db::write_tx(&app.pool).await?;
         mark_read(&mut tx, &user.id, &task, &m).await?;
         tx.commit().await?;
         unread_changed(&app, &user.id);
@@ -424,7 +424,7 @@ pub async fn read_all(
         sqlx::query_as("SELECT task_id, max(id) FROM messages GROUP BY task_id")
             .fetch_all(&app.pool)
             .await?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     for (task, m) in last {
         if scope.task(&task).can_read() {
             mark_read(&mut tx, &user.id, &task, &m).await?;

@@ -187,7 +187,7 @@ async fn chat_alert(app: &AppState, task: &str, kind: ReminderKind) -> Result<()
     } else {
         format!("{who}, задача почти просрочена. Крайний срок задачи {when}")
     };
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     crate::chat::system(&mut tx, task, &creator, &text).await?;
     tx.commit().await?;
     crate::events::task_changed(app, task, "message").await

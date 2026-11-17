@@ -43,7 +43,7 @@ pub async fn new_code(
         return Err(ApiError::NotFound);
     }
     let expires_at = now_ms() + INVITE_TTL.num_milliseconds();
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query("DELETE FROM enroll_codes WHERE user_id = ? OR expires_at < ?")
         .bind(&user_id)
         .bind(now_ms())

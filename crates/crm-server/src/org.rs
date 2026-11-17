@@ -226,7 +226,7 @@ pub async fn create_group(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let name = group_name(&req.name)?;
     let id = new_id();
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query("INSERT INTO groups(id, name, created_at) VALUES (?, ?, ?)")
         .bind(&id)
         .bind(&name)
@@ -246,7 +246,7 @@ pub async fn update_group(
     Json(req): Json<GroupIn>,
 ) -> Result<StatusCode, ApiError> {
     let name = group_name(&req.name)?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let n = sqlx::query("UPDATE groups SET name = ? WHERE id = ?")
         .bind(&name)
         .bind(&id)

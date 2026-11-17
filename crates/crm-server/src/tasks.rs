@@ -540,7 +540,7 @@ pub async fn create(
     };
     let id = new_id();
     let now = now_ms();
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "INSERT INTO tasks(id, client_id, parent_task_id, title, description, priority, status,
                            created_by, created_at, deadline_at)
@@ -696,7 +696,7 @@ pub async fn update(
     }
     let tz = crate::org::load(&app.pool).await?.tz();
     let who = &user.display_name;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(t) = &req.title {
         let t = parse_title(t)?;
         if t != cur.title {
@@ -854,7 +854,7 @@ pub async fn reassign(
         names(&app.pool, &before).await?,
         names(&app.pool, &ids).await?
     );
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     set_assignees(&mut tx, &id, &ids).await?;
     system(&mut tx, &id, &user.id, &text).await?;
     tx.commit().await?;
@@ -970,7 +970,7 @@ pub async fn set_status(
     .await?;
     if from != req.status {
         let completed = completed_at_after(req.status, cur.completed_at, now_ms());
-        let mut tx = app.pool.begin().await?;
+        let mut tx = crate::db::write_tx(&app.pool).await?;
         sqlx::query("UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?")
             .bind(req.status.as_str())
             .bind(completed)
@@ -1022,7 +1022,7 @@ pub async fn add_stage(
     let scope = Scope::load(&app.pool, &user).await?;
     scope.require_manage_task(&id)?;
     let title = parse_title(&req.title)?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     let order: i64 = sqlx::query_scalar(
         "SELECT coalesce(max(sort_order), -1) + 1 FROM task_stages WHERE task_id = ?",
     )
@@ -1050,7 +1050,7 @@ pub async fn update_stage(
     let (task, title, done_at) = stage_task(&app.pool, &sid).await?;
     let scope = Scope::load(&app.pool, &user).await?;
     let access = scope.task_or_404(&task)?;
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     if let Some(t) = &req.title {
         if !access.can_manage() {
             return Err(ApiError::Forbidden);
@@ -1228,7 +1228,7 @@ async fn archive_one(app: &AppState, user: &CurrentUser, id: &str) -> Result<boo
     if cur.archived_at.is_some() {
         return Ok(false);
     }
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN down ON t.parent_task_id = down.id)
          UPDATE tasks SET archived_at = ?, archived_by = ?
@@ -1283,7 +1283,7 @@ pub async fn unarchive(
             })?;
         }
     }
-    let mut tx = app.pool.begin().await?;
+    let mut tx = crate::db::write_tx(&app.pool).await?;
     sqlx::query(
         "WITH RECURSIVE down(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN down ON t.parent_task_id = down.id),
               up(id, parent) AS (SELECT id, parent_task_id FROM tasks WHERE id = ?
