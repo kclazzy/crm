@@ -73,8 +73,9 @@ async fn pin_key_waits_in_the_password_line() {
     let app = App::new().await;
     let owner = app.owner().await;
     let line = crm_server::secrets::hashing_slots();
+    // Очередь общая на весь процесс: ждём все места, даже занятые соседними тестами.
     let all = line
-        .acquire_many(line.available_permits() as u32)
+        .acquire_many(crm_server::secrets::HASHING_AT_ONCE as u32)
         .await
         .unwrap();
     let key = |pin: Option<&str>| {
