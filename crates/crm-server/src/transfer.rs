@@ -661,6 +661,7 @@ pub async fn export_clients(
     user: CurrentUser,
     Query(q): Query<ExportQuery>,
 ) -> Result<Response, ApiError> {
+    let _heavy = app.rt.heavy().await?;
     let scope = Scope::load(&app.pool, &user).await?;
     let rows: Vec<ClientExportRow> =
         sqlx::query_as(
@@ -765,6 +766,7 @@ pub async fn export_tasks(
     user: CurrentUser,
     Query(q): Query<ExportQuery>,
 ) -> Result<Response, ApiError> {
+    let _heavy = app.rt.heavy().await?;
     let scope = Scope::load(&app.pool, &user).await?;
     let tz = crate::org::load(&app.pool).await?.tz();
     let all = crate::tasks::summaries(&app, &scope, &user.id).await?;

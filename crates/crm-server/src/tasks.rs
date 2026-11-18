@@ -219,6 +219,7 @@ pub async fn list(
     user: CurrentUser,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<TaskSummary>>, ApiError> {
+    let _heavy = app.rt.heavy().await?;
     let scope = Scope::load(&app.pool, &user).await?;
     let mine = q.view.as_deref() == Some("mine");
     let created: std::collections::HashSet<String> =
@@ -1370,6 +1371,7 @@ pub async fn trashed(
     State(app): State<AppState>,
     user: CurrentUser,
 ) -> Result<Json<Vec<TrashedTask>>, ApiError> {
+    let _heavy = app.rt.heavy().await?;
     let scope = Scope::load(&app.pool, &user).await?;
     if scope.actor.role == Role::Employee {
         return Err(ApiError::Forbidden);

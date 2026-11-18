@@ -71,6 +71,7 @@ pub async fn search(
     user: CurrentUser,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Vec<Hit>>, ApiError> {
+    let _heavy = app.rt.heavy().await?;
     let Some(fts) = fts_query(&q.q) else {
         return Ok(Json(Vec::new()));
     };

@@ -94,12 +94,19 @@ pub(crate) async fn build_key(app: &AppState, user_id: Option<&str>) -> Result<B
     })
 }
 
-/// Строка ключа `CRM1-…` (с PIN — зашифрованная).
-pub(crate) fn key_string(key: &ServerKey, pin: Option<&str>) -> Result<String, ApiError> {
+/// Строка ключа `CRM1-…` (с PIN — зашифрованная). Шифрование PIN — Argon2 на
+/// 64 МБ, поэтому оно идёт в очереди проверок паролей.
+pub(crate) async fn key_string(key: &ServerKey, pin: Option<&str>) -> Result<String, ApiError> {
     let mut random = [0u8; 40];
     getrandom::fill(&mut random)
         .map_err(|e| ApiError::Failed(format!("генератор случайных чисел: {e}")))?;
-    encode(key, pin, random).map_err(|e| ApiError::BadRequest(e.to_string()))
+    let Some(pin) = pin else {
+        return encode(key, None, random).map_err(|e| ApiError::BadRequest(e.to_string()));
+    };
+    let (key, pin) = (key.clone(), pin.to_owned());
+    crate::secrets::in_hashing_line(move || encode(&key, Some(&pin), random))
+        .await?
+        .map_err(|e| ApiError::BadRequest(e.to_string()))
 }
 
 pub async fn connection_key(
@@ -122,7 +129,7 @@ pub async fn connection_key(
         }
     }
     let built = build_key(&app, req.user_id.as_deref()).await?;
-    let key = key_string(&built.key, pin)?;
+    let key = key_string(&built.key, pin).await?;
     Ok(Json(KeyOut {
         qr_svg: qr(&key)?,
         key,

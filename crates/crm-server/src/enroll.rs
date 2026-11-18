@@ -128,7 +128,7 @@ pub async fn enroll(
         .map_err(|_| ApiError::BadRequest("сообщение программы повреждено".into()))?;
 
     let built = crate::connect::build_key(&app, Some(&user_id)).await?;
-    let key = crate::connect::key_string(&built.key, None)?;
+    let key = crate::connect::key_string(&built.key, None).await?;
     let mut nonce = [0u8; 24];
     getrandom::fill(&mut nonce)
         .map_err(|e| ApiError::Failed(format!("генератор случайных чисел: {e}")))?;
