@@ -89,10 +89,33 @@ async function act(button, action) {
 }
 
 $('install').onclick = (e) => act(e.currentTarget, 'install');
+$('install-fresh').onclick = (e) => act(e.currentTarget, 'install-fresh');
+// Прежний сервер на этом компьютере: «Установить сервер» продолжит с его базой,
+// «Начать с чистой базы» отложит её в сторону.
+invoke('old_server_data')
+  .then((path) => {
+    if (!path) return;
+    $('old-data-path').textContent = path;
+    $('install').textContent = 'Продолжить с прежней базой';
+    $('old-data').hidden = false;
+  })
+  .catch(() => {});
 $('start').onclick = (e) => act(e.currentTarget, 'start');
 $('restart').onclick = (e) => act(e.currentTarget, 'restart');
 $('stop').onclick = () => $('confirm-stop').showModal();
 $('stop-cancel').onclick = () => $('confirm-stop').close();
+$('remove-server').onclick = () => $('confirm-remove').showModal();
+$('remove-cancel').onclick = () => $('confirm-remove').close();
+$('remove-ok').onclick = async () => {
+  $('confirm-remove').close();
+  await act($('remove-server'), 'uninstall');
+  const path = await invoke('old_server_data').catch(() => null);
+  if (path) {
+    $('old-data-path').textContent = path;
+    $('install').textContent = 'Продолжить с прежней базой';
+    $('old-data').hidden = false;
+  }
+};
 $('stop-ok').onclick = () => {
   $('confirm-stop').close();
   act($('stop'), 'stop');
@@ -294,6 +317,15 @@ function openServers() {
 
 $('to-servers').onclick = openServers;
 $('dash-servers').onclick = openServers;
+$('enter-owner').onclick = async (e) => {
+  const b = e.currentTarget;
+  b.classList.add('busy');
+  b.disabled = true;
+  try { await invoke('enter_as_owner'); } catch (x) { toast(String(x)); } finally {
+    b.classList.remove('busy');
+    b.disabled = false;
+  }
+};
 $('open-own').onclick = async (e) => {
   const b = e.currentTarget;
   b.classList.add('busy');
@@ -391,6 +423,7 @@ document.querySelectorAll('[data-back]').forEach((b) => {
 });
 // Выбор на приветственном экране снимает «Назад».
 $('install').addEventListener('click', () => { chosen = null; }, true);
+$('install-fresh').addEventListener('click', () => { chosen = null; }, true);
 
 // ---------- Автозапуск ----------
 async function loadAutostart() {

@@ -152,13 +152,15 @@ async fn server_action(app: AppHandle, action: String) -> Result<Status, String>
     if !server_ctl::is_allowed_action(&action) {
         return Err("неизвестное действие".into());
     }
+    let removing = action == "uninstall";
     tauri::async_runtime::spawn_blocking(move || server_ctl::elevated(&action))
         .await
         .map_err(|e| e.to_string())??;
     // Даём серверу подняться и отвечаем свежим состоянием.
     for _ in 0..20 {
         let st = refresh(&app).await;
-        if st.reachable || st.service == status::Service::Stopped {
+        let removed = removing && st.service == status::Service::NotInstalled;
+        if st.reachable || st.service == status::Service::Stopped || removed {
             return Ok(st);
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -196,6 +198,13 @@ async fn set_server_autostart(on: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Остались ли на компьютере данные прежнего сервера — тогда на приветствии
+/// выбор: продолжить с ними или начать с чистой базы.
+#[tauri::command]
+fn old_server_data() -> Option<String> {
+    server_ctl::old_data_root().map(|p| p.display().to_string())
+}
+
 #[tauri::command]
 async fn create_owner(
     app: AppHandle,
@@ -203,8 +212,13 @@ async fn create_owner(
     display_name: String,
     password: String,
 ) -> Result<Status, String> {
-    server_ctl::create_owner(username, display_name, password).await?;
-    Ok(refresh(&app).await)
+    let ticket = server_ctl::create_owner(username, display_name, password).await?;
+    let st = refresh(&app).await;
+    // Владелец только что ввёл пароль — CRM открывается сразу со входом.
+    if let Err(e) = connections::open_own_with(app.clone(), Some(ticket)).await {
+        let _ = app.emit("toast", format!("Откройте CRM кнопкой «Открыть CRM»: {e}"));
+    }
+    Ok(st)
 }
 
 // ---------- Трей ----------
@@ -306,7 +320,9 @@ fn main() {
             connections::server_add_addr,
             connections::server_remove_addr,
             connections::server_open,
-            connections::open_own
+            connections::open_own,
+            connections::enter_as_owner,
+            old_server_data
         ])
         .setup(move |app| {
             build_tray(app)?;
