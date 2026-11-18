@@ -472,6 +472,7 @@ pub async fn threads(
     user: CurrentUser,
     Query(q): Query<ThreadsQuery>,
 ) -> Result<Json<Vec<Thread>>, ApiError> {
+    let _heavy = app.rt.heavy().await?;
     let scope = Scope::load(&app.pool, &user).await?;
     let last: Vec<(String, String, String, i64, String)> = sqlx::query_as(
         "SELECT m.task_id, u.display_name, m.content, m.created_at, m.kind

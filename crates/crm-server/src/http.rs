@@ -29,6 +29,24 @@ pub struct Runtime {
     pub tls_refresh: tokio::sync::Notify,
     /// Узел подключения по ключу (если владелец включил).
     pub p2p: crate::p2p::Slot,
+    /// Места для больших выборок (списки, поиск, выгрузки): каждая держит в памяти
+    /// тысячи строк и ответ в мегабайты. Больше `HEAVY_AT_ONCE` разом не строится —
+    /// пик памяти ограничен, остальные ждут доли секунды.
+    pub heavy: tokio::sync::Semaphore,
+}
+
+/// Сколько больших выборок строится одновременно.
+pub const HEAVY_AT_ONCE: usize = 4;
+
+impl Runtime {
+    /// Дождаться места для большой выборки; место освобождается с ответом.
+    pub async fn heavy(&self) -> Result<tokio::sync::SemaphorePermit<'_>, ApiError> {
+        // Семафор никогда не закрывается; ошибка здесь — внутренняя.
+        self.heavy
+            .acquire()
+            .await
+            .map_err(|_| ApiError::Corrupt("очередь больших выборок закрыта".into()))
+    }
 }
 
 impl Runtime {
@@ -67,6 +85,7 @@ impl AppState {
                 hub: crate::events::Hub::default(),
                 tls_refresh: tokio::sync::Notify::new(),
                 p2p: crate::p2p::Slot::default(),
+                heavy: tokio::sync::Semaphore::new(HEAVY_AT_ONCE),
             }),
             ca_pem: None,
             ca_fingerprint: None,

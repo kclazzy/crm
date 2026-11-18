@@ -313,6 +313,7 @@ pub async fn list(
     user: CurrentUser,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<ClientItem>>, ApiError> {
+    let _heavy = app.rt.heavy().await?;
     let scope = Scope::load(&app.pool, &user).await?;
     if q.trash {
         if scope.actor.role == crm_core::auth::Role::Employee {
