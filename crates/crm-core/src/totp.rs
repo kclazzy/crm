@@ -135,22 +135,37 @@ pub enum Login {
     /// Входит, но сначала настраивает код — до этого остальное недоступно.
     Setup,
     /// Из интернета с одним паролем нельзя, а кода ещё нет: иначе вор пароля
-    /// привязал бы свой телефон. Настроить — в офисе.
+    /// привязал бы свой телефон. Настроить — в офисе или в программе на одобренном
+    /// устройстве.
     Refuse,
 }
 
-pub fn login_rule(policy: Policy, enrolled: bool, from_office: bool) -> Login {
+/// Откуда вход.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Place {
+    /// Сеть офиса.
+    Office,
+    /// Не из офиса, через программу CRM на устройстве, которое одобрил владелец
+    /// (или которое уже подключалось из офиса). Устройство — второй признак: код из
+    /// приложения можно настроить прямо здесь.
+    ApprovedDevice,
+    /// Не из офиса, без одобренного устройства.
+    Internet,
+}
+
+pub fn login_rule(policy: Policy, enrolled: bool, place: Place) -> Login {
+    let office = place == Place::Office;
     let required = match policy {
         Policy::All => true,
-        Policy::Remote => !from_office,
+        Policy::Remote => !office,
         Policy::Off => false,
     };
     match (enrolled, required) {
-        (true, _) if from_office && policy != Policy::All => Login::Allow,
+        (true, _) if office && policy != Policy::All => Login::Allow,
         (true, _) => Login::NeedCode,
         (false, false) => Login::Allow,
-        (false, true) if from_office => Login::Setup,
-        (false, true) => Login::Refuse,
+        (false, true) if place == Place::Internet => Login::Refuse,
+        (false, true) => Login::Setup,
     }
 }
 
@@ -214,25 +229,35 @@ mod tests {
     #[test]
     fn when_code_is_needed() {
         use Login::*;
+        use Place::*;
         use Policy::*;
-        // (политика, код настроен, из офиса) → решение
-        for (p, enrolled, office, want) in [
-            (Off, false, false, Allow),
-            (Off, true, true, Allow),
-            (Off, true, false, NeedCode),
-            (Remote, false, true, Allow),
-            (Remote, false, false, Refuse),
-            (Remote, true, true, Allow),
-            (Remote, true, false, NeedCode),
-            (All, false, true, Setup),
-            (All, false, false, Refuse),
-            (All, true, true, NeedCode),
-            (All, true, false, NeedCode),
+        // (политика, код настроен, откуда) → решение
+        for (p, enrolled, place, want) in [
+            (Off, false, Internet, Allow),
+            (Off, true, Office, Allow),
+            (Off, true, Internet, NeedCode),
+            (Remote, false, Office, Allow),
+            (Remote, false, Internet, Refuse),
+            (Remote, true, Office, Allow),
+            (Remote, true, Internet, NeedCode),
+            (All, false, Office, Setup),
+            (All, false, Internet, Refuse),
+            (All, true, Office, NeedCode),
+            (All, true, Internet, NeedCode),
+            // Устройство, одобренное владельцем (программа CRM по ключу): одного
+            // пароля мало, но код можно настроить сразу — вор пароля одобренного
+            // устройства не имеет.
+            (Off, false, ApprovedDevice, Allow),
+            (Off, true, ApprovedDevice, NeedCode),
+            (Remote, false, ApprovedDevice, Setup),
+            (Remote, true, ApprovedDevice, NeedCode),
+            (All, false, ApprovedDevice, Setup),
+            (All, true, ApprovedDevice, NeedCode),
         ] {
             assert_eq!(
-                login_rule(p, enrolled, office),
+                login_rule(p, enrolled, place),
                 want,
-                "{p:?} {enrolled} {office}"
+                "{p:?} {enrolled} {place:?}"
             );
         }
     }

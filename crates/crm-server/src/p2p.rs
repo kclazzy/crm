@@ -81,6 +81,44 @@ pub fn is_device_addr(ip: &str) -> bool {
     ip.starts_with(DEVICE_PREFIX)
 }
 
+/// Откуда вход — для правила «нужен ли код из приложения». Устройство считается
+/// одобренным, только если его одобрил владелец или оно уже подключалось из офиса;
+/// когда одобрение отключено, устройство вторым признаком не считается.
+pub async fn place(pool: &SqlitePool, ip: &str) -> Result<crm_core::totp::Place, sqlx::Error> {
+    use crm_core::totp::Place;
+    if crm_core::remote::is_office_addr(ip) {
+        return Ok(Place::Office);
+    }
+    let Some(prefix) = device_prefix(ip) else {
+        return Ok(Place::Internet);
+    };
+    let approved: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM p2p_devices WHERE approved = 1 AND lower(substr(id, 1, 24)) = ?)",
+    )
+    .bind(prefix)
+    .fetch_one(pool)
+    .await?;
+    Ok(if approved {
+        Place::ApprovedDevice
+    } else {
+        Place::Internet
+    })
+}
+
+/// Начало ключа устройства (24 hex), из которого `origin` строит его адрес.
+fn device_prefix(ip: &str) -> Option<String> {
+    if !is_device_addr(ip) {
+        return None;
+    }
+    let v6: Ipv6Addr = ip.parse().ok()?;
+    Some(
+        v6.segments()[2..]
+            .iter()
+            .map(|s| format!("{s:04x}"))
+            .collect(),
+    )
+}
+
 /// Шаблон адресов для учёта неудачных входов. Условный адрес устройства выводится из
 /// его ключа, а ключ выбирает сам подключающийся — поэтому неудачи всех таких
 /// устройств считаются вместе: смена ключа не даёт новых попыток.

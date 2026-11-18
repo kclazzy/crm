@@ -92,22 +92,23 @@ impl FromRequestParts<AppState> for CurrentUser {
                 .extensions
                 .get::<ConnectInfo<SocketAddr>>()
                 .map(|c| c.0.ip().to_string());
-            if from.is_some_and(|ip| !crm_core::remote::is_office_addr(&ip)) {
+            if let Some(ip) = from.filter(|ip| !crm_core::remote::is_office_addr(ip)) {
                 match crm_core::totp::login_rule(
                     crate::two_factor::policy(&app.pool).await?,
                     crate::two_factor::enrolled(&app.pool, &id).await?,
-                    false,
+                    crate::p2p::place(&app.pool, &ip).await?,
                 ) {
                     Login::Allow => {}
                     Login::NeedCode => return Err(ApiError::NeedCode),
-                    Login::Setup | Login::Refuse => return Err(ApiError::TwoFactorInOffice),
+                    // Одобренное устройство: доступна только настройка кода.
+                    Login::Setup if is_setup_path(path) => {}
+                    Login::Setup => return Err(ApiError::SetupTwoFactor),
+                    Login::Refuse => return Err(ApiError::TwoFactorInOffice),
                 }
             }
         }
         // Организация требует код, а он ещё не настроен: доступны только профиль и выход.
-        if needs_setup
-            && !(path == "/api/me" || path.starts_with("/api/me/2fa") || path == "/api/auth/logout")
-        {
+        if needs_setup && !is_setup_path(path) {
             return Err(ApiError::SetupTwoFactor);
         }
 
@@ -154,6 +155,11 @@ fn session_cookie(parts: &Parts) -> Option<&str> {
 }
 
 pub const COOKIE: &str = "crm_session";
+
+/// Пока код из приложения не настроен — доступны только профиль, настройка кода и выход.
+fn is_setup_path(path: &str) -> bool {
+    path == "/api/me" || path.starts_with("/api/me/2fa") || path == "/api/auth/logout"
+}
 
 /// Cookie сессии для браузера: недоступна скриптам (HttpOnly), только по HTTPS,
 /// не уходит с запросами с чужих сайтов (SameSite=Strict — защита от CSRF).
@@ -567,11 +573,10 @@ pub async fn login(
             .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
         session_id: String::new(),
     };
-    let office = crm_core::remote::is_office_addr(&ip);
     let rule = crm_core::totp::login_rule(
         crate::two_factor::policy(&app.pool).await?,
         crate::two_factor::enrolled(&app.pool, &user.id).await?,
-        office,
+        crate::p2p::place(&app.pool, &ip).await?,
     );
     let mut mfa_ok = false;
     let needs_setup = match rule {
@@ -707,15 +712,15 @@ pub async fn accept_invite(
     // Приглашение лежит в ключе подключения, который пересылают по почте и в
     // мессенджерах. Если для этого адреса нужен код из приложения, принять
     // приглашение из интернета нельзя: иначе перехвативший ключ привяжет свой
-    // телефон. В офисе — можно; по ключу сервера — тоже: устройство уже одобрил владелец.
+    // телефон. В офисе — можно; на устройстве, одобренном владельцем, — тоже
+    // (то же правило, что при входе: у нового сотрудника кода ещё нет).
     let ip = addr.ip().to_string();
-    let required = match crate::two_factor::policy(&app.pool).await? {
-        crm_core::totp::Policy::All => true,
-        crm_core::totp::Policy::Remote => !crm_core::remote::is_office_addr(&ip),
-        crm_core::totp::Policy::Off => false,
-    };
-    let trusted = crm_core::remote::is_office_addr(&ip) || crate::p2p::is_device_addr(&ip);
-    if required && !trusted {
+    let rule = crm_core::totp::login_rule(
+        crate::two_factor::policy(&app.pool).await?,
+        false,
+        crate::p2p::place(&app.pool, &ip).await?,
+    );
+    if rule == Login::Refuse {
         return Err(ApiError::InviteInOffice);
     }
 
@@ -749,7 +754,8 @@ pub async fn accept_invite(
         session_id: String::new(),
     };
     // Если организация требует код, его настраивают сразу после пароля.
-    let needs_setup = required && !crate::two_factor::enrolled(&app.pool, &user.id).await?;
+    let needs_setup =
+        rule == Login::Setup && !crate::two_factor::enrolled(&app.pool, &user.id).await?;
     let out = start_session(&app.pool, user, &req.device, &ip, needs_setup).await?;
     Ok(with_cookie(set_cookie(&out.token), Json(out)))
 }
