@@ -354,6 +354,43 @@ async fn start_session(
     })
 }
 
+/// Сессия владельца по билету (вход на самом сервере без пароля): билет выдал тот,
+/// кто и так может всё, поэтому код из приложения не спрашивается. Возвращает Set-Cookie.
+pub(crate) async fn session_without_password(
+    pool: &SqlitePool,
+    user_id: &str,
+    addr: &SocketAddr,
+) -> Result<String, ApiError> {
+    let row: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT username, display_name, role FROM users WHERE id = ? AND is_active = 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    let (username, display_name, role) = row.ok_or(ApiError::Unauthorized)?;
+    let user = CurrentUser {
+        id: user_id.to_owned(),
+        username,
+        display_name,
+        role: role
+            .parse()
+            .map_err(|_| ApiError::Corrupt(format!("роль «{role}»")))?,
+        session_id: String::new(),
+    };
+    let device = Device {
+        device_id: "this-server".into(),
+        device_name: "Компьютер-сервер".into(),
+    };
+    let ip = addr.ip().to_string();
+    let out = start_session(pool, user, &device, &ip, false).await?;
+    sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE token_hash = ?")
+        .bind(token_hash(&out.token))
+        .execute(pool)
+        .await?;
+    audit(pool, Some(user_id), "login.ticket", None, &ip).await?;
+    Ok(set_cookie(&out.token))
+}
+
 #[derive(Serialize)]
 pub struct InviteOut {
     pub(crate) invite_token: String,
@@ -402,7 +439,7 @@ pub async fn setup(
     State(app): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(req): Json<SetupIn>,
-) -> Result<(StatusCode, Json<CurrentUser>), ApiError> {
+) -> Result<(StatusCode, Json<SetupOut>), ApiError> {
     if !addr.ip().is_loopback() {
         return Err(ApiError::Forbidden);
     }
@@ -427,6 +464,8 @@ pub async fn setup(
     if inserted == 0 {
         return Err(ApiError::Conflict("владелец уже создан"));
     }
+    // Программа на сервере сразу открывает CRM владельцу — без повторного ввода пароля.
+    let ticket = crate::local_login::issue(&app.pool, &id).await?;
     audit(
         &app.pool,
         Some(&id),
@@ -437,14 +476,25 @@ pub async fn setup(
     .await?;
     Ok((
         StatusCode::CREATED,
-        Json(CurrentUser {
-            id,
-            username: username.as_str().to_owned(),
-            display_name,
-            role: Role::Host,
-            session_id: String::new(),
+        Json(SetupOut {
+            user: CurrentUser {
+                id,
+                username: username.as_str().to_owned(),
+                display_name,
+                role: Role::Host,
+                session_id: String::new(),
+            },
+            ticket,
         }),
     ))
+}
+
+#[derive(Serialize)]
+pub struct SetupOut {
+    #[serde(flatten)]
+    user: CurrentUser,
+    /// Одноразовый билет входа: `GET /api/auth/ticket?t=…` с этого компьютера.
+    ticket: String,
 }
 
 #[derive(Serialize)]

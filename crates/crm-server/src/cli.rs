@@ -13,7 +13,11 @@ pub const USAGE: &str = "\
   crm-server service start|stop|restart|status
   crm-server service autostart-on   запускать сервер при включении компьютера (по умолчанию)
   crm-server service autostart-off  не запускать сам — только вручную
+  crm-server service install-fresh  установить службу с чистой базой: прежние база и вложения
+                                    переносятся в папку old-ДАТА рядом с данными
   crm-server reset-owner-password   сбросить забытый пароль владельца (от администратора, на сервере)
+  crm-server owner-ticket ХЕШ       для программы на сервере: билет входа владельца без пароля
+                                    (от администратора; ХЕШ — SHA-256 билета в hex)
   crm-server restore ИСТОЧНИК       восстановить данные: файл копии .db.zst, папка копий
                                     или пакет переноса .crmpack (затем перезапустить службу)
   crm-server --version";
@@ -32,12 +36,19 @@ pub enum Command {
         source: PathBuf,
         config: Option<PathBuf>,
     },
+    /// Билет входа владельца без пароля (выдаёт администратор Windows).
+    OwnerTicket {
+        hash: String,
+        config: Option<PathBuf>,
+    },
     Version,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceCmd {
     Install,
+    /// Установка с чистой базой: прежняя переносится в архивную папку.
+    InstallFresh,
     Uninstall,
     Start,
     Stop,
@@ -57,6 +68,13 @@ pub enum ServiceCmd {
 #[error("непонятная команда: {0}\n\n{USAGE}")]
 pub struct UsageError(String);
 
+/// SHA-256 в hex строчными буквами — так его пишет `secrets::token_hash`.
+fn is_hash(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 pub fn parse(args: &[String]) -> Result<Command, UsageError> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     let bad = || UsageError(words.join(" "));
@@ -70,6 +88,14 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
         ["reset-owner-password", "--config", path] => Ok(Command::ResetOwnerPassword {
             config: Some(PathBuf::from(path)),
         }),
+        ["owner-ticket", hash] if is_hash(hash) => Ok(Command::OwnerTicket {
+            hash: (*hash).to_owned(),
+            config: None,
+        }),
+        ["owner-ticket", hash, "--config", path] if is_hash(hash) => Ok(Command::OwnerTicket {
+            hash: (*hash).to_owned(),
+            config: Some(PathBuf::from(path)),
+        }),
         ["restore", source] => Ok(Command::Restore {
             source: PathBuf::from(source),
             config: None,
@@ -81,6 +107,7 @@ pub fn parse(args: &[String]) -> Result<Command, UsageError> {
         ["service", sub] => {
             let cmd = match *sub {
                 "install" => ServiceCmd::Install,
+                "install-fresh" => ServiceCmd::InstallFresh,
                 "uninstall" => ServiceCmd::Uninstall,
                 "start" => ServiceCmd::Start,
                 "stop" => ServiceCmd::Stop,
@@ -179,6 +206,38 @@ mod tests {
             })
         );
         assert!(p("reset-owner-password now").is_err());
+    }
+
+    #[test]
+    fn owner_ticket_takes_only_a_hash() {
+        let h = "ab".repeat(32);
+        assert_eq!(
+            p(&format!("owner-ticket {h}")),
+            Ok(Command::OwnerTicket {
+                hash: h.clone(),
+                config: None
+            })
+        );
+        assert_eq!(
+            p(&format!("owner-ticket {h} --config D:/crm.toml")),
+            Ok(Command::OwnerTicket {
+                hash: h.clone(),
+                config: Some("D:/crm.toml".into())
+            })
+        );
+        // Сам билет в командную строку не попадает — только SHA-256 в hex.
+        assert!(p("owner-ticket").is_err());
+        assert!(p("owner-ticket билет").is_err());
+        assert!(p(&format!("owner-ticket {}", "AB".repeat(32))).is_err());
+        assert!(p(&format!("owner-ticket {}", "ab".repeat(31))).is_err());
+    }
+
+    #[test]
+    fn fresh_install_is_a_service_command() {
+        assert_eq!(
+            p("service install-fresh"),
+            Ok(Command::Service(ServiceCmd::InstallFresh))
+        );
     }
 
     #[test]
