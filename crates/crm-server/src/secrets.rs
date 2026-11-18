@@ -47,7 +47,8 @@ fn hash_blocking(password: &str) -> Result<String, SecretError> {
 /// Одновременно не больше двух проверок пароля: каждая — ~19 МБ памяти и заметная
 /// работа процессора. При наплыве попыток входа запросы ждут очереди, а сервер
 /// продолжает отвечать сотрудникам.
-static HASHING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+pub const HASHING_AT_ONCE: usize = 2;
+static HASHING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(HASHING_AT_ONCE);
 
 /// Очередь Argon2 — для проверки в тестах.
 #[doc(hidden)]
