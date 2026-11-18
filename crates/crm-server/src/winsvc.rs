@@ -37,6 +37,8 @@ pub enum ServiceError {
     AccessDenied,
     #[error("служба не установлена")]
     NotInstalled,
+    #[error("{0}")]
+    Refused(String),
     #[error("ошибка Windows: {0}")]
     Windows(windows_service::Error),
     #[error("не удалось выполнить {program}: {detail}")]
@@ -75,6 +77,7 @@ impl From<windows_service::Error> for ServiceError {
 pub fn handle(cmd: ServiceCmd) -> Result<String, ServiceError> {
     match cmd {
         ServiceCmd::Install => install(),
+        ServiceCmd::InstallFresh => install_fresh(),
         ServiceCmd::Uninstall => uninstall(),
         ServiceCmd::Start => start().map(|()| "Служба запущена.".into()),
         ServiceCmd::Stop => stop().map(|()| "Служба остановлена.".into()),
@@ -221,6 +224,35 @@ fn install() -> Result<String, ServiceError> {
     ))
 }
 
+/// Новый сервер на компьютере, где остались данные прежнего: база и вложения
+/// откладываются в `old-<дата>`, служба ставится с чистой базой.
+fn install_fresh() -> Result<String, ServiceError> {
+    match open(ServiceAccess::QUERY_STATUS) {
+        Err(ServiceError::NotInstalled) => {}
+        Ok(_) => {
+            return Err(ServiceError::Refused(
+                "сервер уже установлен — чистую базу можно поставить только вместо удалённого"
+                    .into(),
+            ))
+        }
+        Err(e) => return Err(e),
+    }
+    let cfg = Config::load(&config::default_config_path())?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let archive =
+        crate::install_plan::archive_old_data(&cfg.storage, &stamp).map_err(|source| {
+            ServiceError::Io {
+                path: cfg.storage.db_dir.clone(),
+                source,
+            }
+        })?;
+    let done = install()?;
+    Ok(match archive {
+        Some(a) => format!("{done}\nПрежние данные сохранены в {}", a.display()),
+        None => done,
+    })
+}
+
 fn uninstall() -> Result<String, ServiceError> {
     match stop() {
         Ok(()) | Err(ServiceError::NotInstalled) => {}
@@ -278,24 +310,24 @@ fn park() -> Result<String, ServiceError> {
 fn unpark() -> Result<String, ServiceError> {
     remove_old_vpn();
     let path = parked_path();
-    let auto = match std::fs::read_to_string(&path) {
-        Ok(s) => s.trim() != "demand",
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // Деинсталляторы до 0.2.2 удаляли службу без отметки. Служба есть или
-            // базы сервера нет — значит, возвращать нечего.
-            let cfg = Config::load(&config::default_config_path())?;
-            let had_server = cfg.storage.db_dir.join(crate::db::DB_FILE).exists();
-            match open(ServiceAccess::QUERY_STATUS) {
-                Err(ServiceError::NotInstalled) if had_server => true,
-                Ok(_) | Err(ServiceError::NotInstalled) => {
-                    return Ok(
-                        "Служба на месте или не была установлена — возвращать нечего.".into(),
-                    );
-                }
-                Err(e) => return Err(e),
-            }
+    let marker = match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            let age = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .unwrap_or(Duration::MAX);
+            Some((text, age))
         }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(source) => return Err(ServiceError::Io { path, source }),
+    };
+    let Some(auto) = crate::install_plan::restore_service(
+        marker.as_ref().map(|(text, age)| (text.as_str(), *age)),
+    ) else {
+        // Сервер удалили не ради обновления: роль компьютера выберет человек.
+        let _ = std::fs::remove_file(&path);
+        return Ok("Службу возвращать не нужно — роль компьютера выбирается в программе.".into());
     };
     let done = install()?;
     if !auto {

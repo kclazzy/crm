@@ -256,6 +256,25 @@ pub fn forget_invite(app: &AppHandle) {
 /// Без него берётся приглашение, сохранённое с сервером: сотрудник ещё не задал пароль.
 #[tauri::command]
 pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> Result<(), String> {
+    open_server(app, id, invite, None).await
+}
+
+/// Страница, с которой открывается CRM: билет входа владельца (на своём сервере),
+/// приглашение или главная.
+fn entry_path(invite: Option<&str>, ticket: Option<&str>) -> String {
+    match (ticket, invite) {
+        (Some(t), _) => format!("/api/auth/ticket?t={}", urlencode(t)),
+        (None, Some(code)) => format!("/invite?code={}", urlencode(code)),
+        (None, None) => "/".into(),
+    }
+}
+
+async fn open_server(
+    app: AppHandle,
+    id: String,
+    invite: Option<String>,
+    ticket: Option<String>,
+) -> Result<(), String> {
     let st = store(&app)?;
     let server = st.get(&id).map_err(|e| e.to_string())?;
     let p = probe(&server).await;
@@ -306,10 +325,8 @@ pub async fn server_open(app: AppHandle, id: String, invite: Option<String>) -> 
     if let Ok(mut last) = app.state::<LastOpened>().0.lock() {
         *last = Some(id.clone());
     }
-    let path = match invite.or(server.invite.clone()) {
-        Some(token) => format!("/invite?code={}", urlencode(&token)),
-        None => "/".into(),
-    };
+    let invite = invite.or(server.invite.clone());
+    let path = entry_path(invite.as_deref(), ticket.as_deref());
     navigate(&app, &format!("{url}{path}"))
 }
 
@@ -382,6 +399,22 @@ pub fn back_to_list(app: &AppHandle) {
 /// Владелец на сервере: «Этот компьютер» в списке и сразу вход в CRM.
 #[tauri::command]
 pub async fn open_own(app: AppHandle) -> Result<(), String> {
+    open_own_with(app, None).await
+}
+
+/// Войти владельцем без пароля: Windows спрашивает подтверждение администратора,
+/// сервер выдаёт одноразовый билет, CRM открывается уже со входом.
+#[tauri::command]
+pub async fn enter_as_owner(app: AppHandle) -> Result<(), String> {
+    let (ticket, hash) = crate::server_ctl::new_ticket()?;
+    tauri::async_runtime::spawn_blocking(move || crate::server_ctl::issue_owner_ticket(&hash))
+        .await
+        .map_err(|e| e.to_string())??;
+    open_own_with(app, Some(ticket)).await
+}
+
+/// «Этот компьютер» в списке серверов и переход в CRM (с билетом — сразу со входом).
+pub async fn open_own_with(app: AppHandle, ticket: Option<String>) -> Result<(), String> {
     let fp = match crate::server_ctl::health().await {
         crate::status::Health::Ok {
             ca_fingerprint: Some(fp),
@@ -405,7 +438,7 @@ pub async fn open_own(app: AppHandle) -> Result<(), String> {
             invite: None,
         })
         .map_err(|e| e.to_string())?;
-    server_open(app, server.id, None).await
+    open_server(app, server.id, None, ticket).await
 }
 
 /// Раз в 15 секунд: если офисный адрес пропал (ушли домой), туннель переключается на внешний адрес.
@@ -447,5 +480,23 @@ pub async fn keep_tunnels_fresh(app: AppHandle) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod entry_tests {
+    use super::entry_path;
+
+    #[test]
+    fn ticket_wins_then_invite_then_home() {
+        assert_eq!(
+            entry_path(Some("код 1"), Some("ab12")),
+            "/api/auth/ticket?t=ab12"
+        );
+        assert_eq!(
+            entry_path(Some("код 1"), None),
+            "/invite?code=%D0%BA%D0%BE%D0%B4%201"
+        );
+        assert_eq!(entry_path(None, None), "/");
     }
 }

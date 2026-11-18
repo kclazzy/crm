@@ -26,6 +26,11 @@
           <h2>Этот компьютер — сервер</h2>
           <p>Здесь будут храниться клиенты, задачи и переписка команды. Компьютер должен быть включён в рабочее время.</p>
           <button id="install" class="primary">Установить сервер</button>
+          <div id="old-data" class="old-data" hidden>
+            <p><b>На этом компьютере уже был сервер CRM</b> — его база могла остаться. Продолжить с ней (вход — прежним логином владельца) или начать заново?</p>
+            <button id="install-fresh">Начать с чистой базы</button>
+            <small>Прежняя база не удаляется: она переедет в папку <code id="old-data-path">C:\ProgramData\CRM</code>\old-дата.</small>
+          </div>
           <small>Windows один раз попросит разрешение администратора.</small>
         </article>
         <article class="choice">
@@ -77,9 +82,11 @@
       </div>
       <div class="actions">
         <button id="open-own" class="primary">Открыть CRM</button>
+        <button id="enter-owner" title="Windows спросит разрешение администратора — пароль владельца не нужен">Войти владельцем без пароля</button>
         <button id="dash-servers">Мои серверы</button>
         <button id="restart">Перезапустить сервер</button>
         <button id="stop" class="danger-ghost">Остановить сервер…</button>
+        <button id="remove-server" class="danger-ghost">Этот компьютер — не сервер…</button>
       </div>
     </section>
 
@@ -137,6 +144,15 @@
     <div class="actions">
       <button id="stop-cancel">Отмена</button>
       <button id="stop-ok" class="danger">Остановить</button>
+    </div>
+  </dialog>
+
+  <dialog id="confirm-remove">
+    <h3>Убрать сервер с этого компьютера?</h3>
+    <p>Служба сервера удалится, сотрудники потеряют связь с CRM. База остаётся в папке C:\ProgramData\CRM — её можно вернуть кнопкой «Продолжить с прежней базой» или перенести на другой компьютер. После этого здесь можно подключиться к другому серверу как сотрудник.</p>
+    <div class="actions">
+      <button id="remove-cancel">Отмена</button>
+      <button id="remove-ok" class="danger">Убрать сервер</button>
     </div>
   </dialog>
 

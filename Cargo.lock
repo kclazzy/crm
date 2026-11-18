@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "crm-connect"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "base64 0.22.1",
  "crm-core",
@@ -1079,7 +1079,7 @@ dependencies = [
 
 [[package]]
 name = "crm-core"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -1096,14 +1096,16 @@ dependencies = [
 
 [[package]]
 name = "crm-desktop"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "crm-connect",
  "crm-core",
+ "getrandom 0.3.4",
  "if-addrs",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -1127,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "crm-p2p"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "iroh",
  "thiserror 2.0.21",
@@ -1136,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "crm-server"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "argon2",
  "axum",

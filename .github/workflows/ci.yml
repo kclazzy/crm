@@ -96,10 +96,40 @@ jobs:
           if (Get-NetFirewallRule -DisplayName 'CRM Server' -ErrorAction SilentlyContinue) { throw "правило брандмауэра осталось" }
           if (-not (Test-Path C:\ProgramData\CRM\data\crm.db)) { throw "данные удалены, а не должны" }
 
-          # Служба удалена старым деинсталлятором (без отметки), база осталась — установщик возвращает её.
+          # Сервер удалили не ради обновления (нет отметки) — установщик службу не возвращает:
+          # роль компьютера выбирают в программе.
           & $exe service unpark; if ($LASTEXITCODE) { throw "unpark без отметки" }
-          if ((Get-Service CRMServer).Status -ne 'Running') { throw "служба не вернулась" }
-          Write-Host "вернулась: $(Health)"
+          if (Get-Service CRMServer -ErrorAction SilentlyContinue) { throw "служба вернулась без отметки" }
+          # Отметка давняя (удалили давно, ставят снова) — тоже выбор за человеком.
+          Set-Content C:\ProgramData\CRM\service.parked 'auto'
+          (Get-Item C:\ProgramData\CRM\service.parked).LastWriteTime = (Get-Date).AddHours(-2)
+          & $exe service unpark; if ($LASTEXITCODE) { throw "unpark со старой отметкой" }
+          if (Get-Service CRMServer -ErrorAction SilentlyContinue) { throw "служба вернулась по старой отметке" }
+          if (Test-Path C:\ProgramData\CRM\service.parked) { throw "старая отметка осталась" }
+
+          # «Начать с чистой базы»: прежняя база уходит в old-дата, сертификат тот же.
+          $caBefore = (Get-FileHash C:\ProgramData\CRM\data\tls\ca.crt).Hash
+          & $exe service install-fresh; if ($LASTEXITCODE) { throw "install-fresh" }
+          $old = Get-ChildItem C:\ProgramData\CRM -Directory -Filter 'old-*' | Select-Object -First 1
+          if (-not $old -or -not (Test-Path "$($old.FullName)\data\crm.db")) { throw "прежняя база не отложена" }
+          if ((Get-FileHash C:\ProgramData\CRM\data\tls\ca.crt).Hash -ne $caBefore) { throw "сертификат сервера сменился" }
+          Write-Host "чистая база: $(Health)"
+          $ca = 'C:\ProgramData\CRM\data\tls\ca.crt'
+          $setup = curl.exe -s --ssl-no-revoke --cacert $ca https://localhost:8443/api/setup/status
+          if ($setup -notmatch '"needs_owner":true') { throw "в чистой базе уже есть владелец: $setup" }
+
+          # Вход владельца без пароля: билет сразу после создания и билет от администратора.
+          $body = '{"username":"boss","display_name":"Boss","password":"ochen-nadezhnyi-parol"}'
+          $created = $body | curl.exe -s --ssl-no-revoke --cacert $ca -H 'content-type: application/json' --data-binary '@-' https://localhost:8443/api/setup | ConvertFrom-Json
+          if (-not $created.ticket) { throw "нет билета после создания владельца" }
+          $hdr = curl.exe -s -D - -o NUL --ssl-no-revoke --cacert $ca "https://localhost:8443/api/auth/ticket?t=$($created.ticket)"
+          if (-not ($hdr -match 'crm_session=[A-Za-z0-9_-]{20,}')) { throw "билет не дал сессию: $hdr" }
+          $ticket = 'ci-ticket-0123456789abcdef0123456789abcdef'
+          $hash = -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($ticket)) | ForEach-Object { $_.ToString('x2') })
+          & $exe owner-ticket $hash; if ($LASTEXITCODE) { throw "owner-ticket" }
+          $hdr = curl.exe -s -D - -o NUL --ssl-no-revoke --cacert $ca "https://localhost:8443/api/auth/ticket?t=$ticket"
+          if (-not ($hdr -match 'crm_session=[A-Za-z0-9_-]{20,}')) { throw "билет администратора не дал сессию: $hdr" }
+          Write-Host "вход без пароля: ок"
           # Деинсталлятор запоминает службу и её автозапуск, установщик возвращает как было.
           & $exe service autostart-off; if ($LASTEXITCODE) { throw "autostart-off" }
           & $exe service park; if ($LASTEXITCODE) { throw "park" }
@@ -229,10 +259,21 @@ jobs:
           WaitUntil 'удаление службы' { -not (Get-Service CRMServer -ErrorAction SilentlyContinue) }
           WaitUntil 'удаление программы' { -not (Test-Path "$dir\CRM.exe") }
           if (-not (Test-Path C:\ProgramData\CRM\data\crm.db)) { throw "данные удалены без согласия" }
-          # Повторная установка после удаления возвращает сервер с прежними данными.
+          # Установка сразу после удаления (так выглядит обновление с «Удалить перед установкой»)
+          # возвращает сервер с прежними данными.
           Start-Process $setup -ArgumentList '/S' -Wait
           WaitUntil 'служба после повторной установки' { (Get-Service CRMServer -ErrorAction SilentlyContinue).Status -eq 'Running' }
           Write-Host "после повторной установки: $(Health)"
+          # Сервер удалили давно, а программу ставят снова — служба сама не появляется,
+          # программа покажет выбор «сервер или подключиться».
+          Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait
+          WaitUntil 'удаление службы 2' { -not (Get-Service CRMServer -ErrorAction SilentlyContinue) }
+          WaitUntil 'удаление программы 2' { -not (Test-Path "$dir\CRM.exe") }
+          (Get-Item C:\ProgramData\CRM\service.parked).LastWriteTime = (Get-Date).AddHours(-2)
+          Start-Process $setup -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          if (Get-Service CRMServer -ErrorAction SilentlyContinue) { throw "давно удалённый сервер вернулся сам" }
+          Write-Host "давно удалённый сервер не вернулся: ок"
           Write-Host "OK"
       - uses: actions/upload-artifact@v4
         with:

@@ -38,6 +38,7 @@ fn main() -> Result<(), MainError> {
         Command::Service(cmd) => service(cmd),
         Command::ResetOwnerPassword { config } => reset_owner(config),
         Command::Restore { source, config } => restore(source, config),
+        Command::OwnerTicket { hash, config } => owner_ticket(hash, config),
     }
 }
 
@@ -83,6 +84,17 @@ async fn reset_owner(config_path: Option<PathBuf>) -> Result<(), MainError> {
     }
     let username = crm_server::recovery::reset_owner_password(&cfg.storage, &first).await?;
     println!("Готово. Пароль владельца «{username}» изменён, все его входы завершены.");
+    Ok(())
+}
+
+/// Билет входа владельца без пароля — для программы CRM на этом компьютере,
+/// которая запускает команду через окно UAC. Без прав администратора Windows
+/// не даст открыть папку с базой.
+#[tokio::main]
+async fn owner_ticket(hash: String, config_path: Option<PathBuf>) -> Result<(), MainError> {
+    let cfg = config::Config::load(&config_location(config_path))?;
+    let username = crm_server::local_login::issue_offline(&cfg.storage, &hash).await?;
+    println!("Билет входа выдан владельцу «{username}» на 2 минуты.");
     Ok(())
 }
 

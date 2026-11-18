@@ -96,6 +96,18 @@ impl App {
         headers: &[(&str, &str)],
         body: Option<Value>,
     ) -> (StatusCode, axum::http::HeaderMap, String) {
+        self.raw_from(LOCAL, method, path, headers, body).await
+    }
+
+    /// То же, что `raw`, с адреса `ip`.
+    pub async fn raw_from(
+        &self,
+        ip: &str,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: Option<Value>,
+    ) -> (StatusCode, axum::http::HeaderMap, String) {
         let mut req = Request::builder().method(method).uri(path);
         for (k, v) in headers {
             req = req.header(*k, *v);
@@ -108,7 +120,7 @@ impl App {
             None => Body::empty(),
         };
         let mut req = req.body(body).unwrap();
-        let addr: SocketAddr = format!("{LOCAL}:50000").parse().unwrap();
+        let addr: SocketAddr = format!("{ip}:50000").parse().unwrap();
         req.extensions_mut().insert(ConnectInfo(addr));
         let res = self.router.clone().oneshot(req).await.unwrap();
         let status = res.status();

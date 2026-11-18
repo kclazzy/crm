@@ -101,6 +101,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/setup/status", get(auth::setup_status))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
+        .route("/api/auth/ticket", get(crate::local_login::enter))
         .route("/api/auth/recover", post(crate::recovery::recover))
         .route("/api/auth/forgot", post(crate::recovery::forgot))
         .route(
