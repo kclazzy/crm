@@ -92,32 +92,39 @@
 
     <section id="servers" class="screen" hidden>
       <button class="back" type="button" data-back>← Назад</button>
-      <h1>Мои серверы</h1>
-      <p class="lead">Статус проверяется перед подключением: зелёный — сервер отвечает. «Проверить» покажет каждый адрес и позволит ввести свой.</p>
+      <h1>Подключение к CRM</h1>
       <ul id="server-list" class="servers"></ul>
-      <p id="servers-empty" class="empty" hidden>Пока нет серверов — подключитесь по коду от владельца или по ключу.</p>
-      <form id="enroll-form" class="card form">
-        <h3>В офисе: адрес сервера и код</h3>
-        <label>Адрес сервера
-          <input name="addr" required spellcheck="false" autocomplete="off" placeholder="OFFICE-PC или 192.168.1.10">
-          <small>Имя или адрес компьютера с CRM — их показывает владелец вместе с кодом.</small></label>
-        <label>Код от владельца
-          <input name="code" required spellcheck="false" autocomplete="off" maxlength="12" placeholder="K7M4-QXZ9" style="text-transform:uppercase;letter-spacing:.08em">
-          <small>8 букв и цифр. Интернет не нужен — только сеть офиса.</small></label>
-        <p id="enroll-error" class="error" hidden></p>
-        <button class="primary" type="submit">Подключиться</button>
-      </form>
-      <form id="add-form" class="card form">
-        <h3>Из дома или с длинным ключом</h3>
-        <label>Ключ подключения
-          <textarea name="key" rows="3" required spellcheck="false" placeholder="CRM1-…"></textarea>
-          <small>Ключ присылает владелец CRM. Можно вставить вместе с переносами строк.</small></label>
-        <label id="pin-row" hidden>PIN
-          <input name="pin" inputmode="numeric" autocomplete="off" maxlength="32" placeholder="4–6 цифр">
-          <small>PIN владелец сообщает отдельно — голосом или в мессенджере.</small></label>
-        <p id="add-error" class="error" hidden></p>
-        <button class="primary" type="submit">Добавить и подключиться</button>
-      </form>
+      <button id="add-more" type="button" hidden>+ Добавить сервер</button>
+
+      <div id="add-card" class="card form">
+        <h3>Где вы сейчас?</h3>
+        <div class="segmented" role="radiogroup" aria-label="Где вы сейчас">
+          <button type="button" role="radio" data-where="office" aria-checked="true">🏢 В офисе</button>
+          <button type="button" role="radio" data-where="away" aria-checked="false">🏠 Не в офисе</button>
+        </div>
+
+        <form id="enroll-form" data-where="office">
+          <p class="hint">Подойдите к владельцу: он покажет адрес сервера и код в разделе «Сотрудники» → «Код». Интернет не нужен.</p>
+          <label>Адрес сервера
+            <input name="addr" required spellcheck="false" autocomplete="off" placeholder="OFFICE-PC или 192.168.1.10"></label>
+          <label>Код от владельца
+            <input name="code" required spellcheck="false" autocomplete="off" maxlength="12" placeholder="K7M4-QXZ9" style="text-transform:uppercase;letter-spacing:.08em">
+            <small>8 букв и цифр.</small></label>
+          <p id="enroll-error" class="error" hidden></p>
+          <button class="primary" type="submit">Подключиться</button>
+        </form>
+
+        <form id="add-form" data-where="away" hidden>
+          <p class="hint">Владелец присылает ключ подключения (начинается с CRM1-), а PIN сообщает отдельно — голосом или в мессенджере.</p>
+          <label>Ключ подключения
+            <textarea name="key" rows="3" required spellcheck="false" placeholder="CRM1-…"></textarea>
+            <small>Можно вставить вместе с переносами строк.</small></label>
+          <label id="pin-row" hidden>PIN
+            <input name="pin" inputmode="numeric" autocomplete="off" maxlength="32" placeholder="6 цифр"></label>
+          <p id="add-error" class="error" hidden></p>
+          <button class="primary" type="submit">Подключиться</button>
+        </form>
+      </div>
     </section>
 
     <section id="down" class="screen narrow center-text" hidden>

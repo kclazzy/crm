@@ -154,6 +154,36 @@ $('owner-form').onsubmit = async (e) => {
 // ---------- Мои серверы ----------
 
 let knownServers = [];
+// Форма добавления раскрыта кнопкой «+ Добавить сервер».
+let adding = false;
+
+// «Где вы сейчас?»: в офисе — адрес и код, не в офисе — ключ и PIN. Выбор запоминается.
+function setWhere(where) {
+  document.querySelectorAll('.segmented [data-where]').forEach((b) => {
+    b.setAttribute('aria-checked', String(b.dataset.where === where));
+  });
+  $('enroll-form').hidden = where !== 'office';
+  $('add-form').hidden = where !== 'away';
+  try { localStorage.setItem('crm.where', where); } catch { /* без памяти */ }
+}
+document.querySelectorAll('.segmented [data-where]').forEach((b) => {
+  b.onclick = () => setWhere(b.dataset.where);
+});
+try { setWhere(localStorage.getItem('crm.where') === 'away' ? 'away' : 'office'); } catch { setWhere('office'); }
+$('add-more').onclick = () => {
+  adding = true;
+  $('add-more').hidden = true;
+  $('add-card').hidden = false;
+};
+// Вставили ключ CRM1-… в поле кода — значит, это подключение не из офиса.
+document.querySelector('#enroll-form [name=code]').addEventListener('paste', (e) => {
+  const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+  if (!/^\s*CRM1-/i.test(text)) return;
+  e.preventDefault();
+  setWhere('away');
+  keyInput.value = text.trim();
+  keyInput.dispatchEvent(new Event('input'));
+});
 
 function describe(p) {
   if (p.state === 'online') {
@@ -170,7 +200,10 @@ async function loadServers() {
   knownServers = await invoke('servers');
   const ul = $('server-list');
   ul.replaceChildren();
-  $('servers-empty').hidden = knownServers.length > 0;
+  // Серверы уже есть — форма добавления свёрнута под «+ Добавить сервер».
+  const has = knownServers.length > 0;
+  $('add-more').hidden = !has || adding;
+  $('add-card').hidden = has && !adding;
   for (const s of knownServers) {
     const li = document.createElement('li');
     const dot = document.createElement('i');
@@ -342,6 +375,7 @@ keyInput.addEventListener('input', async () => {
 // Сервер добавлен (по ключу или по коду): сразу открыть — «Задайте пароль» для нового
 // сотрудника; не отвечает — показать, какой адрес почему.
 async function openAdded(added) {
+  adding = false;
   await loadServers();
   if (added.probe.state === 'online') {
     await invoke('server_open', { id: added.id, invite: added.invite });

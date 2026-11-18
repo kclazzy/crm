@@ -325,11 +325,21 @@ async fn invite_from_the_internet_needs_office_or_an_approved_device() {
     let (s, v) = app.accept(&invite, "пароль-сотрудника-1", OFFICE_PC).await;
     assert_eq!(s, StatusCode::OK, "{v}");
 
-    // Устройство, пришедшее по ключу сервера, уже прошло одобрение владельца.
+    // По ключу сервера с устройства, которое владелец не одобрял (одобрение
+    // отключено или заявка ждёт), — как из интернета.
     let (_, invite) = app.invite(&owner, "petr", "employee").await;
     let device = format!("[2001:db8:{}]", "abcd:".repeat(5) + "abcd");
     let (s, v) = app.accept(&invite, "пароль-сотрудника-1", &device).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "неодобренное устройство: {v}");
+    // Одобрил — приглашение принимается, код настраивается сразу.
+    sqlx::query("INSERT INTO p2p_devices(id, approved, first_seen, last_seen) VALUES (?, 1, 0, 0)")
+        .bind("abcd".repeat(16))
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    let (s, v) = app.accept(&invite, "пароль-сотрудника-1", &device).await;
     assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["must_setup_2fa"], true, "{v}");
 
     // Код из приложения выключен владельцем — из интернета и так входят по паролю.
     let (s, _) = app
