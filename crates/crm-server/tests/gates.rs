@@ -65,3 +65,37 @@ async fn a_few_big_lists_run_at_once() {
     let n = app.state.rt.heavy.available_permits();
     assert!((2..=8).contains(&n), "мест: {n}");
 }
+
+/// Ключ с PIN шифруется через Argon2 на 64 МБ — он стоит в той же очереди,
+/// что и проверки паролей; ключ без PIN её не ждёт.
+#[tokio::test]
+async fn pin_key_waits_in_the_password_line() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let line = crm_server::secrets::hashing_slots();
+    let all = line
+        .acquire_many(line.available_permits() as u32)
+        .await
+        .unwrap();
+    let key = |pin: Option<&str>| {
+        app.call(
+            "POST",
+            "/api/admin/connection-key",
+            LOCAL,
+            Some(&owner),
+            Some(serde_json::json!({ "pin": pin })),
+        )
+    };
+    let waited = tokio::time::timeout(Duration::from_millis(300), key(Some("482913"))).await;
+    assert!(waited.is_err(), "ключ с PIN должен ждать очереди");
+    let (s, _) = tokio::time::timeout(Duration::from_secs(5), key(None))
+        .await
+        .expect("ключ без PIN не ждёт");
+    assert_eq!(s, axum::http::StatusCode::OK);
+    drop(all);
+    let (s, v) = tokio::time::timeout(Duration::from_secs(30), key(Some("482913")))
+        .await
+        .expect("после освобождения");
+    assert_eq!(s, axum::http::StatusCode::OK, "{v}");
+    assert_eq!(v["with_pin"], true);
+}

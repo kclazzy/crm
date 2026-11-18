@@ -49,10 +49,24 @@ fn hash_blocking(password: &str) -> Result<String, SecretError> {
 /// продолжает отвечать сотрудникам.
 static HASHING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
+/// Очередь Argon2 — для проверки в тестах.
+#[doc(hidden)]
+pub fn hashing_slots() -> &'static tokio::sync::Semaphore {
+    &HASHING
+}
+
+/// Тяжёлая криптография (Argon2): по очереди с проверками паролей и вне потока
+/// обработки запросов.
+pub async fn in_hashing_line<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, SecretError> {
+    let _slot = HASHING.acquire().await.map_err(|_| SecretError::Busy)?;
+    Ok(tokio::task::spawn_blocking(work).await?)
+}
+
 /// argon2id — медленный по замыслу, поэтому вне потока обработки запросов.
 pub async fn hash_password(password: String) -> Result<String, SecretError> {
-    let _slot = HASHING.acquire().await.map_err(|_| SecretError::Busy)?;
-    tokio::task::spawn_blocking(move || hash_blocking(&password)).await?
+    in_hashing_line(move || hash_blocking(&password)).await?
 }
 
 /// Хеш-заглушка: если логина нет, проверяем пароль против неё, чтобы ответ
@@ -72,8 +86,7 @@ pub async fn verify_password(
     password: String,
     stored: Option<String>,
 ) -> Result<bool, SecretError> {
-    let _slot = HASHING.acquire().await.map_err(|_| SecretError::Busy)?;
-    tokio::task::spawn_blocking(move || {
+    in_hashing_line(move || {
         // Пароль заглушки — случайный и нигде не сохранён, поэтому с ней проверка всегда ложна.
         let hash = match &stored {
             Some(h) => h.as_str(),
