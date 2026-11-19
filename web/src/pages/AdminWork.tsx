@@ -144,9 +144,17 @@ export function ConnectionKey({ userId, name, onClose }: { userId: string | null
     <Modal open onClose={onClose} title={name ? `Ключ подключения для ${name}` : 'Ключ подключения'}>
       {!key ? (
         <div className="flex flex-col gap-4">
+          {userId ? (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+              🆕 Для нового сотрудника без пароля: в ключ встроено приглашение — после подключения он сам задаст себе пароль.
+            </p>
+          ) : (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+              Для сотрудников, у которых уже есть пароль: ключ только находит сервер, вход — своим логином и паролем.
+            </p>
+          )}
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Сотрудник вставит ключ в программу CRM («Подключиться по ключу») — она сама найдёт сервер в сети офиса или через интернет и проверит, что он ваш.
-            {userId ? ' В ключ встроено приглашение: после подключения сотрудник сразу задаст пароль.' : ''}
+            🌐 Для подключения <b>через интернет</b>, не из офиса. Сотрудник открывает программу CRM → «Подключиться» → «Не в офисе» и вставляет ключ — программа сама найдёт сервер и проверит, что он ваш.
           </p>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={usePin} onChange={(e) => setUsePin(e.target.checked)} />Защитить PIN (рекомендуется)</label>
           {usePin && <Field label="PIN" hint="Сообщите отдельно от ключа — голосом или в другом мессенджере."><input className="input font-mono text-lg tracking-widest" value={pin} onChange={(e) => setPin(e.target.value)} maxLength={32} /></Field>}
@@ -190,7 +198,7 @@ function TwoFactorPolicyCard() {
       <h2 className="mb-1 font-semibold">5. Защита входа: код из приложения</h2>
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Второй шаг входа — 6 цифр из приложения на телефоне (Яндекс Ключ, Google Authenticator). Каждый настраивает его сам:
-        меню <b>«Код из приложения»</b>. Кто не настроил — из интернета не войдёт, только в офисе.
+        меню <b>«Код из приложения»</b> — в офисе или дома в программе CRM на компьютере, который вы одобрили. В браузере из интернета без кода не войти.
       </p>
       <div className="flex flex-col gap-2">
         {policies.map((p) => (
