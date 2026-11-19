@@ -101,13 +101,29 @@ export class ApiError extends Error {
 export const SECURITY_PATH = '/security';
 export const NEED_CODE_EVENT = 'crm:need-code';
 
+/** Текст ошибки для человека: что случилось и что сделать. Понятные сообщения сервера
+ * («задача в архиве — сначала верните её») остаются как есть. */
+export function humanError(status: number, message: string): string {
+  if (status === 0) return 'Нет связи с сервером — изменения не сохранены. Проверьте сеть и повторите: когда связь вернётся, всё заработает.';
+  if (status === 401) return 'Вход закончился — войдите заново.';
+  if (status === 403 && message === 'недостаточно прав') return 'Недостаточно прав — если это нужно для работы, попросите владельца.';
+  if (status === 429) return 'Слишком много запросов. Подождите минуту и попробуйте снова.';
+  if (status >= 500) return `Ошибка на сервере: ${message}. Повторите; если ошибка не уходит — «Сообщить о проблеме» в справке.`;
+  return message;
+}
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      headers: body === undefined ? {} : { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, humanError(0, ''));
+  }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -115,7 +131,9 @@ export async function request<T>(method: string, path: string, body?: unknown): 
     if (data.setup_2fa && location.pathname !== SECURITY_PATH) location.assign(SECURITY_PATH);
     // Сессию открыли без кода, а работаем из интернета: подтвердить кодом (окно в Shell).
     if (data.need_code && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event(NEED_CODE_EVENT));
-    throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`, data);
+    // На входе 401 — это «неверный пароль», его текст оставляем.
+    const message = data.error ?? `Ошибка ${res.status}`;
+    throw new ApiError(res.status, path.startsWith('/api/auth/') ? message : humanError(res.status, message), data);
   }
   return data as T;
 }

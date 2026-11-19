@@ -41,6 +41,9 @@ pub enum RunError {
 pub struct Running {
     pub addr: SocketAddr,
     pub ca_fingerprint: Option<String>,
+    /// UDP-порт поиска в сети офиса; `None` — поиск выключен.
+    pub discovery_port: Option<u16>,
+    discovery: Option<JoinHandle<()>>,
     handle: Handle,
     serve: JoinHandle<std::io::Result<()>>,
     renew: Option<JoinHandle<()>>,
@@ -117,13 +120,37 @@ pub async fn start(cfg: &Config) -> Result<Running, RunError> {
             source,
         });
     };
+    let found = if cfg.discovery.enabled {
+        crate::discovery::start(
+            cfg.listen,
+            cfg.discovery.port,
+            crm_core::discovery::Reply {
+                name: gethostname::gethostname().to_string_lossy().into_owned(),
+                port: addr.port(),
+                fp: material
+                    .as_ref()
+                    .map(|m| m.ca_fingerprint.clone())
+                    .unwrap_or_default(),
+                version: env!("CARGO_PKG_VERSION").into(),
+            },
+        )
+        .await
+    } else {
+        None
+    };
     // Узел подключения по ключу: его сбой не должен мешать серверу запуститься.
     if let Err(e) = crate::p2p::apply(&state).await {
         tracing::warn!("подключение по ключу не запущено: {e}");
     }
+    let (discovery_port, discovery) = match found {
+        Some((p, t)) => (Some(p), Some(t)),
+        None => (None, None),
+    };
     Ok(Running {
         addr,
         ca_fingerprint: material.map(|m| m.ca_fingerprint),
+        discovery_port,
+        discovery,
         handle,
         serve,
         renew,
@@ -228,6 +255,9 @@ impl Running {
         self.backups.abort();
         self.workers.abort();
         self.upnp.abort();
+        if let Some(d) = self.discovery {
+            d.abort();
+        }
         if let Some(r) = self.renew {
             r.abort();
         }

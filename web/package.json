@@ -1,12 +1,13 @@
 {
   "name": "crm-web",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "lucide-react": "^1.72.0",
@@ -21,6 +22,7 @@
     "@vitejs/plugin-react": "^6.3.0",
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "vitest": "^3.2.7"
   }
 }

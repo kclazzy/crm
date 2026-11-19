@@ -10,6 +10,7 @@ import { Menu, MenuItem } from '../components/Menu';
 import { Avatar, BackButton, Button, ErrorText, Modal } from '../components/ui';
 import { DeadlineText, LeadPicker, Md, PeoplePicker, PriorityBadge, Progress, TaskForm, TaskRow, statusIcon, statusStyle, usePeople } from '../components/work';
 import { Chat } from '../components/Chat';
+import { useToast } from '../components/Toast';
 
 // ---------- Размер текста в задаче: описание, этапы и чат; запоминается на этом устройстве ----------
 
@@ -176,6 +177,7 @@ const longDate = (ms: number) => new Date(ms).toLocaleString('ru-RU', { day: 'nu
 export function TaskPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [t, setT] = useState<TaskCard | null>(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
@@ -199,6 +201,14 @@ export function TaskPage() {
   const primary = actions.find((a) => a.to === 'in_progress') ?? actions.find((a) => a.to === 'completed');
   const secondary = actions.filter((a) => a !== primary && a.to === 'completed');
   const more = actions.filter((a) => a !== primary && !secondary.includes(a));
+  const openStages = t.stages.filter((x) => !x.completed_at).length;
+  const nextStep = archived || !t.can_change_status ? null
+    : status === 'waiting' ? 'Возьмите задачу в работу — кнопка «Начать».'
+    : status === 'postponed' ? 'Задача отложена. Когда вернётесь к ней — «Начать».'
+    : status === 'in_progress' && openStages > 0 ? `Отмечайте этапы по мере выполнения (осталось ${openStages}), затем «Завершить».`
+    : status === 'in_progress' ? 'Когда всё сделано — «Завершить».'
+    : status === 'completed' && t.can_archive ? 'Задача выполнена. Уберите её «В архив», когда она больше не нужна в списке.'
+    : null;
 
   const act = async (f: () => Promise<unknown>, after?: string) => {
     setNote('');
@@ -206,9 +216,13 @@ export function TaskPage() {
   };
   async function setStatus(to: Status) {
     if (!t) return;
+    const was = t.status;
     await act(async () => {
       const r = await work.setStatus(t.id, to);
       if (to === 'completed' && r.open_stages > 0) setTimeout(() => setNote(`Задача завершена, хотя этапов не отмечено: ${r.open_stages}.`), 0);
+      // «Отменить» — только если вернуться назад разрешено правилами (в «Ждёт выполнения» нельзя).
+      const back = was && statusActions.some((a) => a.to === was && a.from.includes(to));
+      toast(`Статус: ${statusName[to]}`, back ? { undo: async () => { await work.setStatus(t.id, was); load(); } } : {});
     });
   }
 
@@ -305,6 +319,8 @@ export function TaskPage() {
           </div>
         </div>
 
+        {/* Что делать дальше — одной строкой над кнопками. */}
+        {nextStep && <p className="border-t border-slate-200 bg-brand-50/60 px-4 py-2 text-sm text-brand-800 sm:px-6 dark:border-slate-800 dark:bg-brand-500/10 dark:text-brand-100">→ {nextStep}</p>}
         {/* Нижняя панель действий — как кнопки «Начать / Завершить / ⋯» */}
         <div className="task-actions sticky z-10 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:bottom-0 dark:border-slate-800 dark:bg-slate-900">
           {primary && <Button onClick={() => setStatus(primary.to)}>{primary.to === 'in_progress' ? 'Начать' : 'Завершить'}</Button>}
@@ -313,7 +329,7 @@ export function TaskPage() {
           {archived && t.can_archive && t.can_change_status && (
             <Button onClick={() => act(() => work.unarchive(t.id, true), 'Задача восстановлена и возвращена в работу.')}>Восстановить в работу</Button>
           )}
-          {!archived && status === 'completed' && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.archive(t.id), 'Задача убрана в архив.')}><Archive className="size-4" />В архив</Button>}
+          {!archived && status === 'completed' && t.can_archive && <Button variant="secondary" onClick={() => act(async () => { await work.archive(t.id); toast('Задача убрана в архив', { undo: async () => { await work.unarchive(t.id); load(); } }); })}><Archive className="size-4" />В архив</Button>}
           <Menu button={(toggle) => <Button variant="ghost" onClick={toggle} title="Ещё"><MoreHorizontal className="size-5" /></Button>}>
             {(close) => (
               <>
@@ -335,12 +351,16 @@ export function TaskPage() {
 
       {reassigning && <Reassign t={t} onClose={() => setReassigning(false)} onSaved={() => { setReassigning(false); load(); }} />}
       {editing && <EditTask t={t} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />}
-      <TaskForm open={sub} onClose={() => setSub(false)} parent={{ id: t.id, deadline_at: t.deadline_at, title: t.title }} onCreated={(nid) => { setSub(false); navigate(`/tasks/${nid}`); }} />
+      <TaskForm open={sub} onClose={() => setSub(false)} parent={{ id: t.id, deadline_at: t.deadline_at, title: t.title }} onCreated={(nid) => { setSub(false); navigate(`/tasks/${nid}`); toast('Подзадача создана'); }} />
       <Modal open={trash} onClose={() => setTrash(false)} title="Убрать задачу в корзину?">
         <p className="text-sm text-slate-600 dark:text-slate-300">Вместе с подзадачами и чатом. Вернуть можно из корзины.</p>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setTrash(false)}>Отмена</Button>
-          <Button variant="danger" onClick={async () => { await work.trashTask(t.id); navigate(`/clients/${t.client_id}`); }}>В корзину</Button>
+          <Button variant="danger" onClick={async () => {
+            await work.trashTask(t.id);
+            navigate(`/clients/${t.client_id}`);
+            toast('Задача в корзине', { undo: async () => { await work.restoreTask(t.id); navigate(`/tasks/${t.id}`); } });
+          }}>В корзину</Button>
         </div>
       </Modal>
     </div>

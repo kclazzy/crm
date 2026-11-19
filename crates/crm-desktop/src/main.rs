@@ -322,6 +322,8 @@ fn main() {
             connections::server_open,
             connections::open_own,
             connections::enter_as_owner,
+            connections::server_list,
+            connections::find_servers,
             old_server_data
         ])
         .setup(move |app| {

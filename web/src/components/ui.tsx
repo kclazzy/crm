@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router';
 import { type ButtonHTMLAttributes, type ReactNode, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Loader2, X } from 'lucide-react';
+import { timeAgo } from '../api';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -93,7 +94,7 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Field({ label, hint, children }: { label: ReactNode; hint?: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5 text-sm font-medium">
       {label}
@@ -120,4 +121,22 @@ export function BackButton({ fallback }: { fallback: string }) {
       <ArrowLeft className="size-4" />Назад
     </button>
   );
+}
+
+/** Пустой экран: что здесь появится и что сделать дальше. */
+export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="card flex flex-col items-center px-8 py-14 text-center">
+      <span className="text-brand-500 [&>svg]:size-10">{icon}</span>
+      <p className="mt-4 font-semibold">{title}</p>
+      <p className="mt-1 max-w-md text-sm text-slate-500">{text}</p>
+      {action && <div className="mt-5">{action}</div>}
+    </div>
+  );
+}
+
+/** «5 мин назад» — с точной датой и временем во всплывающей подсказке. */
+export function Ago({ ms }: { ms: number }) {
+  const exact = new Date(ms).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return <time dateTime={new Date(ms).toISOString()} title={exact}>{timeAgo(ms)}</time>;
 }

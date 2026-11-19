@@ -82,6 +82,8 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .servers .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; background: var(--offline); }
 .servers .dot.online { background: var(--ok); box-shadow: 0 0 0 4px rgba(22,163,74,.15); }
 .servers .dot.wrong_server { background: var(--error); }
+.servers .dot.checking { background: #f59e0b; animation: pulse 1s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
 .servers .info { flex: 1; min-width: 0; }
 .servers .name { font-weight: 620; }
 .servers .meta { color: var(--muted); font-size: 13px; }
@@ -120,3 +122,8 @@ label.check small { grid-column: 2; color: var(--muted); font-weight: 400; }
 .segmented button[aria-checked="true"] { background: var(--accent); color: #fff; }
 .hint { color: var(--muted); margin: 0 0 10px; }
 #add-more { margin: 4px 0 12px; }
+
+/* Поиск сервера в сети офиса. */
+.found { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 8%, transparent); font-size: 13px; }
+.found button.pick { padding: 4px 10px; }
+.link { border: 0; background: none; color: var(--accent); padding: 0; cursor: pointer; text-decoration: underline; }

@@ -138,6 +138,18 @@ async fn view(s: Server) -> ServerView {
     }
 }
 
+/// Список без проверки связи — показать сразу, пока идёт проверка.
+#[tauri::command]
+pub fn server_list(app: AppHandle) -> Result<Vec<Server>, String> {
+    store(&app)?.list().map_err(|e| e.to_string())
+}
+
+/// Серверы в сети офиса, которые ответили на поиск.
+#[tauri::command]
+pub async fn find_servers() -> Vec<crm_connect::discover::Found> {
+    crm_connect::discover::find(std::time::Duration::from_millis(1500)).await
+}
+
 #[tauri::command]
 pub async fn servers(app: AppHandle) -> Result<Vec<ServerView>, String> {
     let list = store(&app)?.list().map_err(|e| e.to_string())?;

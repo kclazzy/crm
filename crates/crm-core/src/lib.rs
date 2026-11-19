@@ -4,6 +4,7 @@ pub mod access;
 pub mod auth;
 pub mod backup;
 pub mod connkey;
+pub mod discovery;
 pub mod disk;
 pub mod enroll;
 pub mod import;

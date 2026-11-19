@@ -160,6 +160,7 @@ jobs:
         working-directory: web
         run: |
           npm ci
+          npm test
           npm run build
       - run: cargo build --release -p crm-server
       - name: crm-server рядом с приложением (sidecar)

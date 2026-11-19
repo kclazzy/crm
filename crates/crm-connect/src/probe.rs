@@ -254,7 +254,7 @@ pub async fn diagnose(server: &Server) -> Vec<AddrCheck> {
         // Адреса молчат, а подключения без адреса в ключе нет — ключ выдан до того,
         // как владелец включил удалённый доступ.
         None if !out.iter().any(|c| c.verdict == Verdict::Online) => out.push(AddrCheck {
-            addr: "По ключу сервера (без адреса)".into(),
+            addr: "По ключу подключения (без адреса)".into(),
             manual: false,
             via_internet: true,
             verdict: Verdict::NoAnswer,
@@ -267,7 +267,7 @@ pub async fn diagnose(server: &Server) -> Vec<AddrCheck> {
     out
 }
 
-/// Строка проверки «по ключу сервера» — без адреса, сервер находится сам.
+/// Строка проверки «по ключу подключения» — без адреса, сервер находится сам.
 fn node_check(found: Result<crm_p2p::Path, String>) -> AddrCheck {
     let (verdict, latency_ms, via_internet, message) = match &found {
         Ok(path) => {
@@ -295,7 +295,7 @@ fn node_check(found: Result<crm_p2p::Path, String>) -> AddrCheck {
         ),
     };
     AddrCheck {
-        addr: "По ключу сервера (без адреса)".into(),
+        addr: "По ключу подключения (без адреса)".into(),
         manual: false,
         via_internet,
         verdict,

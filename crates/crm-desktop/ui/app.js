@@ -163,6 +163,9 @@ function setWhere(where) {
     b.setAttribute('aria-checked', String(b.dataset.where === where));
   });
   $('enroll-form').hidden = where !== 'office';
+  // Поиск сервера — при выборе «В офисе» (адрес ещё не введён). Функция объявлена ниже:
+  // объявление функции поднимается, а переменные — нет, поэтому поле ищем здесь же.
+  if (where === 'office' && !document.querySelector('#enroll-form [name=addr]').value) setTimeout(searchOffice, 0);
   $('add-form').hidden = where !== 'away';
   try { localStorage.setItem('crm.where', where); } catch { /* без памяти */ }
 }
@@ -175,6 +178,39 @@ $('add-more').onclick = () => {
   $('add-more').hidden = true;
   $('add-card').hidden = false;
 };
+// «В офисе»: сервер находится сам — программа спрашивает сеть офиса и подставляет адрес.
+const addrInput = document.querySelector('#enroll-form [name=addr]');
+let searching = false;
+async function searchOffice() {
+  if (searching) return;
+  searching = true;
+  $('found-text').textContent = 'Ищу сервер в сети офиса…';
+  $('found-list').replaceChildren();
+  $('found-again').hidden = true;
+  const found = await invoke('find_servers').catch(() => []);
+  searching = false;
+  $('found-again').hidden = false;
+  if (!found.length) {
+    $('found-text').textContent = 'В сети офиса сервер не нашёлся — введите адрес, который покажет владелец.';
+    return;
+  }
+  $('found-text').textContent = found.length === 1 ? 'Найден сервер:' : 'Найдены серверы — выберите свой:';
+  for (const f of found) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pick';
+    b.textContent = `${f.name} · ${f.addr}`;
+    b.onclick = () => { addrInput.value = f.addr; document.querySelector('#enroll-form [name=code]').focus(); };
+    $('found-list').append(b);
+  }
+  // Один сервер и адрес ещё не введён — подставить сразу: осталось ввести код.
+  if (found.length === 1 && !addrInput.value.trim()) {
+    addrInput.value = found[0].addr;
+    $('found-text').textContent = `Найден сервер ${found[0].name} — адрес подставлен, осталось ввести код:`;
+  }
+}
+$('found-again').onclick = () => searchOffice();
+
 // Вставили ключ CRM1-… в поле кода — значит, это подключение не из офиса.
 document.querySelector('#enroll-form [name=code]').addEventListener('paste', (e) => {
   const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
@@ -188,23 +224,36 @@ document.querySelector('#enroll-form [name=code]').addEventListener('paste', (e)
 function describe(p) {
   if (p.state === 'online') {
     const how = p.node
-      ? (p.relayed ? 'по ключу сервера, через узел связи' : p.via_internet ? 'по ключу сервера, напрямую' : 'в сети офиса')
+      ? (p.relayed ? 'по ключу подключения, через узел связи' : p.via_internet ? 'по ключу подключения, напрямую' : 'в сети офиса')
       : p.via_internet ? 'через интернет' : 'в сети офиса';
     return `В сети · ${how} · ${p.latency_ms} мс`;
   }
+  if (p.state === 'checking') return 'Проверяю связь… (первый раз через интернет — до 20 секунд)';
   if (p.state === 'wrong_server') return 'Чужой сертификат — подключение запрещено';
-  return 'Не отвечает — нажмите «Проверить»';
+  return 'Не отвечает — нажмите «Проверить»: покажет, что именно не так';
 }
 
 async function loadServers() {
+  // Сначала список сразу (со статусом «Проверяю связь…»), потом — с итогами проверки:
+  // первая проверка через интернет занимает до 20 секунд.
+  if (!knownServers.length) {
+    const quick = await invoke('server_list').catch(() => []);
+    if (quick.length) renderServers(quick.map((s) => ({ ...s, probe: { state: 'checking' } })));
+  } else {
+    renderServers(knownServers.map((s) => ({ ...s, probe: { ...s.probe, state: s.probe.state === 'online' ? 'online' : 'checking' } })));
+  }
   knownServers = await invoke('servers');
+  renderServers(knownServers);
+}
+
+function renderServers(list) {
   const ul = $('server-list');
   ul.replaceChildren();
   // Серверы уже есть — форма добавления свёрнута под «+ Добавить сервер».
-  const has = knownServers.length > 0;
+  const has = list.length > 0;
   $('add-more').hidden = !has || adding;
   $('add-card').hidden = has && !adding;
-  for (const s of knownServers) {
+  for (const s of list) {
     const li = document.createElement('li');
     const dot = document.createElement('i');
     dot.className = `dot ${s.probe.state}`;

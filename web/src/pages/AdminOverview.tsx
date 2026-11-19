@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { api, bytes, journal, timeAgo, type BackupStatus, type Health, type JournalItem, type Session, type StaffMember, type StorageInfo } from '../api';
 import { work, type NodeDevices, type RemoteInfo } from '../work';
-import { Badge, Button, PageHeader } from '../components/ui';
+import { Badge, Button, PageHeader, Ago } from '../components/ui';
 import { JournalRow } from './AdminSecurity';
 
 /** Откуда сессия — по адресу (как в журнале на сервере). */
@@ -118,7 +118,7 @@ export function AdminOverview() {
           <Button className="px-3 py-1.5 text-sm" busy={busy === dev.id} onClick={() => act(dev.id, () => work.setNodeDevice(dev.id, true, ''))}>Одобрить</Button>
           <Button variant="secondary" className="px-3 py-1.5 text-sm" onClick={() => act(dev.id, () => work.removeNodeDevice(dev.id))}>Отклонить</Button>
         </>}>
-        Устройство вне офиса ждёт одобрения: код <b className="font-mono tracking-wider">{dev.code}</b>, запрос {timeAgo(dev.last_seen)}.
+        Устройство вне офиса ждёт одобрения: код <b className="font-mono tracking-wider">{dev.code}</b>, запрос <Ago ms={dev.last_seen} />.
         <span className="block text-xs text-slate-500">Одобряйте, только если сотрудник сам назвал вам этот код.</span>
       </Attention>,
     );
@@ -141,7 +141,7 @@ export function AdminOverview() {
     items.push(
       <Attention key="backup-stale" tone="red" icon={<DatabaseBackup className="size-5 text-red-600" />}
         action={<Button className="px-3 py-1.5 text-sm" busy={busy === 'backup'} onClick={() => act('backup', () => api.backupNow())}>Сделать копию сейчас</Button>}>
-        {d.last && !d.last.ok ? <>Последняя копия не удалась: {d.last.error}</> : d.last ? <>Давно не было резервной копии: последняя — {timeAgo(d.last.at)}.</> : <>Резервных копий ещё не было.</>}
+        {d.last && !d.last.ok ? <>Последняя копия не удалась: {d.last.error}</> : d.last ? <>Давно не было резервной копии: последняя — <Ago ms={d.last.at} />.</> : <>Резервных копий ещё не было.</>}
       </Attention>,
     );
   }
@@ -247,7 +247,7 @@ export function AdminOverview() {
                   <li key={s.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                     <span className="min-w-0 flex-1 truncate"><b>{s.display_name}</b> <span className="text-slate-500">· {s.device_name}</span></span>
                     <Badge tone={place === 'internet' ? 'amber' : place === 'office' ? 'green' : 'brand'}>{placeLabel[place]}</Badge>
-                    <span className="w-24 text-right text-xs text-slate-500">{timeAgo(s.last_seen_at)}</span>
+                    <span className="w-24 text-right text-xs text-slate-500"><Ago ms={s.last_seen_at} /></span>
                   </li>
                 );
               })}

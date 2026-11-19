@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Laptop, LogOut } from 'lucide-react';
-import { api, type Session, timeAgo } from '../api';
-import { Avatar, Button, ErrorText, Modal, PageHeader } from '../components/ui';
+import { api, type Session } from '../api';
+import { Avatar, Button, ErrorText, Modal, PageHeader, Ago } from '../components/ui';
 
 export function AdminSessions() {
   const [list, setList] = useState<Session[] | null>(null);
@@ -36,8 +36,8 @@ export function AdminSessions() {
               <p className="font-semibold">{s.display_name} <span className="font-normal text-slate-500">@{s.username}</span></p>
               <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-sm text-slate-500">
                 <span className="inline-flex items-center gap-1.5"><Laptop className="size-3.5" />{s.device_name}</span>
-                {s.ip.startsWith('2001:db8:') ? <span className="text-xs" title={`Условный адрес устройства: ${s.ip}`}>по ключу сервера, вне офиса</span> : <span className="font-mono text-xs">{s.ip}</span>}
-                <span>активность {timeAgo(s.last_seen_at)}</span>
+                {s.ip.startsWith('2001:db8:') ? <span className="text-xs" title={`Условный адрес устройства: ${s.ip}`}>по ключу подключения, вне офиса</span> : <span className="font-mono text-xs">{s.ip}</span>}
+                <span>активность <Ago ms={s.last_seen_at} /></span>
               </p>
             </div>
             <Button variant="secondary" className="px-3 py-2 text-xs" onClick={() => setTarget(s)}>

@@ -268,6 +268,7 @@ fn work_routes() -> Router<AppState> {
             get(notify::list).delete(notify::hide_all),
         )
         .route("/api/notifications/{id}", delete(notify::hide))
+        .route("/api/problem", post(notify::problem))
         .route("/api/notifications/read", post(notify::read_all))
         .route(
             "/api/me/prefs",

@@ -1,8 +1,8 @@
 import { PathInput } from './FolderPicker';
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, DatabaseBackup, FolderOpen, Plus, Trash2, XCircle } from 'lucide-react';
-import { type BackupPolicy, type BackupStatus, bytes, timeAgo } from '../api';
-import { Button } from './ui';
+import { type BackupPolicy, type BackupStatus, bytes } from '../api';
+import { Button, Ago } from './ui';
 
 const EVERY = [
   [1, 'Каждый час'], [2, 'Каждые 2 часа'], [3, 'Каждые 3 часа'], [4, 'Каждые 4 часа'],
@@ -128,8 +128,8 @@ export function BackupSettings(props: {
       </div>
       <div className="mt-4">
         {!props.last && <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"><AlertTriangle className="size-4" />Копий ещё не было — укажите папку и сохраните настройки.</p>}
-        {props.last && !props.last.ok && <p className="flex items-start gap-2 text-sm text-red-600"><XCircle className="mt-0.5 size-4 shrink-0" />Последняя попытка {timeAgo(props.last.at)} не удалась: {props.last.error}</p>}
-        {props.last?.ok && <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" />Последняя копия {timeAgo(props.last.at)} · {bytes(props.last.size ?? 0)} · целостность проверена</p>}
+        {props.last && !props.last.ok && <p className="flex items-start gap-2 text-sm text-red-600"><XCircle className="mt-0.5 size-4 shrink-0" />Последняя попытка <Ago ms={props.last.at} /> не удалась: {props.last.error}</p>}
+        {props.last?.ok && <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" />Последняя копия <Ago ms={props.last.at} /> · {bytes(props.last.size ?? 0)} · целостность проверена</p>}
       </div>
     </section>
   );

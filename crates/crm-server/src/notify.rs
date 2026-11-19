@@ -239,6 +239,45 @@ pub async fn hide_all(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize)]
+pub struct ProblemIn {
+    text: String,
+    #[serde(default)]
+    page: String,
+}
+
+/// «Сообщить о проблеме»: пара слов от сотрудника — владельцу в колокольчик, с именем,
+/// страницей и версией. Повтор того же текста за 10 минут не дублируется; общий
+/// предел тревог одного вида в час — как у остальных.
+pub async fn problem(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    Json(req): Json<ProblemIn>,
+) -> Result<StatusCode, ApiError> {
+    let text: String = req.text.trim().chars().take(1000).collect();
+    if text.is_empty() {
+        return Err(ApiError::BadRequest(
+            "опишите проблему хотя бы парой слов".into(),
+        ));
+    }
+    let page: String = req.page.chars().take(200).collect();
+    alert_owners(
+        &app,
+        "problem_report",
+        "text",
+        serde_json::json!({
+            "from": user.display_name,
+            "username": user.username,
+            "text": text,
+            "page": page,
+            "version": env!("CARGO_PKG_VERSION"),
+        }),
+        10 * 60 * 1000,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Prefs {
     /// «Получать уведомления всегда» — игнорировать тихие часы.

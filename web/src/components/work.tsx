@@ -137,6 +137,7 @@ export function TaskRow({ t, showClient = false, depth = 0, extra }: { t: TaskSu
       {t.status && <span className={`grid size-6 shrink-0 place-items-center rounded-full ${statusStyle[t.status]}`} title={statusName[t.status]}>{statusIcon[t.status]}</span>}
       {t.priority && <PriorityBadge p={t.priority} />}
       <span className={`order-first w-full min-w-0 truncate font-medium sm:order-none sm:w-auto sm:flex-1 ${done ? 'line-through' : ''}`}>
+        {t.is_new && <span className="mr-2 rounded-full bg-brand-600 px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-white">Новое</span>}
         {t.title}
         {showClient && <span className="ml-2 text-xs font-normal text-slate-500">{t.client_name}</span>}
       </span>

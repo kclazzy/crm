@@ -1,5 +1,5 @@
 // Рабочая часть: клиенты, задачи, чаты. Типы повторяют ответы сервера.
-import { ApiError } from './api';
+import { ApiError, humanError, request } from './api';
 
 export type Priority = 1 | 2 | 3;
 export type Status = 'waiting' | 'in_progress' | 'postponed' | 'completed';
@@ -34,6 +34,8 @@ export interface TaskSummary {
   unread?: number;
   children?: number;
   last_message_at?: number | null;
+  /** Мне назначили, а я ещё не открывал. */
+  is_new?: boolean;
 }
 
 export interface Stage {
@@ -148,18 +150,8 @@ export interface Hit {
   snippet: string;
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (res.status === 204) return undefined as T;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`);
-  return data as T;
-}
+/** Те же запросы, что в api.ts: одна обработка ошибок и второго шага входа. */
+const req = request;
 
 const q = (params: Record<string, string | number | boolean | undefined | null>) => {
   const s = new URLSearchParams();
@@ -170,14 +162,20 @@ const q = (params: Record<string, string | number | boolean | undefined | null>)
 
 /** Загрузка файла потоком: имя — в заголовке, чтобы не упираться в лимит JSON. */
 async function upload<T>(path: string, file: File): Promise<T> {
-  const res = await fetch(path, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'x-file-name': encodeURIComponent(file.name) },
-    body: file,
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'x-file-name': encodeURIComponent(file.name) },
+      body: file,
+    });
+  } catch {
+    throw new ApiError(0, humanError(0, ''));
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`);
+  if (res.status === 413) throw new ApiError(413, 'Файл слишком большой для вложения — сожмите его или положите в общую папку и пришлите ссылку.');
+  if (!res.ok) throw new ApiError(res.status, humanError(res.status, data.error ?? `Ошибка ${res.status}`));
   return data as T;
 }
 
@@ -230,6 +228,7 @@ export const work = {
   readNotifications: () => req<void>('POST', '/api/notifications/read'),
   deleteNotification: (id: string) => req<void>('DELETE', `/api/notifications/${id}`),
   deleteNotifications: () => req<void>('DELETE', '/api/notifications'),
+  reportProblem: (text: string, page: string) => req<void>('POST', '/api/problem', { text, page }),
   prefs: () => req<{ notify_always: boolean }>('GET', '/api/me/prefs'),
   setPrefs: (notify_always: boolean) => req<{ notify_always: boolean }>('PUT', '/api/me/prefs', { notify_always }),
 
@@ -306,15 +305,34 @@ export const statusActions: { to: Status; label: string; from: Status[] }[] = [
   { to: 'postponed', label: 'Отложить', from: ['waiting', 'in_progress'] },
 ];
 
-/** «Осталось 3 дня», «Осталось 5 ч», «Просрочено на 2 ч». */
+/** Срок словами: «Сегодня до 15:00», «Завтра до 09:30», «Через 3 дня», «До 30 нояб.»,
+ * «Осталось 40 мин», «Просрочено на 2 ч». Точная дата — во всплывающей подсказке. */
 export function deadlineText(at: number, state: DeadlineState, now = Date.now()): string {
   if (state === 'done') return 'Завершена';
   const diff = at - now;
   const abs = Math.abs(diff);
-  const h = Math.round(abs / 3_600_000);
-  const d = Math.round(abs / 86_400_000);
-  const amount = abs < 3_600_000 ? `${Math.max(1, Math.round(abs / 60_000))} мин` : h < 48 ? `${h} ч` : `${d} ${plural(d, 'день', 'дня', 'дней')}`;
-  return diff < 0 ? `Просрочено на ${amount}` : `Осталось ${amount}`;
+  if (diff < 0) {
+    const h = Math.round(abs / 3_600_000);
+    const d = Math.round(abs / 86_400_000);
+    const amount = abs < 3_600_000 ? `${Math.max(1, Math.round(abs / 60_000))} мин` : h < 48 ? `${h} ч` : `${d} ${plural(d, 'день', 'дня', 'дней')}`;
+    return `Просрочено на ${amount}`;
+  }
+  if (diff < 3_600_000) return `Осталось ${Math.max(1, Math.round(diff / 60_000))} мин`;
+  const day = (ms: number) => { const x = new Date(ms); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
+  const days = Math.round((day(at) - day(now)) / 86_400_000);
+  const time = new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (days === 0) return `Сегодня до ${time}`;
+  if (days === 1) return `Завтра до ${time}`;
+  if (days < 7) return `Через ${days} ${plural(days, 'день', 'дня', 'дней')}`;
+  return `До ${new Date(at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}`;
+}
+
+/** «Сегодня» сверху: просроченные, срок до конца дня и новые для меня; остальное — «Дальше». */
+export function todayFirst(tasks: TaskSummary[], now = Date.now()) {
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  const urgent = (t: TaskSummary) => t.deadline_state === 'overdue' || (t.deadline_at ?? Infinity) <= end.getTime() || !!t.is_new;
+  return { today: tasks.filter(urgent), later: tasks.filter((t) => !urgent(t)) };
 }
 
 export function plural(n: number, one: string, few: string, many: string) {

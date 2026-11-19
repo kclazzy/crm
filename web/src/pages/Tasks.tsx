@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { ArchiveRestore, Building2, CalendarDays, ChevronLeft, ChevronRight, List, Plus, Search, Trash2, X } from 'lucide-react';
+import { Archive as ArchiveIcon, ArchiveRestore, Building2, CalendarDays, ChevronLeft, ChevronRight, Inbox, List, PartyPopper, Plus, Search, SearchX, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
-import { childrenOf, dateTime, statusName, type TaskSummary, work } from '../work';
-import { Button, ErrorText, Modal } from '../components/ui';
+import { childrenOf, dateTime, statusActions, statusName, type TaskSummary, todayFirst, work } from '../work';
+import { Button, EmptyState, ErrorText, Modal } from '../components/ui';
+import { useToast } from '../components/Toast';
+import { Swipe } from '../components/Swipe';
 import { ExportMenu } from '../components/ExportMenu';
 import { TaskForm, TaskRow, deadlineBar, deadlineLegend, statusIcon, statusStyle } from '../components/work';
 
@@ -280,7 +282,8 @@ function Calendar({ tasks, reload }: { tasks: TaskSummary[]; reload: () => void 
 export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
   const { me } = useAuth();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const toast = useToast();
+  const [params, setParams] = useSearchParams();
   const [tasks, setTasks] = useState<TaskSummary[] | null>(null);
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -302,8 +305,27 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
   const [archivedNote, setArchivedNote] = useState('');
   const sorted = [...(tasks ?? [])].sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed') || (a.deadline_at ?? 0) - (b.deadline_at ?? 0));
   const canCreate = me?.role !== 'employee';
+  // Свайп «Завершить» на телефоне — с «Отменить», если вернуть назад разрешено правилами.
+  const complete = async (t: TaskSummary) => {
+    try {
+      await work.setStatus(t.id, 'completed');
+      const was = t.status;
+      const back = was && statusActions.some((a) => a.to === was && a.from.includes('completed'));
+      toast(`«${t.title}» завершена`, back ? { undo: async () => { await work.setStatus(t.id, was); load(); } } : {});
+      load();
+    } catch (x) { toast((x as Error).message, { error: true }); }
+  };
+  const row = (t: TaskSummary) => (
+    <Swipe key={t.id} label="Завершить" tone="green" onAction={() => complete(t)}><TaskRow t={t} showClient /></Swipe>
+  );
+  // Клавиша N (или ссылка /?new=1) — сразу окно новой задачи.
+  useEffect(() => {
+    if (params.get('new') && canCreate) { setCreating(true); params.delete('new'); setParams(params, { replace: true }); }
+  }, [params, setParams, canCreate]);
   const open = sorted.filter((t) => t.status !== 'completed');
   const done = sorted.filter((t) => t.status === 'completed');
+  // «Мои задачи» без поиска и фильтра просроченных: сначала то, что важно сегодня.
+  const split = mode === 'mine' && !q && !overdue ? todayFirst(open) : null;
 
   return (
     <>
@@ -312,17 +334,41 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
       {calendar ? <Calendar tasks={sorted} reload={load} /> : (
         <>
           {tasks && tasks.length === 0 && (
-            <div className="card px-8 py-16 text-center text-slate-500">
-              {q ? 'По запросу ничего не нашлось.' : overdue ? 'Просроченных задач нет.' : 'Задач нет.'}
-            </div>
+            q ? <EmptyState icon={<SearchX />} title="Ничего не нашлось" text="Проверьте написание или поищите по имени клиента." />
+            : overdue ? <EmptyState icon={<PartyPopper />} title="Просроченных задач нет" text="Всё идёт по графику." />
+            : mode === 'mine'
+              ? <EmptyState icon={<Inbox />} title="Вам пока не поставили задач"
+                  text={canCreate ? 'Создайте задачу у клиента — или подождите, пока вам её назначат: она появится здесь, придёт уведомление.' : 'Когда руководитель назначит вам задачу, она появится здесь и придёт уведомление в колокольчик.'}
+                  action={canCreate ? <Button onClick={() => setCreating(true)}><Plus className="size-4" />Новая задача</Button> : undefined} />
+              : <EmptyState icon={<Inbox />} title="Задач пока нет" text="Задачи ставятся у клиента: откройте клиента и нажмите «Новая задача»."
+                  action={canCreate ? <Button onClick={() => setCreating(true)}><Plus className="size-4" />Новая задача</Button> : undefined} />
           )}
           {tasks && tasks.length > 0 && (grouped ? <ByClients tasks={sorted} /> : (
             <>
-              {open.length > 0 && (
+              {open.length > 0 && (split ? (
+                <>
+                  {split.today.length > 0 && (
+                    <>
+                      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">Сегодня · {split.today.length}<span className="font-normal text-slate-500">просроченные, срок сегодня и новые</span></h2>
+                      <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
+                        {split.today.map(row)}
+                      </div>
+                    </>
+                  )}
+                  {split.later.length > 0 && (
+                    <>
+                      <h2 className={`mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300 ${split.today.length ? 'mt-5' : ''}`}>{split.today.length ? 'Дальше' : 'На сегодня срочного нет'} · {split.later.length}</h2>
+                      <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
+                        {split.later.map(row)}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
                 <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
-                  {open.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                  {open.map(row)}
                 </div>
-              )}
+              ))}
               {done.length > 0 && (
                 <details className="mt-4" open={showDone} onToggle={(e) => setShowDone((e.target as HTMLDetailsElement).open)}>
                   <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -331,7 +377,8 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
                       onClick={async (e) => {
                         e.preventDefault();
                         const r = await work.archiveCompleted();
-                        setArchivedNote(r.archived ? `Убрано в архив: ${r.archived}` : 'Нечего убирать: завершённые убирает ответственный или владелец.');
+                        if (r.archived) toast(`Убрано в архив: ${r.archived}`, { link: { to: '/archive', text: 'Архив' } });
+                        else setArchivedNote('Нечего убирать: завершённые убирает ответственный или владелец.');
                         load();
                       }}>В архив все завершённые</button>
                   </summary>
@@ -375,7 +422,7 @@ export function Archive() {
         </div>
       </div>
       <ErrorText>{error}</ErrorText>
-      {tasks?.length === 0 && <div className="card px-8 py-16 text-center text-slate-500">Архив пуст.</div>}
+      {tasks?.length === 0 && <EmptyState icon={<ArchiveIcon />} title="Архив пуст" text="Сюда попадают завершённые задачи, когда их убирают «В архив». Отсюда их можно вернуть в работу." />}
       {tasks && tasks.length > 0 && (
         <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
           {tasks.map((t) => (

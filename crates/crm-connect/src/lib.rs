@@ -6,6 +6,7 @@
 //!   на сервер по TLS, доверяя только CA с отпечатком из ключа. Ставить сертификат
 //!   в Windows не нужно; подменить сервер в сети нельзя.
 
+pub mod discover;
 pub mod enroll;
 pub mod node;
 pub mod pin;

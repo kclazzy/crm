@@ -1,3 +1,4 @@
+import { Hint } from '../components/Hint';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { Check, Copy, KeyRound, Plus, Trash2, UsersRound, Wand2 } from 'lucide-react';
 import { api, type TwoFactorPolicy } from '../api';
@@ -157,7 +158,7 @@ export function ConnectionKey({ userId, name, onClose }: { userId: string | null
             🌐 Для подключения <b>через интернет</b>, не из офиса. Сотрудник открывает программу CRM → «Подключиться» → «Не в офисе» и вставляет ключ — программа сама найдёт сервер и проверит, что он ваш.
           </p>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={usePin} onChange={(e) => setUsePin(e.target.checked)} />Защитить PIN (рекомендуется)</label>
-          {usePin && <Field label="PIN" hint="Сообщите отдельно от ключа — голосом или в другом мессенджере."><input className="input font-mono text-lg tracking-widest" value={pin} onChange={(e) => setPin(e.target.value)} maxLength={32} /></Field>}
+          {usePin && <Field label={<>PIN <Hint word="PIN" /></>} hint="Сообщите отдельно от ключа — голосом или в другом мессенджере."><input className="input font-mono text-lg tracking-widest" value={pin} onChange={(e) => setPin(e.target.value)} maxLength={32} /></Field>}
           <ErrorText>{error}</ErrorText>
           <Button onClick={async () => {
             setError('');
@@ -257,7 +258,7 @@ function RouterOneClick({ onDone }: { onDone: () => void }) {
 }
 
 /** Доступ через интернет: внешний адрес офиса, переадресация порта, сотрудники и телефоны. */
-/** Способ 1: по ключу сервера — без роутера и белого IP, для программы на компьютере. */
+/** Способ 1: по ключу подключения — без роутера и белого IP, для программы на компьютере. */
 function NodeAccessCard() {
   const [st, setSt] = useState<{ enabled: boolean; running: boolean } | null>(null);
   const [error, setError] = useState('');
@@ -273,7 +274,7 @@ function NodeAccessCard() {
     <section className="card p-5">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold">Способ 1. По ключу сервера — для программы CRM на компьютере</h2>
+          <h2 className="font-semibold">Способ 1. По ключу подключения — для программы CRM на компьютере</h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
             Самый простой: <b>роутер настраивать не нужно, «белый» IP не нужен</b>, VPN компании не мешает.
             Сотрудник вводит ключ подключения, затем логин и пароль — и работает из офиса, из дома, из любой сети.
@@ -306,7 +307,7 @@ function NodeAccessCard() {
   );
 }
 
-/** Устройства, подключающиеся по ключу сервера вне офиса: заявки и одобренные. */
+/** Устройства, подключающиеся по ключу подключения вне офиса: заявки и одобренные. */
 function NodeDevicesCard() {
   const [data, setData] = useState<NodeDevices | null>(null);
   const [error, setError] = useState('');
@@ -389,7 +390,7 @@ export function AdminRemote() {
   const office2 = setupOpen ?? false;
   return (
     <>
-      <PageHeader title="Удалённый доступ" subtitle="Работа из дома и с телефона — без VPN. Два способа: по ключу сервера (компьютеры, без настройки роутера) и по адресу офиса (телефоны и браузер)." />
+      <PageHeader title="Удалённый доступ" subtitle="Работа из дома и с телефона — без VPN. Два способа: по ключу подключения (компьютеры, без настройки роутера) и по адресу офиса (телефоны и браузер)." />
       <div className="flex max-w-3xl flex-col gap-4">
         <ErrorText>{error}</ErrorText>
         <NodeDevicesCard />
@@ -455,7 +456,7 @@ export function AdminRemote() {
         <section className="card p-5">
           <h2 className="mb-1 font-semibold">4. Сотрудники и телефоны</h2>
           <ul className="list-disc pl-5 text-sm text-slate-600 dark:text-slate-300">
-            <li>Программа CRM на компьютере пробует по порядку: сеть офиса → адрес офиса → ключ сервера. Сотруднику выбирать ничего не нужно.</li>
+            <li>Программа CRM на компьютере пробует по порядку: сеть офиса → адрес офиса → ключ подключения. Сотруднику выбирать ничего не нужно.</li>
             <li>Кто ни разу не подключался в офисе — выдайте новый ключ (<b>Сотрудники → «Ключ · интернет»</b>): в нём уже всё есть.</li>
             <li>Телефон: <b>Настройки → Сервер → Вход с телефона</b> — QR-коды для сертификата и для входа из интернета.</li>
           </ul>

@@ -6,6 +6,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+if-addrs = "0.15"
 crm-p2p = { path = "../crm-p2p" }
 crm-core = { path = "../crm-core" }
 base64 = "0.22"
