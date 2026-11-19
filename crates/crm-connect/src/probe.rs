@@ -249,8 +249,20 @@ pub async fn diagnose(server: &Server) -> Vec<AddrCheck> {
             out.push(c);
         }
     }
-    if let Some(found) = crate::node::check(server).await {
-        out.push(node_check(found));
+    match crate::node::check(server).await {
+        Some(found) => out.push(node_check(found)),
+        // Адреса молчат, а подключения без адреса в ключе нет — ключ выдан до того,
+        // как владелец включил удалённый доступ.
+        None if !out.iter().any(|c| c.verdict == Verdict::Online) => out.push(AddrCheck {
+            addr: "По ключу сервера (без адреса)".into(),
+            manual: false,
+            via_internet: true,
+            verdict: Verdict::NoAnswer,
+            latency_ms: None,
+            version: None,
+            message: "в ключе его нет: ключ выдан до включения удалённого доступа — попросите у владельца новый ключ подключения".into(),
+        }),
+        None => {}
     }
     out
 }

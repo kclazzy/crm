@@ -12,7 +12,9 @@ use tokio::sync::Mutex;
 use crate::Server;
 
 /// Сколько ждать узел при проверке: ретранслятор отвечает за секунду-две.
-const CHECK_TIMEOUT: Duration = Duration::from_secs(6);
+/// Проверка ждёт дольше самого соединения: оборвать долгое первое соединение
+/// значит начинать каждый раз с нуля — и сервер «не отвечает» навсегда.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(crm_p2p::CONNECT_TIMEOUT.as_secs() + 5);
 
 /// Узлы живут, пока работает программа: соединение переиспользуется окном и проверками.
 fn dialers() -> &'static Mutex<HashMap<String, Arc<Dialer>>> {
@@ -108,11 +110,23 @@ pub async fn check(server: &Server) -> Option<Result<Path, String>> {
         Ok(d) => d,
         Err(e) => return Some(Err(e.to_string())),
     };
-    Some(match tokio::time::timeout(CHECK_TIMEOUT, d.check()).await {
+    let found = match tokio::time::timeout(CHECK_TIMEOUT, d.check()).await {
         Ok(Ok(Path::None)) | Err(_) => Err("узел сервера не отвечает".into()),
         Ok(Ok(p)) => Ok(p),
         Ok(Err(e)) => Err(e.to_string()),
-    })
+    };
+    if found.is_err() {
+        // Сеть могла смениться (сон, другой Wi-Fi): в следующий раз — новое соединение.
+        let gone = match &server.node {
+            Some(id) => dialers().lock().await.remove(id),
+            None => None,
+        };
+        // Окно с CRM его не держит — закрыть узел, а не бросить открытым.
+        if let Some(old) = gone.and_then(|d| Arc::try_unwrap(d).ok()) {
+            old.close().await;
+        }
+    }
+    Some(found)
 }
 
 /// Путь внутри сети офиса (а не через интернет или ретранслятор).
