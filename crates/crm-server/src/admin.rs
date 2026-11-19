@@ -477,6 +477,164 @@ pub async fn security(
     }))
 }
 
+// ---------- Журнал безопасности ----------
+
+/// События безопасности и их названия для владельца. Остальные записи журнала
+/// (работа с задачами) сюда не попадают.
+const JOURNAL: &[(&str, &str, &str)] = &[
+    ("login.ok", "login", "Вход"),
+    (
+        "login.ticket",
+        "login",
+        "Вход владельца на сервере без пароля",
+    ),
+    ("login.failed", "login", "Неверный пароль"),
+    ("recover.ok", "login", "Пароль восстановлен кодом"),
+    ("recover.failed", "login", "Неверный код восстановления"),
+    ("reset.requested", "login", "Просит сбросить пароль"),
+    ("user.disabled", "access", "Сотрудник отключён"),
+    ("user.enabled", "access", "Сотрудник включён"),
+    ("user.deleted", "access", "Сотрудник удалён"),
+    ("2fa.enabled", "access", "Код из приложения настроен"),
+    ("2fa.disabled", "access", "Код из приложения выключен"),
+    (
+        "2fa.reset",
+        "access",
+        "Код из приложения сброшен владельцем",
+    ),
+    (
+        "2fa.policy",
+        "access",
+        "Изменено правило кода из приложения",
+    ),
+    (
+        "recovery.codes_issued",
+        "access",
+        "Выпущены коды восстановления владельца",
+    ),
+    (
+        "owner.reset_on_server",
+        "access",
+        "Пароль владельца сброшен на сервере",
+    ),
+    ("p2p.key", "access", "Новый ключ удалённого доступа"),
+    ("server.crt", "data", "Новый сертификат сервера"),
+    ("server.key", "data", "Новый ключ сертификата"),
+    (
+        "restore.staged",
+        "data",
+        "Подготовлено восстановление из копии",
+    ),
+    ("import.merge", "data", "Импорт базы: объединение"),
+    ("import.replace", "data", "Импорт базы: замена"),
+    ("move.packed", "data", "Собран пакет переезда"),
+];
+
+#[derive(Deserialize)]
+pub struct JournalIn {
+    /// Сотрудник: его действия и события о нём.
+    user: Option<String>,
+    /// login | access | data
+    kind: Option<String>,
+    /// Записи раньше этого времени (мс) — следующая страница.
+    before: Option<i64>,
+    limit: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct JournalItem {
+    id: String,
+    at: i64,
+    action: String,
+    title: &'static str,
+    kind: &'static str,
+    actor_name: Option<String>,
+    /// Логин, о котором событие (в том числе несуществующий — при подборе).
+    about: Option<String>,
+    about_name: Option<String>,
+    ip: Option<String>,
+    /// server | office | device | internet
+    place: &'static str,
+}
+
+/// id, время, действие, кто, о ком (логин), имя того, о ком, адрес.
+type JournalRow = (
+    String,
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Откуда событие — словами для журнала.
+fn journal_place(ip: Option<&str>) -> &'static str {
+    match ip {
+        None | Some("" | "local") => "server",
+        Some(ip)
+            if ip
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|a| a.is_loopback()) =>
+        {
+            "server"
+        }
+        Some(ip) if crate::p2p::is_device_addr(ip) => "device",
+        Some(ip) if crm_core::remote::is_office_addr(ip) => "office",
+        Some(_) => "internet",
+    }
+}
+
+pub async fn journal(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+    axum::extract::Query(q): axum::extract::Query<JournalIn>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actions: Vec<&str> = JOURNAL
+        .iter()
+        .filter(|(_, kind, _)| q.kind.as_deref().is_none_or(|k| k == *kind))
+        .map(|(a, _, _)| *a)
+        .collect();
+    let rows: Vec<JournalRow> =
+        sqlx::query_as(
+            "SELECT a.id, a.created_at, a.action, actor.display_name, a.entity_id, about.display_name, a.ip
+             FROM audit_log a
+             LEFT JOIN users actor ON actor.id = a.actor_id
+             LEFT JOIN users about ON about.username = a.entity_id
+             WHERE a.action IN (SELECT value FROM json_each(?1))
+               AND (?2 IS NULL OR a.actor_id = ?2
+                    OR a.entity_id = (SELECT username FROM users WHERE id = ?2))
+               AND (?3 IS NULL OR a.created_at < ?3)
+             ORDER BY a.created_at DESC, a.id DESC
+             LIMIT ?4",
+        )
+        .bind(serde_json::to_string(&actions).unwrap_or_else(|_| "[]".into()))
+        .bind(&q.user)
+        .bind(q.before)
+        .bind(q.limit.unwrap_or(100).clamp(1, 500))
+        .fetch_all(&app.pool)
+        .await?;
+    let items: Vec<JournalItem> = rows
+        .into_iter()
+        .filter_map(|(id, at, action, actor_name, about, about_name, ip)| {
+            let (_, kind, title) = JOURNAL.iter().find(|(a, _, _)| *a == action)?;
+            Some(JournalItem {
+                place: journal_place(ip.as_deref()),
+                id,
+                at,
+                action,
+                title,
+                kind,
+                actor_name,
+                about,
+                about_name,
+                ip,
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "items": items })))
+}
+
 // ---------- Восстановление и переезд ----------
 
 #[derive(Deserialize)]

@@ -3,8 +3,6 @@ import { Check, Copy, Download, Globe, ShieldCheck, Smartphone } from 'lucide-re
 import { work } from '../work';
 import { api, type Health, type ServerInfo } from '../api';
 import { Badge, PageHeader } from '../components/ui';
-import { RecoveryCodes } from '../components/RecoveryCodes';
-import { SecurityPanel } from '../components/SecurityPanel';
 
 export function AdminServer() {
   const [h, setH] = useState<Health | null>(null);
@@ -50,7 +48,6 @@ export function AdminServer() {
         </section>
       </div>
       <PhoneAccess />
-      <div className="mt-5 grid gap-5 md:grid-cols-2"><RecoveryCodes /><SecurityPanel /></div>
     </>
   );
 }
