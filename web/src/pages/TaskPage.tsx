@@ -201,6 +201,14 @@ export function TaskPage() {
   const primary = actions.find((a) => a.to === 'in_progress') ?? actions.find((a) => a.to === 'completed');
   const secondary = actions.filter((a) => a !== primary && a.to === 'completed');
   const more = actions.filter((a) => a !== primary && !secondary.includes(a));
+  const openStages = t.stages.filter((x) => !x.completed_at).length;
+  const nextStep = archived || !t.can_change_status ? null
+    : status === 'waiting' ? 'Возьмите задачу в работу — кнопка «Начать».'
+    : status === 'postponed' ? 'Задача отложена. Когда вернётесь к ней — «Начать».'
+    : status === 'in_progress' && openStages > 0 ? `Отмечайте этапы по мере выполнения (осталось ${openStages}), затем «Завершить».`
+    : status === 'in_progress' ? 'Когда всё сделано — «Завершить».'
+    : status === 'completed' && t.can_archive ? 'Задача выполнена. Уберите её «В архив», когда она больше не нужна в списке.'
+    : null;
 
   const act = async (f: () => Promise<unknown>, after?: string) => {
     setNote('');
@@ -311,6 +319,8 @@ export function TaskPage() {
           </div>
         </div>
 
+        {/* Что делать дальше — одной строкой над кнопками. */}
+        {nextStep && <p className="border-t border-slate-200 bg-brand-50/60 px-4 py-2 text-sm text-brand-800 sm:px-6 dark:border-slate-800 dark:bg-brand-500/10 dark:text-brand-100">→ {nextStep}</p>}
         {/* Нижняя панель действий — как кнопки «Начать / Завершить / ⋯» */}
         <div className="task-actions sticky z-10 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:bottom-0 dark:border-slate-800 dark:bg-slate-900">
           {primary && <Button onClick={() => setStatus(primary.to)}>{primary.to === 'in_progress' ? 'Начать' : 'Завершить'}</Button>}

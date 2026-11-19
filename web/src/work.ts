@@ -34,6 +34,8 @@ export interface TaskSummary {
   unread?: number;
   children?: number;
   last_message_at?: number | null;
+  /** Мне назначили, а я ещё не открывал. */
+  is_new?: boolean;
 }
 
 export interface Stage {
@@ -306,15 +308,34 @@ export const statusActions: { to: Status; label: string; from: Status[] }[] = [
   { to: 'postponed', label: 'Отложить', from: ['waiting', 'in_progress'] },
 ];
 
-/** «Осталось 3 дня», «Осталось 5 ч», «Просрочено на 2 ч». */
+/** Срок словами: «Сегодня до 15:00», «Завтра до 09:30», «Через 3 дня», «До 30 нояб.»,
+ * «Осталось 40 мин», «Просрочено на 2 ч». Точная дата — во всплывающей подсказке. */
 export function deadlineText(at: number, state: DeadlineState, now = Date.now()): string {
   if (state === 'done') return 'Завершена';
   const diff = at - now;
   const abs = Math.abs(diff);
-  const h = Math.round(abs / 3_600_000);
-  const d = Math.round(abs / 86_400_000);
-  const amount = abs < 3_600_000 ? `${Math.max(1, Math.round(abs / 60_000))} мин` : h < 48 ? `${h} ч` : `${d} ${plural(d, 'день', 'дня', 'дней')}`;
-  return diff < 0 ? `Просрочено на ${amount}` : `Осталось ${amount}`;
+  if (diff < 0) {
+    const h = Math.round(abs / 3_600_000);
+    const d = Math.round(abs / 86_400_000);
+    const amount = abs < 3_600_000 ? `${Math.max(1, Math.round(abs / 60_000))} мин` : h < 48 ? `${h} ч` : `${d} ${plural(d, 'день', 'дня', 'дней')}`;
+    return `Просрочено на ${amount}`;
+  }
+  if (diff < 3_600_000) return `Осталось ${Math.max(1, Math.round(diff / 60_000))} мин`;
+  const day = (ms: number) => { const x = new Date(ms); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
+  const days = Math.round((day(at) - day(now)) / 86_400_000);
+  const time = new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (days === 0) return `Сегодня до ${time}`;
+  if (days === 1) return `Завтра до ${time}`;
+  if (days < 7) return `Через ${days} ${plural(days, 'день', 'дня', 'дней')}`;
+  return `До ${new Date(at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}`;
+}
+
+/** «Сегодня» сверху: просроченные, срок до конца дня и новые для меня; остальное — «Дальше». */
+export function todayFirst(tasks: TaskSummary[], now = Date.now()) {
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  const urgent = (t: TaskSummary) => t.deadline_state === 'overdue' || (t.deadline_at ?? Infinity) <= end.getTime() || !!t.is_new;
+  return { today: tasks.filter(urgent), later: tasks.filter((t) => !urgent(t)) };
 }
 
 export function plural(n: number, one: string, few: string, many: string) {

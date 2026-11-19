@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Archive as ArchiveIcon, ArchiveRestore, Building2, CalendarDays, ChevronLeft, ChevronRight, Inbox, List, PartyPopper, Plus, Search, SearchX, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
-import { childrenOf, dateTime, statusName, type TaskSummary, work } from '../work';
+import { childrenOf, dateTime, statusName, type TaskSummary, todayFirst, work } from '../work';
 import { Button, EmptyState, ErrorText, Modal } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { ExportMenu } from '../components/ExportMenu';
@@ -306,6 +306,8 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
   const canCreate = me?.role !== 'employee';
   const open = sorted.filter((t) => t.status !== 'completed');
   const done = sorted.filter((t) => t.status === 'completed');
+  // «Мои задачи» без поиска и фильтра просроченных: сначала то, что важно сегодня.
+  const split = mode === 'mine' && !q && !overdue ? todayFirst(open) : null;
 
   return (
     <>
@@ -325,11 +327,30 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
           )}
           {tasks && tasks.length > 0 && (grouped ? <ByClients tasks={sorted} /> : (
             <>
-              {open.length > 0 && (
+              {open.length > 0 && (split ? (
+                <>
+                  {split.today.length > 0 && (
+                    <>
+                      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">Сегодня · {split.today.length}<span className="font-normal text-slate-500">просроченные, срок сегодня и новые</span></h2>
+                      <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
+                        {split.today.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                      </div>
+                    </>
+                  )}
+                  {split.later.length > 0 && (
+                    <>
+                      <h2 className={`mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300 ${split.today.length ? 'mt-5' : ''}`}>{split.today.length ? 'Дальше' : 'На сегодня срочного нет'} · {split.later.length}</h2>
+                      <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
+                        {split.later.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
                 <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
                   {open.map((t) => <TaskRow key={t.id} t={t} showClient />)}
                 </div>
-              )}
+              ))}
               {done.length > 0 && (
                 <details className="mt-4" open={showDone} onToggle={(e) => setShowDone((e.target as HTMLDetailsElement).open)}>
                   <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
