@@ -7,6 +7,7 @@ import { childrenOf, type Client, type ClientCardT, type TaskSummary, work } fro
 import { BackButton, Badge, Button, ErrorText, Modal, PageHeader } from '../components/ui';
 import { ClientForm, Md, TaskForm, TaskRow, UnreadDot } from '../components/work';
 import { ExportMenu } from '../components/ExportMenu';
+import { useToast } from '../components/Toast';
 
 function TagChip({ name, color }: { name: string; color: string }) {
   return (
@@ -166,6 +167,7 @@ export function TaskTree({ tasks }: { tasks: TaskSummary[] }) {
 export function ClientCard() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [c, setC] = useState<ClientCardT | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -228,7 +230,11 @@ export function ClientCard() {
         <p className="text-sm text-slate-600 dark:text-slate-300">Клиент и его задачи пропадут из списков. Вернуть можно из корзины.</p>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setConfirm(false)}>Отмена</Button>
-          <Button variant="danger" onClick={async () => { await work.trashClient(c.id); navigate('/clients'); }}>В корзину</Button>
+          <Button variant="danger" onClick={async () => {
+            await work.trashClient(c.id);
+            navigate('/clients');
+            toast(`«${c.name}» в корзине`, { undo: async () => { await work.restoreClient(c.id); navigate(`/clients/${c.id}`); } });
+          }}>В корзину</Button>
         </div>
       </Modal>
     </>

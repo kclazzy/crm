@@ -10,6 +10,7 @@ import { Menu, MenuItem } from '../components/Menu';
 import { Avatar, BackButton, Button, ErrorText, Modal } from '../components/ui';
 import { DeadlineText, LeadPicker, Md, PeoplePicker, PriorityBadge, Progress, TaskForm, TaskRow, statusIcon, statusStyle, usePeople } from '../components/work';
 import { Chat } from '../components/Chat';
+import { useToast } from '../components/Toast';
 
 // ---------- Размер текста в задаче: описание, этапы и чат; запоминается на этом устройстве ----------
 
@@ -176,6 +177,7 @@ const longDate = (ms: number) => new Date(ms).toLocaleString('ru-RU', { day: 'nu
 export function TaskPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [t, setT] = useState<TaskCard | null>(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
@@ -206,9 +208,13 @@ export function TaskPage() {
   };
   async function setStatus(to: Status) {
     if (!t) return;
+    const was = t.status;
     await act(async () => {
       const r = await work.setStatus(t.id, to);
       if (to === 'completed' && r.open_stages > 0) setTimeout(() => setNote(`Задача завершена, хотя этапов не отмечено: ${r.open_stages}.`), 0);
+      // «Отменить» — только если вернуться назад разрешено правилами (в «Ждёт выполнения» нельзя).
+      const back = was && statusActions.some((a) => a.to === was && a.from.includes(to));
+      toast(`Статус: ${statusName[to]}`, back ? { undo: async () => { await work.setStatus(t.id, was); load(); } } : {});
     });
   }
 
@@ -313,7 +319,7 @@ export function TaskPage() {
           {archived && t.can_archive && t.can_change_status && (
             <Button onClick={() => act(() => work.unarchive(t.id, true), 'Задача восстановлена и возвращена в работу.')}>Восстановить в работу</Button>
           )}
-          {!archived && status === 'completed' && t.can_archive && <Button variant="secondary" onClick={() => act(() => work.archive(t.id), 'Задача убрана в архив.')}><Archive className="size-4" />В архив</Button>}
+          {!archived && status === 'completed' && t.can_archive && <Button variant="secondary" onClick={() => act(async () => { await work.archive(t.id); toast('Задача убрана в архив', { undo: async () => { await work.unarchive(t.id); load(); } }); })}><Archive className="size-4" />В архив</Button>}
           <Menu button={(toggle) => <Button variant="ghost" onClick={toggle} title="Ещё"><MoreHorizontal className="size-5" /></Button>}>
             {(close) => (
               <>
@@ -335,12 +341,16 @@ export function TaskPage() {
 
       {reassigning && <Reassign t={t} onClose={() => setReassigning(false)} onSaved={() => { setReassigning(false); load(); }} />}
       {editing && <EditTask t={t} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />}
-      <TaskForm open={sub} onClose={() => setSub(false)} parent={{ id: t.id, deadline_at: t.deadline_at, title: t.title }} onCreated={(nid) => { setSub(false); navigate(`/tasks/${nid}`); }} />
+      <TaskForm open={sub} onClose={() => setSub(false)} parent={{ id: t.id, deadline_at: t.deadline_at, title: t.title }} onCreated={(nid) => { setSub(false); navigate(`/tasks/${nid}`); toast('Подзадача создана'); }} />
       <Modal open={trash} onClose={() => setTrash(false)} title="Убрать задачу в корзину?">
         <p className="text-sm text-slate-600 dark:text-slate-300">Вместе с подзадачами и чатом. Вернуть можно из корзины.</p>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setTrash(false)}>Отмена</Button>
-          <Button variant="danger" onClick={async () => { await work.trashTask(t.id); navigate(`/clients/${t.client_id}`); }}>В корзину</Button>
+          <Button variant="danger" onClick={async () => {
+            await work.trashTask(t.id);
+            navigate(`/clients/${t.client_id}`);
+            toast('Задача в корзине', { undo: async () => { await work.restoreTask(t.id); navigate(`/tasks/${t.id}`); } });
+          }}>В корзину</Button>
         </div>
       </Modal>
     </div>

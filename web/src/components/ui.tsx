@@ -121,3 +121,15 @@ export function BackButton({ fallback }: { fallback: string }) {
     </button>
   );
 }
+
+/** Пустой экран: что здесь появится и что сделать дальше. */
+export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="card flex flex-col items-center px-8 py-14 text-center">
+      <span className="text-brand-500 [&>svg]:size-10">{icon}</span>
+      <p className="mt-4 font-semibold">{title}</p>
+      <p className="mt-1 max-w-md text-sm text-slate-500">{text}</p>
+      {action && <div className="mt-5">{action}</div>}
+    </div>
+  );
+}

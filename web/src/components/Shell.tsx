@@ -13,10 +13,13 @@ import { StepUp } from './StepUp';
 import { SearchPalette } from './Search';
 import { ADMIN_SECTIONS, AdminTabs, sectionOf } from './AdminSections';
 import { ConfirmProvider } from './Confirm';
+import { ToastProvider } from './Toast';
+import { Tour } from './Tour';
 
-function Item({ to, icon: Icon, label, count, onClick }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void }) {
+function Item({ to, icon: Icon, label, count, onClick, tour }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void; tour?: string }) {
   return (
     <NavLink
+      data-tour={tour}
       to={to}
       end={to === '/' || to === '/tasks'}
       onClick={onClick}
@@ -112,16 +115,16 @@ export function Shell() {
         <Search className="size-4" /><span className="flex-1 text-left">Поиск</span><kbd className="rounded bg-slate-100 px-1.5 text-[11px] dark:bg-slate-800">Ctrl K</kbd>
       </button>
       <nav className="flex flex-col gap-1">
-        <Item to="/" icon={ListChecks} label="Мои задачи" onClick={close} />
+        <Item to="/" icon={ListChecks} label="Мои задачи" onClick={close} tour="tasks" />
         {isManager && <Item to="/tasks" icon={LayoutList} label="Все задачи" onClick={close} />}
         <Item to="/clients" icon={Building2} label="Клиенты" onClick={close} />
-        <Item to="/messenger" icon={MessagesSquare} label="Мессенджер" count={unread} onClick={close} />
+        <Item to="/messenger" icon={MessagesSquare} label="Мессенджер" count={unread} onClick={close} tour="chats" />
         <Item to="/archive" icon={Archive} label="Архив" onClick={close} />
         {isManager && <Item to="/trash" icon={Trash2} label="Корзина" onClick={close} />}
       </nav>
       {isOwner && (
         <>
-          <button onClick={() => setSettingsOpen((o) => !o)} className="mt-6 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[15px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
+          <button data-tour="admin" onClick={() => setSettingsOpen((o) => !o)} className="mt-6 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[15px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
             <Settings className="size-[18px]" /><span className="flex-1 text-left">Администрирование</span>
             <ChevronDown className={`size-4 transition ${settingsOpen ? 'rotate-180' : ''}`} />
           </button>
@@ -133,7 +136,7 @@ export function Shell() {
         </>
       )}
       <nav className="mb-2 mt-auto flex flex-col gap-1 pt-6">
-        <Item to="/security" icon={ShieldCheck} label="Код из приложения" onClick={close} />
+        <Item to="/security" icon={ShieldCheck} label="Код из приложения" onClick={close} tour="code" />
         <Item to="/help" icon={LifeBuoy} label="Справка" onClick={close} />
       </nav>
       <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -150,6 +153,7 @@ export function Shell() {
   );
 
   return (
+    <ToastProvider>
     <div className="flex min-h-dvh">
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur lg:flex dark:border-slate-800 dark:bg-slate-900/60">
         {sidebar}
@@ -169,7 +173,7 @@ export function Shell() {
               <BookOpen className="size-4" /><span className="hidden sm:inline">Инструкция</span>
             </NavLink>
           )}
-          <Bell />
+          <span data-tour="bell"><Bell /></span>
         </header>
         <main className="min-w-0 flex-1 px-4 pb-24 pt-4 sm:px-8 lg:px-12 lg:pb-10">
           <div className="mx-auto max-w-6xl animate-rise">
@@ -182,7 +186,15 @@ export function Shell() {
       </div>
       <BottomNav unread={unread} onSearch={() => setSearch(true)} />
       <StepUp />
+      <Tour user={me.id} steps={[
+        { target: 'tasks', title: 'Здесь ваши задачи', text: 'Где вы исполнитель или постановщик. Красные — просроченные, сверху — что важно сегодня. Нажмите задачу, чтобы открыть её.' },
+        { target: 'chats', title: 'Чаты задач', text: 'У каждой задачи свой чат — он справа в карточке задачи. Здесь все чаты сразу, непрочитанные отмечены числом.' },
+        { target: 'bell', title: 'Колокольчик', text: 'Напоминания о сроках, новые назначения и важные события. Ненужные можно удалить крестиком.' },
+        { target: 'code', title: 'Код из приложения', text: 'Нужен, чтобы входить из дома: 6 цифр в приложении на телефоне. Настройка занимает минуту.' },
+        ...(isOwner ? [{ target: 'admin', title: 'Администрирование', text: 'Начинайте с «Обзора»: там всё, что требует внимания, и полоса первоначальной настройки.' }] : []),
+      ]} />
       <SearchPalette open={search} onClose={() => setSearch(false)} />
     </div>
+    </ToastProvider>
   );
 }

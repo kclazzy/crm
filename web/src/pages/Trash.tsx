@@ -26,7 +26,7 @@ export function Trash() {
       <div className="grid gap-5 md:grid-cols-2">
         <section className="card p-5">
           <h2 className="mb-3 font-semibold">Клиенты</h2>
-          {clients.length === 0 && <p className="text-sm text-slate-500">Пусто.</p>}
+          {clients.length === 0 && <p className="text-sm text-slate-500">Пусто. Удалённые клиенты лежат здесь, пока их не вернут или владелец не удалит навсегда.</p>}
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {clients.map((c) => (
               <li key={c.id} className="flex items-center gap-2 py-2.5 text-sm">
@@ -39,7 +39,7 @@ export function Trash() {
         </section>
         <section className="card p-5">
           <h2 className="mb-3 font-semibold">Задачи</h2>
-          {tasks.length === 0 && <p className="text-sm text-slate-500">Пусто.</p>}
+          {tasks.length === 0 && <p className="text-sm text-slate-500">Пусто. Задачи, убранные «В корзину», можно вернуть отсюда вместе с подзадачами и чатом.</p>}
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {tasks.map((t) => (
               <li key={t.id} className="flex items-center gap-2 py-2.5 text-sm">

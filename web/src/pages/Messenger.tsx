@@ -48,7 +48,7 @@ export function Messenger() {
           <input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} /> Только непрочитанные
         </label>
         <div className="flex-1 overflow-y-auto">
-          {threads?.length === 0 && <p className="p-6 text-center text-sm text-slate-500">{onlyUnread ? 'Всё прочитано.' : 'Чатов пока нет.'}</p>}
+          {threads?.length === 0 && <p className="p-6 text-center text-sm text-slate-500">{onlyUnread ? 'Всё прочитано.' : <>Чатов пока нет. <br />У каждой задачи свой чат — он появится здесь, когда в задаче напишут первое сообщение.</>}</p>}
           {threads?.map((t) => (
             <button key={t.id} onClick={() => setParams({ task: t.id })}
               className={`flex w-full flex-col gap-1 border-b border-l-[3px] border-b-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 dark:border-b-slate-800 dark:hover:bg-slate-800/50 ${t.id === open ? 'border-l-brand-600 bg-brand-50/70 dark:bg-brand-500/10' : t.unread ? 'border-l-brand-400' : 'border-l-transparent'}`}>
