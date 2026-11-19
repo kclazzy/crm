@@ -10,12 +10,12 @@ export function Swipe({ children, label, tone = 'brand', onAction }: { children:
   const bg = { brand: 'bg-brand-600', red: 'bg-red-600', green: 'bg-emerald-600' }[tone];
   return (
     <div className="relative overflow-hidden">
-      <button type="button" onClick={() => { setDx(0); onAction(); }} tabIndex={dx ? 0 : -1}
-        className={`absolute inset-y-0 right-0 flex items-center justify-center px-3 text-sm font-semibold text-white ${bg}`} style={{ width: W }} aria-hidden={!dx}>
+      {dx < 0 && <button type="button" onClick={() => { setDx(0); onAction(); }}
+        className={`absolute inset-y-0 right-0 flex items-center justify-center px-3 text-sm font-semibold text-white ${bg}`} style={{ width: W }}>
         {label}
-      </button>
+      </button>}
       <div
-        className={`relative ${start.current ? '' : 'transition-transform duration-200'}`}
+        className={`relative bg-white dark:bg-slate-900 ${start.current ? '' : 'transition-transform duration-200'}`}
         style={{ transform: `translateX(${dx}px)` }}
         onTouchStart={(e) => { start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; setLocked(null); }}
         onTouchMove={(e) => {
