@@ -256,7 +256,9 @@ pub async fn problem(
 ) -> Result<StatusCode, ApiError> {
     let text: String = req.text.trim().chars().take(1000).collect();
     if text.is_empty() {
-        return Err(ApiError::BadRequest("опишите проблему хотя бы парой слов".into()));
+        return Err(ApiError::BadRequest(
+            "опишите проблему хотя бы парой слов".into(),
+        ));
     }
     let page: String = req.page.chars().take(200).collect();
     alert_owners(

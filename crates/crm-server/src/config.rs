@@ -22,6 +22,9 @@ pub struct Config {
     /// `false` — только прямые соединения (закрытая сеть, тесты).
     #[serde(default = "yes")]
     pub p2p_relay: bool,
+    /// Поиск сервера программой в сети офиса (UDP).
+    #[serde(default)]
+    pub discovery: Discovery,
     /// Откуда прочитан конфиг — туда же сохраняются изменения из админ-панели.
     #[serde(skip)]
     pub source: Option<PathBuf>,
@@ -73,6 +76,7 @@ impl Default for Config {
             storage: Storage::default(),
             backup: crm_core::backup::Policy::default(),
             p2p_relay: true,
+            discovery: Discovery::default(),
             source: None,
         }
     }
@@ -146,6 +150,28 @@ impl Config {
         std::fs::write(&tmp, text).map_err(io)?;
         std::fs::rename(&tmp, path).map_err(io)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Discovery {
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// UDP-порт; 0 — любой свободный (тесты).
+    #[serde(default = "discovery_port")]
+    pub port: u16,
+}
+
+impl Default for Discovery {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: discovery_port(),
+        }
+    }
+}
+
+fn discovery_port() -> u16 {
+    crm_core::discovery::PORT
 }
 
 fn default_listen() -> SocketAddr {

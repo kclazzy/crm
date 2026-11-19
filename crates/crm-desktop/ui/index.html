@@ -104,7 +104,12 @@
         </div>
 
         <form id="enroll-form" data-where="office">
-          <p class="hint">Подойдите к владельцу: он покажет адрес сервера и код в разделе «Сотрудники» → «Код». Интернет не нужен.</p>
+          <p class="hint">Подойдите к владельцу: он покажет код в разделе «Сотрудники» → «Код · локальная сеть». Интернет не нужен.</p>
+          <div id="found" class="found" aria-live="polite">
+            <span id="found-text">Ищу сервер в сети офиса…</span>
+            <span id="found-list"></span>
+            <button type="button" id="found-again" class="link" hidden>Искать снова</button>
+          </div>
           <label>Адрес сервера
             <input name="addr" required spellcheck="false" autocomplete="off" placeholder="OFFICE-PC или 192.168.1.10"></label>
           <label>Код от владельца

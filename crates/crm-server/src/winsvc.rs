@@ -28,6 +28,8 @@ const DESCRIPTION: &str = "Сервер CRM: клиенты, задачи, ча�
 /// Виртуальная учётная запись службы — без прав администратора.
 const ACCOUNT: &str = "NT SERVICE\\CRMServer";
 const FIREWALL_RULE: &str = "CRM Server";
+/// Ответ программам, которые ищут сервер в сети офиса (UDP).
+const FIREWALL_FIND_RULE: &str = "CRM Server Discovery";
 /// Не показывать окно консоли у вспомогательных программ (netsh, icacls).
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -79,7 +81,12 @@ pub fn handle(cmd: ServiceCmd) -> Result<String, ServiceError> {
         ServiceCmd::Install => install(),
         ServiceCmd::InstallFresh => install_fresh(),
         ServiceCmd::Uninstall => uninstall(),
-        ServiceCmd::Start => start().map(|()| "Служба запущена.".into()),
+        ServiceCmd::Start => {
+            // Установщик запускает службу после обновления (с правами администратора):
+            // заодно правило брандмауэра для поиска в сети, если его ещё нет (до 0.6).
+            allow_discovery();
+            start().map(|()| "Служба запущена.".into())
+        }
         ServiceCmd::Stop => stop().map(|()| "Служба остановлена.".into()),
         ServiceCmd::Restart => {
             stop()?;
@@ -214,7 +221,10 @@ fn install() -> Result<String, ServiceError> {
             OsStr::new("/Q"),
         ],
     )?;
-    firewall_allow(&exe, cfg.listen.port())?;
+    firewall_allow(&exe, FIREWALL_RULE, "TCP", cfg.listen.port())?;
+    if cfg.discovery.enabled {
+        firewall_allow(&exe, FIREWALL_FIND_RULE, "UDP", cfg.discovery.port)?;
+    }
 
     start()?;
     Ok(format!(
@@ -266,17 +276,19 @@ fn uninstall() -> Result<String, ServiceError> {
             other => return Err(other),
         },
     }
-    // Правила может и не быть — это не ошибка.
-    let _ = run_tool(
-        "netsh",
-        [
-            "advfirewall",
-            "firewall",
-            "delete",
-            "rule",
-            format!("name={FIREWALL_RULE}").as_str(),
-        ],
-    );
+    // Правил может и не быть — это не ошибка.
+    for rule in [FIREWALL_RULE, FIREWALL_FIND_RULE] {
+        let _ = run_tool(
+            "netsh",
+            [
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
+                format!("name={rule}").as_str(),
+            ],
+        );
+    }
     Ok(format!(
         "Служба удалена. Данные сохранены в {}",
         config::default_data_root().display()
@@ -342,8 +354,18 @@ fn unpark() -> Result<String, ServiceError> {
     Ok(done)
 }
 
+/// Правило для поиска сервера в сети офиса; без прав или без exe — тихо пропустить.
+fn allow_discovery() {
+    let Ok(cfg) = Config::load(&config::default_config_path()) else {
+        return;
+    };
+    if let (true, Ok(exe)) = (cfg.discovery.enabled, std::env::current_exe()) {
+        let _ = firewall_allow(&exe, FIREWALL_FIND_RULE, "UDP", cfg.discovery.port);
+    }
+}
+
 /// Разрешить входящие подключения к серверу только в частных и доменных сетях.
-fn firewall_allow(exe: &Path, port: u16) -> Result<(), ServiceError> {
+fn firewall_allow(exe: &Path, rule: &str, protocol: &str, port: u16) -> Result<(), ServiceError> {
     let _ = run_tool(
         "netsh",
         [
@@ -351,7 +373,7 @@ fn firewall_allow(exe: &Path, port: u16) -> Result<(), ServiceError> {
             "firewall",
             "delete",
             "rule",
-            format!("name={FIREWALL_RULE}").as_str(),
+            format!("name={rule}").as_str(),
         ],
     );
     run_tool(
@@ -361,10 +383,10 @@ fn firewall_allow(exe: &Path, port: u16) -> Result<(), ServiceError> {
             "firewall".into(),
             "add".into(),
             "rule".into(),
-            format!("name={FIREWALL_RULE}"),
+            format!("name={rule}"),
             "dir=in".into(),
             "action=allow".into(),
-            "protocol=TCP".into(),
+            format!("protocol={protocol}"),
             format!("localport={port}"),
             format!("program={}", exe.display()),
             "profile=private,domain".into(),

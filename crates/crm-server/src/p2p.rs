@@ -276,8 +276,11 @@ async fn refuse(mut stream: Stream, code: &str) {
          <p>Вы подключаетесь не из офиса. Сообщите владельцу CRM код устройства — он одобрит его \
          в разделе «Удалённый доступ»:</p>\
          <p style=\"font:700 34px/1.2 Consolas,monospace;letter-spacing:.08em\">{code}</p>\
+         <p><button id=c style=\"font:600 15px 'Segoe UI',sans-serif;padding:10px 16px;border:0;border-radius:10px;background:#4f46e5;color:#fff;cursor:pointer\" \
+         onclick=\"navigator.clipboard.writeText('Код устройства для CRM: {code}').then(function(){{c.textContent='Скопировано — отправьте владельцу'}})\">\
+         Скопировать код, чтобы отправить владельцу</button></p>\
          <p style=\"color:#475569\">Страница обновится сама, когда владелец одобрит устройство. \
-         В офисе одобрение не требуется.</p>"
+         В офисе одобрение не требуется: если этот компьютер хоть раз подключится в офисе, он одобрится сам.</p>"
     );
     let resp = format!(
         "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
