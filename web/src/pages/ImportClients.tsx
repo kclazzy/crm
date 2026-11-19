@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { CheckCircle2, ChevronRight, Download, FileSpreadsheet, Undo2 } from 'lucide-react';
-import { timeAgo } from '../api';
 import { type ImportRecord, work } from '../work';
-import { BackButton, Badge, Button, ErrorText, PageHeader } from '../components/ui';
+import { BackButton, Badge, Button, ErrorText, PageHeader, Ago } from '../components/ui';
 import { useGroups } from '../components/work';
 
 const fields: { key: keyof ImportRecord; label: string; required?: boolean }[] = [
@@ -213,7 +212,7 @@ export function ImportClients() {
               const s = (() => { try { return JSON.parse(b.stats) as { created: number }; } catch { return { created: 0 }; } })();
               return (
                 <li key={b.id} className="flex items-center gap-3 py-2">
-                  <span className="flex-1">{b.file_name} · {timeAgo(b.created_at)} · создано {s.created}</span>
+                  <span className="flex-1">{b.file_name} · <Ago ms={b.created_at} /> · создано {s.created}</span>
                   {b.undone_at ? <Badge tone="slate">отменён</Badge> : b.can_undo && (
                     <Button variant="ghost" className="px-2 py-1 text-xs" onClick={async () => {
                       const r = await work.importUndo(b.id);

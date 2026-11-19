@@ -3,9 +3,10 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Archive as ArchiveIcon, ArchiveRestore, Building2, CalendarDays, ChevronLeft, ChevronRight, Inbox, List, PartyPopper, Plus, Search, SearchX, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth';
 import { useLive, useLiveReload } from '../live';
-import { childrenOf, dateTime, statusName, type TaskSummary, todayFirst, work } from '../work';
+import { childrenOf, dateTime, statusActions, statusName, type TaskSummary, todayFirst, work } from '../work';
 import { Button, EmptyState, ErrorText, Modal } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { Swipe } from '../components/Swipe';
 import { ExportMenu } from '../components/ExportMenu';
 import { TaskForm, TaskRow, deadlineBar, deadlineLegend, statusIcon, statusStyle } from '../components/work';
 
@@ -282,7 +283,7 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
   const { me } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [tasks, setTasks] = useState<TaskSummary[] | null>(null);
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -304,6 +305,23 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
   const [archivedNote, setArchivedNote] = useState('');
   const sorted = [...(tasks ?? [])].sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed') || (a.deadline_at ?? 0) - (b.deadline_at ?? 0));
   const canCreate = me?.role !== 'employee';
+  // Свайп «Завершить» на телефоне — с «Отменить», если вернуть назад разрешено правилами.
+  const complete = async (t: TaskSummary) => {
+    try {
+      await work.setStatus(t.id, 'completed');
+      const was = t.status;
+      const back = was && statusActions.some((a) => a.to === was && a.from.includes('completed'));
+      toast(`«${t.title}» завершена`, back ? { undo: async () => { await work.setStatus(t.id, was); load(); } } : {});
+      load();
+    } catch (x) { toast((x as Error).message, { error: true }); }
+  };
+  const row = (t: TaskSummary) => (
+    <Swipe key={t.id} label="Завершить" tone="green" onAction={() => complete(t)}><TaskRow t={t} showClient /></Swipe>
+  );
+  // Клавиша N (или ссылка /?new=1) — сразу окно новой задачи.
+  useEffect(() => {
+    if (params.get('new') && canCreate) { setCreating(true); params.delete('new'); setParams(params, { replace: true }); }
+  }, [params, setParams, canCreate]);
   const open = sorted.filter((t) => t.status !== 'completed');
   const done = sorted.filter((t) => t.status === 'completed');
   // «Мои задачи» без поиска и фильтра просроченных: сначала то, что важно сегодня.
@@ -333,7 +351,7 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
                     <>
                       <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">Сегодня · {split.today.length}<span className="font-normal text-slate-500">просроченные, срок сегодня и новые</span></h2>
                       <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
-                        {split.today.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                        {split.today.map(row)}
                       </div>
                     </>
                   )}
@@ -341,14 +359,14 @@ export function TaskList({ mode }: { mode: 'mine' | 'all' }) {
                     <>
                       <h2 className={`mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300 ${split.today.length ? 'mt-5' : ''}`}>{split.today.length ? 'Дальше' : 'На сегодня срочного нет'} · {split.later.length}</h2>
                       <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
-                        {split.later.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                        {split.later.map(row)}
                       </div>
                     </>
                   )}
                 </>
               ) : (
                 <div className="card divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
-                  {open.map((t) => <TaskRow key={t.id} t={t} showClient />)}
+                  {open.map(row)}
                 </div>
               ))}
               {done.length > 0 && (

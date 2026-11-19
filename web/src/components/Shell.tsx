@@ -7,7 +7,7 @@ import {
 import { api, roleName } from '../api';
 import { useAuth } from '../auth';
 import { useLive } from '../live';
-import { Avatar } from './ui';
+import { Avatar, Modal } from './ui';
 import { Bell } from './Bell';
 import { StepUp } from './StepUp';
 import { SearchPalette } from './Search';
@@ -17,6 +17,7 @@ import { ToastProvider } from './Toast';
 import { Tour } from './Tour';
 import { helpFor } from './Hint';
 import { ReportProblem } from './Problem';
+import { AppearanceButton } from './Appearance';
 
 function Item({ to, icon: Icon, label, count, onClick, tour }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void; tour?: string }) {
   return (
@@ -85,16 +86,27 @@ export function Shell() {
   const [search, setSearch] = useState(false);
   const [menu, setMenu] = useState(false);
 
+  const [keys, setKeys] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setSearch(true);
+        return;
       }
+      // Одиночные клавиши — только когда не печатают в поле. Коды клавиш, а не буквы:
+      // работает и в русской раскладке.
+      const t = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (e.code === 'Slash' && e.shiftKey) { e.preventDefault(); setKeys(true); }
+      else if (e.code === 'Slash') { e.preventDefault(); setSearch(true); }
+      else if (e.code === 'KeyN' && me && me.role !== 'employee') { e.preventDefault(); navigate('/?new=1'); }
+      else if (e.key === 'Escape') setMenu(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [me, navigate]);
 
   if (!me) return null;
   const isOwner = me.role === 'host';
@@ -139,6 +151,7 @@ export function Shell() {
       )}
       <nav className="mb-2 mt-auto flex flex-col gap-1 pt-6">
         <Item to="/security" icon={ShieldCheck} label="Код из приложения" onClick={close} tour="code" />
+        <AppearanceButton className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100" />
         <Item to="/help" icon={LifeBuoy} label="Справка" onClick={close} />
         {!isOwner && <ReportProblem className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100" />}
       </nav>
@@ -189,6 +202,14 @@ export function Shell() {
       </div>
       <BottomNav unread={unread} onSearch={() => setSearch(true)} />
       <StepUp />
+      <Modal open={keys} onClose={() => setKeys(false)} title="Горячие клавиши">
+        <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-sm">
+          {[
+            ['/', 'Поиск'], ['Ctrl K', 'Поиск'], ...(isManager ? [['N', 'Новая задача']] : []), ['Esc', 'Закрыть окно или меню'], ['?', 'Эта подсказка'],
+          ].map(([k, v]) => <div key={k + v} className="contents"><dt><kbd className="rounded-md border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-xs dark:border-slate-600 dark:bg-slate-800">{k}</kbd></dt><dd>{v}</dd></div>)}
+        </dl>
+        <p className="mt-4 text-xs text-slate-500">Работают, когда курсор не в поле ввода — в любой раскладке.</p>
+      </Modal>
       <Tour user={me.id} steps={[
         { target: 'tasks', title: 'Здесь ваши задачи', text: 'Где вы исполнитель или постановщик. Красные — просроченные, сверху — что важно сегодня. Нажмите задачу, чтобы открыть её.' },
         { target: 'chats', title: 'Чаты задач', text: 'У каждой задачи свой чат — он справа в карточке задачи. Здесь все чаты сразу, непрочитанные отмечены числом.' },

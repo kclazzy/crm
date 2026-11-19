@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router';
 import { Check, Copy, Globe, Laptop, LogOut, Monitor, RotateCcw, Search, Smartphone, Trash2, UserCheck, UserPlus, UsersRound, UserX, X } from 'lucide-react';
 import { ConnectionKey } from './AdminWork';
-import { api, journal, type Invite, type JournalItem, type Role, roleName, type Session, type StaffMember, timeAgo } from '../api';
-import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
+import { api, journal, type Invite, type JournalItem, type Role, roleName, type Session, type StaffMember } from '../api';
+import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader, Ago } from '../components/ui';
 import { useConfirm } from '../components/Confirm';
 import { Hint } from '../components/Hint';
 import { JournalRow } from './AdminSecurity';
@@ -100,7 +100,7 @@ function StaffCard({ m, onClose, onChanged, onCode, onKey, onReset, onDelete }: 
                   return (
                     <li key={s.id} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5 text-sm dark:border-slate-700">
                       <Laptop className="size-4 shrink-0 text-slate-400" />
-                      <span className="min-w-0 flex-1"><span className="block truncate">{s.device_name}</span><span className="text-xs text-slate-500">{placeLabel[place]} · {timeAgo(s.last_seen_at)}</span></span>
+                      <span className="min-w-0 flex-1"><span className="block truncate">{s.device_name}</span><span className="text-xs text-slate-500">{placeLabel[place]} · <Ago ms={s.last_seen_at} /></span></span>
                       <Button variant="ghost" className="px-2 py-1 text-xs" onClick={async () => {
                         if (await ask({ title: 'Отключить устройство?', text: <>«{s.device_name}»: вход закроется сразу, вернуться можно только с паролем.</>, ok: 'Отключить', danger: true })) {
                           await act(() => api.revokeSession(s.id));

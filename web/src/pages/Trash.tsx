@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RotateCcw, Trash2 } from 'lucide-react';
-import { timeAgo } from '../api';
 import { useAuth } from '../auth';
 import { type Client, work } from '../work';
-import { Button, ErrorText, Modal, PageHeader } from '../components/ui';
+import { Button, ErrorText, Modal, PageHeader, Ago } from '../components/ui';
 
 export function Trash() {
   const { me } = useAuth();
@@ -30,7 +29,7 @@ export function Trash() {
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {clients.map((c) => (
               <li key={c.id} className="flex items-center gap-2 py-2.5 text-sm">
-                <span className="min-w-0 flex-1"><b>{c.name}</b><br /><span className="text-xs text-slate-500">удалён {c.deleted_at && timeAgo(c.deleted_at)}</span></span>
+                <span className="min-w-0 flex-1"><b>{c.name}</b><br /><span className="text-xs text-slate-500">удалён {c.deleted_at && <Ago ms={c.deleted_at} />}</span></span>
                 <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => act(() => work.restoreClient(c.id))}><RotateCcw className="size-3.5" />Вернуть</Button>
                 {me?.role === 'host' && <Button variant="ghost" className="px-2 py-1.5 text-red-600" title="Удалить навсегда" onClick={() => setPurging(c)}><Trash2 className="size-4" /></Button>}
               </li>
@@ -43,7 +42,7 @@ export function Trash() {
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {tasks.map((t) => (
               <li key={t.id} className="flex items-center gap-2 py-2.5 text-sm">
-                <span className="min-w-0 flex-1"><b>{t.title}</b><br /><span className="text-xs text-slate-500">{t.client_name} · {timeAgo(t.deleted_at)}</span></span>
+                <span className="min-w-0 flex-1"><b>{t.title}</b><br /><span className="text-xs text-slate-500">{t.client_name} · <Ago ms={t.deleted_at} /></span></span>
                 <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => act(() => work.restoreTask(t.id))}><RotateCcw className="size-3.5" />Вернуть</Button>
               </li>
             ))}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Ago } from './ui';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
-import { api, timeAgo } from '../api';
+import { api } from '../api';
 
 type Sec = Awaited<ReturnType<typeof api.security>>;
 
@@ -23,7 +24,7 @@ export function SecurityPanel() {
           <p className="text-sm font-semibold">Неудачные входы</p>
           <ul className="mt-2 divide-y divide-slate-100 text-sm dark:divide-slate-800">
             {sec.failed_logins.map((f) => (
-              <li key={f.ip} className="flex justify-between py-1.5"><span className="font-mono">{f.ip}</span><span className="text-slate-500">{f.count} · {timeAgo(f.last_at)}</span></li>
+              <li key={f.ip} className="flex justify-between py-1.5"><span className="font-mono">{f.ip}</span><span className="text-slate-500">{f.count} · <Ago ms={f.last_at} /></span></li>
             ))}
           </ul>
         </div>
@@ -33,7 +34,7 @@ export function SecurityPanel() {
           <p className="text-sm font-semibold">Временно ограничены</p>
           <ul className="mt-2 divide-y divide-slate-100 text-sm dark:divide-slate-800">
             {sec.blocked.map((b) => (
-              <li key={b.ip} className="flex justify-between py-1.5"><span className="font-mono">{b.ip}</span><span className="text-slate-500">{b.count} отказов · {timeAgo(Date.now() - b.seconds_ago * 1000)}</span></li>
+              <li key={b.ip} className="flex justify-between py-1.5"><span className="font-mono">{b.ip}</span><span className="text-slate-500">{b.count} отказов · <Ago ms={Date.now() - b.seconds_ago * 1000} /></span></li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-slate-500">Незнакомый адрес в списке — проверьте «Активные входы» и смените пароли, если нужно.</p>

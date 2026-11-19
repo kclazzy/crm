@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Ago } from './ui';
 import { useNavigate } from 'react-router';
 import { Bell as BellIcon, BellRing, Moon, X } from 'lucide-react';
-import { timeAgo } from '../api';
 import { noteTarget, reminderText, useLive } from '../live';
 import { work } from '../work';
+import { Swipe } from './Swipe';
 
 /** Колокольчик: напоминания о сроках и тревоги владельцу. */
 export function Bell() {
@@ -52,12 +53,13 @@ export function Bell() {
             {bell.items.map((n) => {
               const t = reminderText(n);
               return (
-                <div key={n.id} className={`group flex items-start border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50 ${n.read_at ? 'opacity-60' : ''}`}>
+                <Swipe key={n.id} label="Удалить" tone="red" onAction={async () => { await work.deleteNotification(n.id).catch(() => {}); refreshBell(); }}>
+                <div className={`group flex items-start border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50 ${n.read_at ? 'opacity-60' : ''}`}>
                   <button onClick={() => { setOpen(false); if (n.task_id) navigate(`/tasks/${n.task_id}`); else navigate(noteTarget(n)); }}
                     className="min-w-0 flex-1 px-4 py-2.5 text-left">
                     <p className="text-sm font-medium">{t.title}</p>
                     <p className="truncate text-xs text-slate-500">{t.body}</p>
-                    <p className="text-[11px] text-slate-400">{timeAgo(n.created_at)}</p>
+                    <p className="text-[11px] text-slate-400"><Ago ms={n.created_at} /></p>
                   </button>
                   <button onClick={async () => { await work.deleteNotification(n.id).catch(() => {}); refreshBell(); }}
                     className="m-1.5 rounded-lg p-1.5 text-slate-400 opacity-60 hover:bg-slate-200 hover:text-red-600 group-hover:opacity-100 dark:hover:bg-slate-700"
@@ -65,6 +67,7 @@ export function Bell() {
                     <X className="size-4" />
                   </button>
                 </div>
+                </Swipe>
               );
             })}
           </div>

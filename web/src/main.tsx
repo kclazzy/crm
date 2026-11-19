@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { Loader2 } from 'lucide-react';
 import './index.css';
+import { applyAppearance } from './components/Appearance';
+
+applyAppearance();
 import { AuthProvider, useAuth } from './auth';
 import { Shell } from './components/Shell';
 import { LiveProvider } from './live';

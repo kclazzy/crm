@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router';
 import { type ButtonHTMLAttributes, type ReactNode, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Loader2, X } from 'lucide-react';
+import { timeAgo } from '../api';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -132,4 +133,10 @@ export function EmptyState({ icon, title, text, action }: { icon: ReactNode; tit
       {action && <div className="mt-5">{action}</div>}
     </div>
   );
+}
+
+/** «5 мин назад» — с точной датой и временем во всплывающей подсказке. */
+export function Ago({ ms }: { ms: number }) {
+  const exact = new Date(ms).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return <time dateTime={new Date(ms).toISOString()} title={exact}>{timeAgo(ms)}</time>;
 }
