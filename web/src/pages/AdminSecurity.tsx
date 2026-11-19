@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Globe, Home, Laptop, Monitor, Server as ServerIcon } from 'lucide-react';
-import { api, journal, type JournalItem, type StaffMember } from '../api';
+import { Globe, Home, Laptop, Monitor, Server as ServerIcon, Trash2 } from 'lucide-react';
+import { api, clearJournal, deleteJournalItem, journal, type JournalItem, type StaffMember } from '../api';
+import { useConfirm } from '../components/Confirm';
 import { Badge, Button, ErrorText, PageHeader } from '../components/ui';
 import { RecoveryCodes } from '../components/RecoveryCodes';
 import { SecurityPanel } from '../components/SecurityPanel';
@@ -38,12 +39,13 @@ function when(ms: number) {
 }
 
 /** Одна строка журнала: что и о ком, ниже — когда, откуда, кто сделал. */
-export function JournalRow({ e }: { e: JournalItem }) {
+export function JournalRow({ e, onDelete }: { e: JournalItem; onDelete?: () => void }) {
   const place = placeView[e.place];
   const Icon = place.icon;
   const failed = e.action.endsWith('.failed');
   return (
-    <li className="px-4 py-2.5 text-sm">
+    <li className="group flex items-start gap-2 px-4 py-2.5 text-sm">
+      <div className="min-w-0 flex-1">
       <p className="min-w-0">
         <span className={`font-medium ${failed ? 'text-red-700 dark:text-red-300' : ''}`}>{e.title}</span>
         {e.about && <span className="text-slate-500"> · {e.about_name ? `${e.about_name} (@${e.about})` : <>@{e.about} <i>— такого сотрудника нет</i></>}</span>}
@@ -54,6 +56,12 @@ export function JournalRow({ e }: { e: JournalItem }) {
         {e.ip && e.place !== 'server' && <span className="max-w-48 truncate font-mono" title={e.ip}>{e.ip}</span>}
         {e.actor_name && e.actor_name !== e.about_name && <span>· сделал {e.actor_name}</span>}
       </p>
+      </div>
+      {onDelete && (
+        <button onClick={onDelete} className="rounded-lg p-1.5 text-slate-400 opacity-60 hover:bg-slate-100 hover:text-red-600 group-hover:opacity-100 dark:hover:bg-slate-800" title="Удалить запись" aria-label="Удалить запись">
+          <Trash2 className="size-4" />
+        </button>
+      )}
     </li>
   );
 }
@@ -67,6 +75,7 @@ export function AdminJournal() {
   const [more, setMore] = useState(false);
   const [error, setError] = useState('');
   const PAGE = 50;
+  const ask = useConfirm();
 
   useEffect(() => void api.staff().then(setStaff).catch(() => {}), []);
   const load = useCallback(async (before?: number) => {
@@ -81,7 +90,7 @@ export function AdminJournal() {
 
   return (
     <>
-      <PageHeader title="Журнал безопасности" subtitle="Входы, неверные пароли, отключения, сбросы и восстановление. Работа с задачами сюда не попадает." />
+      <PageHeader title="Журнал безопасности" subtitle="Входы, неверные пароли, отключения, сбросы и восстановление. Работа с задачами сюда не попадает. Удалённые записи пропадают из списка, но блокировка за подбор пароля их учитывает." />
       <div className="mb-4 flex flex-wrap gap-2">
         <select className="input w-auto" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Вид событий">
           {kinds.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
@@ -90,12 +99,24 @@ export function AdminJournal() {
           <option value="">Все сотрудники</option>
           {staff.map((m) => <option key={m.id} value={m.id}>{m.display_name} (@{m.username})</option>)}
         </select>
+        {!!items?.length && (
+          <Button variant="secondary" className="ml-auto" onClick={async () => {
+            const what = [kinds.find((k) => k.value === kind)?.label.toLowerCase(), user && `сотрудника «${staff.find((m) => m.id === user)?.display_name}»`].filter(Boolean).join(', ');
+            if (await ask({ title: 'Очистить журнал?', text: <>Удалятся все записи{kind || user ? <> по фильтру: <b>{what}</b></> : ''}. Блокировка за подбор пароля продолжит действовать.</>, ok: 'Удалить', danger: true })) {
+              try { await clearJournal({ user, kind }); await load(); } catch (x) { setError((x as Error).message); }
+            }
+          }}><Trash2 className="size-4" />{kind || user ? 'Удалить показанные' : 'Очистить журнал'}</Button>
+        )}
       </div>
       <ErrorText>{error}</ErrorText>
       <div className="card">
         {items === null ? <p className="p-6 text-sm text-slate-500">Загрузка…</p>
           : items.length === 0 ? <p className="p-6 text-sm text-slate-500">Событий нет{user || kind ? ' — попробуйте убрать фильтр' : ''}.</p>
-          : <ul className="divide-y divide-slate-100 dark:divide-slate-800">{items.map((e) => <JournalRow key={e.id} e={e} />)}</ul>}
+          : <ul className="divide-y divide-slate-100 dark:divide-slate-800">{items.map((e) => (
+              <JournalRow key={e.id} e={e} onDelete={async () => {
+                try { await deleteJournalItem(e.id); setItems((old) => old?.filter((x) => x.id !== e.id) ?? null); } catch (x) { setError((x as Error).message); }
+              }} />
+            ))}</ul>}
       </div>
       {more && items && (
         <div className="mt-4 flex justify-center">

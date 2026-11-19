@@ -557,6 +557,56 @@ pub struct JournalItem {
     place: &'static str,
 }
 
+/// События журнала нужного вида — JSON-массив для `json_each`.
+fn journal_actions(kind: Option<&str>) -> String {
+    let actions: Vec<&str> = JOURNAL
+        .iter()
+        .filter(|(_, k, _)| kind.is_none_or(|want| want == *k))
+        .map(|(a, _, _)| *a)
+        .collect();
+    serde_json::to_string(&actions).unwrap_or_else(|_| "[]".into())
+}
+
+/// Удалить запись журнала. Она скрывается, а не стирается: блокировка за подбор
+/// пароля по-прежнему её учитывает.
+pub async fn journal_hide(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    let done = sqlx::query("UPDATE audit_log SET hidden_at = ? WHERE id = ? AND hidden_at IS NULL")
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(&id)
+        .execute(&app.pool)
+        .await?;
+    if done.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// Удалить все записи журнала по тем же фильтрам, что и список (сотрудник, вид).
+pub async fn journal_hide_all(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+    axum::extract::Query(q): axum::extract::Query<JournalIn>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    sqlx::query(
+        "UPDATE audit_log SET hidden_at = ?4
+         WHERE hidden_at IS NULL AND action IN (SELECT value FROM json_each(?1))
+           AND (?2 IS NULL OR actor_id = ?2
+                OR entity_id = (SELECT username FROM users WHERE id = ?2))
+           AND (?3 IS NULL OR created_at < ?3)",
+    )
+    .bind(journal_actions(q.kind.as_deref()))
+    .bind(&q.user)
+    .bind(q.before)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&app.pool)
+    .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 /// id, время, действие, кто, о ком (логин), имя того, о ком, адрес.
 type JournalRow = (
     String,
@@ -590,25 +640,21 @@ pub async fn journal(
     Owner(_): Owner,
     axum::extract::Query(q): axum::extract::Query<JournalIn>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let actions: Vec<&str> = JOURNAL
-        .iter()
-        .filter(|(_, kind, _)| q.kind.as_deref().is_none_or(|k| k == *kind))
-        .map(|(a, _, _)| *a)
-        .collect();
+    let actions = journal_actions(q.kind.as_deref());
     let rows: Vec<JournalRow> =
         sqlx::query_as(
             "SELECT a.id, a.created_at, a.action, actor.display_name, a.entity_id, about.display_name, a.ip
              FROM audit_log a
              LEFT JOIN users actor ON actor.id = a.actor_id
              LEFT JOIN users about ON about.username = a.entity_id
-             WHERE a.action IN (SELECT value FROM json_each(?1))
+             WHERE a.hidden_at IS NULL AND a.action IN (SELECT value FROM json_each(?1))
                AND (?2 IS NULL OR a.actor_id = ?2
                     OR a.entity_id = (SELECT username FROM users WHERE id = ?2))
                AND (?3 IS NULL OR a.created_at < ?3)
              ORDER BY a.created_at DESC, a.id DESC
              LIMIT ?4",
         )
-        .bind(serde_json::to_string(&actions).unwrap_or_else(|_| "[]".into()))
+        .bind(&actions)
         .bind(&q.user)
         .bind(q.before)
         .bind(q.limit.unwrap_or(100).clamp(1, 500))

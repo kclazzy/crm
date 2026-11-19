@@ -6,7 +6,7 @@ default-members = ["crates/crm-core", "crates/crm-server", "crates/crm-connect"]
 
 [workspace.package]
 edition = "2021"
-version = "0.5.0"
+version = "0.5.1"
 license = "UNLICENSED"
 
 [workspace.lints.clippy]

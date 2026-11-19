@@ -228,6 +228,8 @@ export const work = {
   search: (text: string, archive = false) => req<Hit[]>('GET', `/api/search${q({ q: text, archive })}`),
   notifications: () => req<{ unread: number; items: Notification[]; quiet: boolean }>('GET', '/api/notifications'),
   readNotifications: () => req<void>('POST', '/api/notifications/read'),
+  deleteNotification: (id: string) => req<void>('DELETE', `/api/notifications/${id}`),
+  deleteNotifications: () => req<void>('DELETE', '/api/notifications'),
   prefs: () => req<{ notify_always: boolean }>('GET', '/api/me/prefs'),
   setPrefs: (notify_always: boolean) => req<{ notify_always: boolean }>('PUT', '/api/me/prefs', { notify_always }),
 
