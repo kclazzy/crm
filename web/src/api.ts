@@ -211,3 +211,23 @@ export function bytes(n: number): string {
   }
   return `${v.toLocaleString('ru-RU', { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[i]}`;
 }
+
+export interface JournalItem {
+  id: string;
+  at: number;
+  action: string;
+  title: string;
+  kind: 'login' | 'access' | 'data';
+  actor_name: string | null;
+  about: string | null;
+  about_name: string | null;
+  ip: string | null;
+  place: 'server' | 'office' | 'device' | 'internet';
+}
+
+export const journal = (q: { user?: string; kind?: string; before?: number; limit?: number }) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v));
+  const s = p.toString();
+  return request<{ items: JournalItem[] }>('GET', `/api/admin/journal${s ? `?${s}` : ''}`);
+};

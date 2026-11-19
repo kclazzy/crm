@@ -1,10 +1,142 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { Check, Copy, Globe, Monitor, MoreHorizontal, RotateCcw, Smartphone, Trash2, UserCheck, UserPlus, UserX } from 'lucide-react';
-import { Menu, MenuItem } from '../components/Menu';
+import { createPortal } from 'react-dom';
+import { Link, useSearchParams } from 'react-router';
+import { Check, Copy, Globe, Laptop, LogOut, Monitor, RotateCcw, Search, Smartphone, Trash2, UserCheck, UserPlus, UsersRound, UserX, X } from 'lucide-react';
 import { ConnectionKey } from './AdminWork';
-import { api, type Invite, type Role, roleName, type StaffMember } from '../api';
+import { api, journal, type Invite, type JournalItem, type Role, roleName, type Session, type StaffMember, timeAgo } from '../api';
 import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
-import { RecoveryCodes } from '../components/RecoveryCodes';
+import { useConfirm } from '../components/Confirm';
+import { JournalRow } from './AdminSecurity';
+import { placeLabel, placeOfIp } from './AdminOverview';
+
+const filters: { id: string; label: string; test: (m: StaffMember) => boolean }[] = [
+  { id: 'all', label: 'Все', test: () => true },
+  { id: 'active', label: 'Активные', test: (m) => m.state === 'active' },
+  { id: 'invited', label: 'Ждут входа', test: (m) => m.state === 'invited' },
+  { id: 'disabled', label: 'Отключены', test: (m) => m.state === 'disabled' },
+  { id: 'nocode', label: 'Без кода из приложения', test: (m) => m.state === 'active' && !m.two_factor },
+];
+
+/** «Код · локальная сеть» и «Ключ · интернет» рядом. */
+function ConnectButtons({ m, onCode, onKey }: { m: StaffMember; onCode: () => void; onKey: () => void }) {
+  return (
+    <>
+      <Button variant="secondary" className="flex-col gap-0 px-3 py-1 text-xs leading-tight" onClick={onCode} title="Адрес сервера и 8 символов — для программы CRM в офисе, без интернета">
+        <span className="flex items-center gap-1"><Monitor className="size-3.5" />Код</span>
+        <span className="text-[10px] font-normal text-slate-500">локальная сеть</span>
+      </Button>
+      <Button variant="secondary" className="flex-col gap-0 px-3 py-1 text-xs leading-tight" onClick={onKey} title={m.state === 'invited' ? 'Ключ с приглашением — новый сотрудник сам задаст пароль' : 'Ключ подключения — вход своим паролем'}>
+        <span className="flex items-center gap-1"><Globe className="size-3.5" />Ключ</span>
+        <span className="text-[10px] font-normal text-slate-500">интернет</span>
+      </Button>
+    </>
+  );
+}
+
+/** Карточка сотрудника сбоку: подключение, код из приложения, входы, события, действия. */
+function StaffCard({ m, onClose, onChanged, onCode, onKey, onReset, onDelete }: {
+  m: StaffMember; onClose: () => void; onChanged: () => void; onCode: () => void; onKey: () => void; onReset: () => void; onDelete: () => void;
+}) {
+  const ask = useConfirm();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [events, setEvents] = useState<JournalItem[] | null>(null);
+  const [error, setError] = useState('');
+  const load = useCallback(() => {
+    api.sessions().then((all) => setSessions(all.filter((s) => s.username === m.username))).catch(() => {});
+    journal({ user: m.id, limit: 8 }).then((r) => setEvents(r.items)).catch(() => setEvents([]));
+  }, [m.id, m.username]);
+  useEffect(() => {
+    load();
+    const onKeyDown = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [load, onClose]);
+  const act = async (f: () => Promise<unknown>) => {
+    setError('');
+    try { await f(); load(); onChanged(); } catch (x) { setError((x as Error).message); }
+  };
+  const host = m.role === 'host';
+  return createPortal(
+    <div className="fixed inset-0 z-40 bg-slate-950/30" onMouseDown={onClose}>
+      <aside className="animate-rise absolute inset-y-0 right-0 flex w-full max-w-md flex-col overflow-y-auto bg-white shadow-2xl dark:bg-slate-900" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={`Сотрудник ${m.display_name}`}>
+        <div className="flex items-start gap-3 border-b border-slate-100 p-5 dark:border-slate-800">
+          <Avatar name={m.display_name} />
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-semibold">{m.display_name}</p>
+            <p className="text-sm text-slate-500">@{m.username} · {roleName[m.role]}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.reset_requested && <Badge tone="amber">Просит сбросить пароль</Badge>}</div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" aria-label="Закрыть"><X className="size-5" /></button>
+        </div>
+        <div className="flex flex-col gap-6 p-5">
+          <ErrorText>{error}</ErrorText>
+          {!host && m.state !== 'disabled' && (
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Подключить программу</h3>
+              <div className="flex gap-2"><ConnectButtons m={m} onCode={onCode} onKey={onKey} /></div>
+              {m.state === 'invited' && <p className="mt-2 text-xs text-slate-500">Ещё не задал пароль: ключ для интернета будет с приглашением.</p>}
+            </section>
+          )}
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Код из приложения</h3>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {m.two_factor ? <Badge tone="green" dot>настроен</Badge> : <Badge tone="slate" dot>не настроен</Badge>}
+              {m.two_factor && !host && (
+                <Button variant="secondary" className="px-3 py-1 text-xs" onClick={async () => {
+                  if (await ask({ title: 'Сбросить код из приложения?', text: <>У «{m.display_name}» перестанет работать нынешний код. Новый он настроит в офисе или в программе на одобренном компьютере.</>, ok: 'Сбросить код', danger: true })) {
+                    await act(() => api.twoFactorReset(m.id));
+                  }
+                }}><Smartphone className="size-3.5" />Сбросить код</Button>
+              )}
+            </div>
+          </section>
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Где сейчас вошёл · {sessions.length}</h3>
+            {sessions.length === 0 ? <p className="text-sm text-slate-500">Нигде.</p> : (
+              <ul className="flex flex-col gap-2">
+                {sessions.map((s) => {
+                  const place = placeOfIp(s.ip);
+                  return (
+                    <li key={s.id} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5 text-sm dark:border-slate-700">
+                      <Laptop className="size-4 shrink-0 text-slate-400" />
+                      <span className="min-w-0 flex-1"><span className="block truncate">{s.device_name}</span><span className="text-xs text-slate-500">{placeLabel[place]} · {timeAgo(s.last_seen_at)}</span></span>
+                      <Button variant="ghost" className="px-2 py-1 text-xs" onClick={async () => {
+                        if (await ask({ title: 'Отключить устройство?', text: <>«{s.device_name}»: вход закроется сразу, вернуться можно только с паролем.</>, ok: 'Отключить', danger: true })) {
+                          await act(() => api.revokeSession(s.id));
+                        }
+                      }}><LogOut className="size-3.5" />Отключить</Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Последние события</h3>
+            {events === null ? <p className="text-sm text-slate-500">Загрузка…</p> : events.length === 0 ? <p className="text-sm text-slate-500">Пока ничего.</p> : (
+              <ul className="-mx-4 divide-y divide-slate-100 dark:divide-slate-800">{events.map((e) => <JournalRow key={e.id} e={e} />)}</ul>
+            )}
+            <Link to="/admin/journal" className="mt-1 inline-block text-sm font-medium text-brand-600 hover:underline">Весь журнал →</Link>
+          </section>
+          {!host && (
+            <section className="flex flex-wrap gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
+              <Button variant="secondary" onClick={onReset}><RotateCcw className="size-4" />Сбросить доступ</Button>
+              {m.state === 'disabled'
+                ? <Button variant="secondary" onClick={() => act(() => api.enableUser(m.id))}><UserCheck className="size-4" />Включить</Button>
+                : <Button variant="secondary" onClick={async () => {
+                    if (await ask({ title: `Отключить «${m.display_name}»?`, text: 'Он сразу выйдет на всех устройствах и не сможет войти. Задачи и данные останутся, включить можно в любой момент.', ok: 'Отключить', danger: true })) {
+                      await act(() => api.disableUser(m.id));
+                    }
+                  }}><UserX className="size-4" />Отключить</Button>}
+              <Button variant="danger" onClick={onDelete}><Trash2 className="size-4" />Удалить…</Button>
+            </section>
+          )}
+        </div>
+      </aside>
+    </div>,
+    document.body,
+  );
+}
 
 const stateBadge = {
   active: <Badge tone="green" dot>Активен</Badge>,
@@ -121,6 +253,19 @@ export function AdminStaff() {
 
   const load = useCallback(() => api.staff().then(setStaff).catch((e) => setError(e.message)), []);
   useEffect(() => void load(), [load]);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('all');
+  // Карточка сотрудника и «Добавить» открываются и по ссылке: /admin/staff?open=id, ?add=1 (из «Обзора»).
+  const [params, setParams] = useSearchParams();
+  const openId = params.get('open');
+  const setOpenId = (id: string | null) => setParams(id ? { open: id } : {}, { replace: true });
+  useEffect(() => {
+    if (params.get('add')) { setAdding(true); setParams({}, { replace: true }); }
+  }, [params, setParams]);
+  const open = staff?.find((m) => m.id === openId) ?? null;
+  const f = filters.find((x) => x.id === filter) ?? filters[0];
+  const q = query.trim().toLowerCase();
+  const shown = staff?.filter(f.test).filter((m) => !q || m.display_name.toLowerCase().includes(q) || m.username.toLowerCase().includes(q));
 
   async function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -168,77 +313,70 @@ export function AdminStaff() {
           </div>
         }
       />
-      <RecoveryCodes compact />
       {error && !adding && <div className="mb-4"><ErrorText>{error}</ErrorText></div>}
-      <div className="card">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200/80 bg-slate-50/60 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900">
-            <tr><th className="px-5 py-3 font-semibold">Сотрудник</th><th className="px-5 py-3 font-semibold">Роль</th><th className="px-5 py-3 font-semibold">Состояние</th><th className="px-5 py-3" /></tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {staff?.map((m) => (
-              <tr key={m.id} className="transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                <td className="px-5 py-3.5">
-                  <div className="flex items-center gap-3">
-                    <Avatar name={m.display_name} />
-                    <div><p className="font-semibold">{m.display_name}</p><p className="text-slate-500">@{m.username}</p></div>
-                  </div>
-                </td>
-                <td className="px-5 py-3.5">{m.role === 'host' ? <Badge tone="brand">{roleName[m.role]}</Badge> : roleName[m.role]}</td>
-                <td className="px-5 py-3.5">
-                  <div className="flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.reset_requested && <Badge tone="amber">Просит сбросить пароль</Badge>}{m.two_factor && <Badge tone="green">код ✓</Badge>}</div>
-                </td>
-                <td className="px-5 py-3.5 text-right">
-                  {m.role !== 'host' && m.state !== 'disabled' && (
-                    <span className="mr-1 inline-flex gap-1 align-middle">
-                      <Button variant="secondary" className="flex-col gap-0 px-3 py-1 text-xs leading-tight" onClick={() => setCodeFor(m)} title="Адрес сервера и 8 символов — для программы CRM в офисе, без интернета">
-                        <span className="flex items-center gap-1"><Monitor className="size-3.5" />Код</span>
-                        <span className="text-[10px] font-normal text-slate-500">локальная сеть</span>
+      {staff && staff.filter((m) => m.role !== 'host').length === 0 ? (
+        <div className="card flex flex-col items-center gap-3 p-10 text-center">
+          <UsersRound className="size-10 text-brand-500" />
+          <p className="text-lg font-semibold">Сотрудников пока нет</p>
+          <p className="max-w-md text-sm text-slate-500">Добавьте первого: вы получите код для программы в офисе или ключ для подключения из дома — пароль сотрудник задаст себе сам.</p>
+          <Button onClick={() => { setError(''); setAdding(true); }}><UserPlus className="size-4" />Добавить первого сотрудника</Button>
+        </div>
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-52 flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <input className="input pl-9" placeholder="Имя или логин" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Поиск сотрудника" />
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {filters.map((f) => (
+                <button key={f.id} onClick={() => setFilter(f.id)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === f.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'}`}>
+                  {f.label}{staff && ` · ${staff.filter(f.test).length}`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ul className="card divide-y divide-slate-100 dark:divide-slate-800">
+            {shown?.map((m) => (
+              <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                <button className="flex min-w-48 flex-1 items-center gap-3 text-left" onClick={() => setOpenId(m.id)} title="Карточка сотрудника">
+                  <Avatar name={m.display_name} />
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold hover:text-brand-600">{m.display_name}</span>
+                    <span className="block text-sm text-slate-500">@{m.username} · {roleName[m.role]}</span>
+                  </span>
+                </button>
+                <div className="ml-auto flex flex-wrap gap-1.5">{stateBadge[m.state]}{m.two_factor && <Badge tone="green">код ✓</Badge>}</div>
+                {m.role !== 'host' && m.state !== 'disabled' && (
+                  <span className="inline-flex shrink-0 gap-1">
+                    {m.reset_requested && (
+                      <Button className="flex-col gap-0 px-3 py-1 text-xs leading-tight" onClick={() => setResetting(m)} title="Сотрудник забыл пароль и просит сбросить">
+                        <span className="flex items-center gap-1"><RotateCcw className="size-3.5" />Сбросить</span>
+                        <span className="text-[10px] font-normal opacity-80">просит пароль</span>
                       </Button>
-                      <Button variant="secondary" className="flex-col gap-0 px-3 py-1 text-xs leading-tight" onClick={() => keyOf(m)} title={m.state === 'invited' ? 'Ключ с приглашением — новый сотрудник сам задаст пароль' : 'Ключ подключения — вход своим паролем'}>
-                        <span className="flex items-center gap-1"><Globe className="size-3.5" />Ключ</span>
-                        <span className="text-[10px] font-normal text-slate-500">интернет</span>
-                      </Button>
-                    </span>
-                  )}
-                  {m.role !== 'host' && (
-                    <span className="inline-flex align-middle">
-                      <Menu right button={(toggle) => (
-                        <Button variant={m.reset_requested ? 'primary' : 'ghost'} className="px-2.5 py-1.5 text-xs" onClick={toggle} title="Действия">
-                          {m.reset_requested ? <><RotateCcw className="size-3.5" />Сбросить доступ</> : <MoreHorizontal className="size-4" />}
-                        </Button>
-                      )}>
-                        {(close) => (
-                          <div className="text-left">
-                            <MenuItem icon={<RotateCcw className="size-4" />} onClick={() => { close(); setResetting(m); }}>Сбросить доступ</MenuItem>
-                            {m.two_factor && (
-                              <MenuItem icon={<Smartphone className="size-4" />} onClick={async () => {
-                                close();
-                                if (!confirm(`Сбросить код из приложения у «${m.display_name}»? Новый код он настроит в офисе.`)) return;
-                                await api.twoFactorReset(m.id);
-                                void load();
-                              }}>Сбросить код из приложения</MenuItem>
-                            )}
-                            {m.state === 'disabled'
-                              ? <MenuItem icon={<UserCheck className="size-4" />} onClick={async () => { close(); await api.enableUser(m.id); void load(); }}>Включить</MenuItem>
-                              : <MenuItem icon={<UserX className="size-4" />} onClick={async () => {
-                                  close();
-                                  if (!confirm(`Отключить «${m.display_name}»? Он сразу выйдет на всех устройствах и не сможет войти. Задачи и данные останутся, включить можно в любой момент.`)) return;
-                                  await api.disableUser(m.id);
-                                  void load();
-                                }}>Отключить</MenuItem>}
-                            <MenuItem danger icon={<Trash2 className="size-4" />} onClick={() => { close(); setDeleting(m); }}>Удалить…</MenuItem>
-                          </div>
-                        )}
-                      </Menu>
-                    </span>
-                  )}
-                </td>
-              </tr>
+                    )}
+                    <ConnectButtons m={m} onCode={() => setCodeFor(m)} onKey={() => keyOf(m)} />
+                  </span>
+                )}
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
+            {shown?.length === 0 && <li className="p-6 text-center text-sm text-slate-500">Никого не нашлось — измените поиск или фильтр.</li>}
+          </ul>
+        </>
+      )}
+
+      {open && (
+        <StaffCard
+          m={open}
+          onClose={() => setOpenId(null)}
+          onChanged={load}
+          onCode={() => setCodeFor(open)}
+          onKey={() => keyOf(open)}
+          onReset={() => setResetting(open)}
+          onDelete={() => setDeleting(open)}
+        />
+      )}
 
       <Modal open={adding} onClose={() => setAdding(false)} title="Новый сотрудник">
         <form onSubmit={add} className="flex flex-col gap-4">

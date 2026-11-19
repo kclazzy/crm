@@ -1,8 +1,8 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
-  Archive, BookOpen, Building2, Clock, DatabaseBackup, Globe, KeyRound, LayoutList, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
-  Server, Settings, ShieldCheck, Trash2, Users, UsersRound, WifiOff, X, ChevronDown,
+  Archive, BookOpen, Building2, LayoutList, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
+  Settings, ShieldCheck, Trash2, WifiOff, X, ChevronDown,
 } from 'lucide-react';
 import { api, roleName } from '../api';
 import { useAuth } from '../auth';
@@ -11,6 +11,8 @@ import { Avatar } from './ui';
 import { Bell } from './Bell';
 import { StepUp } from './StepUp';
 import { SearchPalette } from './Search';
+import { ADMIN_SECTIONS, AdminTabs, sectionOf } from './AdminSections';
+import { ConfirmProvider } from './Confirm';
 
 function Item({ to, icon: Icon, label, count, onClick }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void }) {
   return (
@@ -29,6 +31,25 @@ function Item({ to, icon: Icon, label, count, onClick }: { to: string; icon: Com
       <Icon className="size-[18px]" />
       <span className="flex-1">{label}</span>
       {!!count && <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] font-bold text-white">{count}</span>}
+    </NavLink>
+  );
+}
+
+/** Пункт раздела администрирования: подсвечен на любой его вкладке. */
+function AdminItem({ to, icon: Icon, label, active, onClick }: { to: string; icon: ComponentType<{ className?: string }>; label: string; active: boolean; onClick: () => void }) {
+  return (
+    <NavLink
+      to={to}
+      end
+      onClick={onClick}
+      className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${
+        active
+          ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-100'
+          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+      }`}
+    >
+      <Icon className="size-[18px]" />
+      <span className="flex-1">{label}</span>
     </NavLink>
   );
 }
@@ -101,18 +122,13 @@ export function Shell() {
       {isOwner && (
         <>
           <button onClick={() => setSettingsOpen((o) => !o)} className="mt-6 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[15px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
-            <Settings className="size-[18px]" /><span className="flex-1 text-left">Настройки</span>
+            <Settings className="size-[18px]" /><span className="flex-1 text-left">Администрирование</span>
             <ChevronDown className={`size-4 transition ${settingsOpen ? 'rotate-180' : ''}`} />
           </button>
           <nav className={`ml-3 flex-col gap-1 border-l border-slate-200 pl-2 dark:border-slate-800 ${settingsOpen ? 'flex' : 'hidden'}`}>
-            <Item to="/admin/staff" icon={Users} label="Сотрудники" onClick={close} />
-            <Item to="/admin/groups" icon={UsersRound} label="Группы" onClick={close} />
-            <Item to="/admin/org" icon={Clock} label="Рабочее время" onClick={close} />
-            <Item to="/admin/sessions" icon={KeyRound} label="Активные входы" onClick={close} />
-            <Item to="/admin/storage" icon={DatabaseBackup} label="Хранилище и копии" onClick={close} />
-            <Item to="/admin/remote" icon={Globe} label="Удалённый доступ" onClick={close} />
-            <Item to="/admin/server" icon={Server} label="Сервер" onClick={close} />
-            <Item to="/admin/help" icon={BookOpen} label="Инструкция администратора" onClick={close} />
+            {ADMIN_SECTIONS.map((sec) => (
+              <AdminItem key={sec.label} to={sec.tabs[0].to} icon={sec.icon} label={sec.label} active={sectionOf(pathname) === sec} onClick={close} />
+            ))}
           </nav>
         </>
       )}
@@ -148,11 +164,19 @@ export function Shell() {
           <button className="rounded-xl p-2 lg:hidden" onClick={() => setMenu(true)} aria-label="Меню"><Menu className="size-5" /></button>
           <span className="flex-1 font-bold lg:hidden">CRM</span>
           {!online && <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" title="Обновления придут после восстановления связи"><WifiOff className="size-3.5" />Нет связи с сервером</span>}
+          {isOwner && pathname.startsWith('/admin') && (
+            <NavLink to="/admin/help" title="Инструкция администратора" className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800">
+              <BookOpen className="size-4" /><span className="hidden sm:inline">Инструкция</span>
+            </NavLink>
+          )}
           <Bell />
         </header>
         <main className="min-w-0 flex-1 px-4 pb-24 pt-4 sm:px-8 lg:px-12 lg:pb-10">
           <div className="mx-auto max-w-6xl animate-rise">
-            <Outlet />
+            <ConfirmProvider>
+              {pathname.startsWith('/admin') && <AdminTabs />}
+              <Outlet />
+            </ConfirmProvider>
           </div>
         </main>
       </div>

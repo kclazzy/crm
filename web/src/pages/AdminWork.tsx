@@ -188,14 +188,14 @@ const policies: { value: TwoFactorPolicy; title: string; hint: string }[] = [
 ];
 
 /** Когда спрашивать код из приложения. Сотрудник без кода из интернета не войдёт — настроит в офисе. */
-function TwoFactorPolicyCard() {
+export function TwoFactorPolicyCard() {
   const [policy, setPolicy] = useState<TwoFactorPolicy | null>(null);
   const [error, setError] = useState('');
   useEffect(() => void api.twoFactorPolicy().then((r) => setPolicy(r.policy)).catch((e) => setError(e.message)), []);
   if (!policy) return <ErrorText>{error}</ErrorText>;
   return (
     <section className="card p-5">
-      <h2 className="mb-1 font-semibold">5. Защита входа: код из приложения</h2>
+      <h2 className="mb-1 font-semibold">Код из приложения</h2>
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
         Второй шаг входа — 6 цифр из приложения на телефоне (Яндекс Ключ, Google Authenticator). Каждый настраивает его сам:
         меню <b>«Код из приложения»</b> — в офисе или дома в программе CRM на компьютере, который вы одобрили. В браузере из интернета без кода не войти.
@@ -283,8 +283,8 @@ function NodeAccessCard() {
       {st?.enabled && (
         <ol className="mt-3 list-decimal pl-5 text-sm text-slate-600 dark:text-slate-300">
           <li>Кто уже подключён — ничего не делает: программа запомнит новый способ сама при следующем подключении в офисе.</li>
-          <li>Новым и тем, кто не бывает в офисе, выдайте ключ: <b>Сотрудники → Ключ подключения</b>.</li>
-          <li>Сотрудник: программа CRM → «Добавить сервер» → вставить ключ → логин и пароль. Дальше — одна кнопка «Подключиться».</li>
+          <li>Новым и тем, кто не бывает в офисе, выдайте ключ: <b>Сотрудники → «Ключ · интернет»</b>.</li>
+          <li>Сотрудник: программа CRM → «Подключиться» → «🏠 Не в офисе» → вставить ключ и PIN → логин и пароль. Дальше — одна кнопка «Подключиться».</li>
         </ol>
       )}
       <details className="mt-3 text-sm text-slate-600 dark:text-slate-300">
@@ -351,9 +351,10 @@ function NodeDevicesCard() {
           <p className="mt-2 text-xs text-slate-500">Одобряйте только код, который сотрудник назвал вам сам. Незнакомые заявки отклоняйте.</p>
         </div>
       )}
-      <div className="mt-4">
-        <h3 className="mb-2 text-sm font-semibold">Одобренные</h3>
-        {approved.length === 0 ? <p className="text-sm text-slate-500">Пока нет. Заявка появится здесь, когда сотрудник вне офиса нажмёт «Подключиться».</p> : (
+      {pending.length === 0 && <p className="mt-3 text-sm text-slate-500">Новых заявок нет.</p>}
+      <details className="mt-4">
+        <summary className="cursor-pointer text-sm font-semibold">Одобренные · {approved.length}</summary>
+        {approved.length === 0 ? <p className="mt-2 text-sm text-slate-500">Пока нет. Заявка появится здесь, когда сотрудник вне офиса нажмёт «Подключиться».</p> : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {approved.map((d) => (
               <li key={d.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
@@ -365,30 +366,41 @@ function NodeDevicesCard() {
             ))}
           </ul>
         )}
-      </div>
+      </details>
     </section>
   );
 }
 
 export function AdminRemote() {
   const [info, setInfo] = useState<RemoteInfo | null>(null);
+  // Шаги способа 2 (адрес, роутер, проверка) раскрываются по кнопке.
+  const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
   const load = useCallback(() => work.remote().then(setInfo).catch((e) => setError(e.message)), []);
   useEffect(() => void load(), [load]);
   if (!info) return <ErrorText>{error}</ErrorText>;
   const url = info.address ? `https://${info.address}:${info.port}/` : '';
+  const office2 = setupOpen ?? false;
   return (
     <>
       <PageHeader title="Удалённый доступ" subtitle="Работа из дома и с телефона — без VPN. Два способа: по ключу сервера (компьютеры, без настройки роутера) и по адресу офиса (телефоны и браузер)." />
       <div className="flex max-w-3xl flex-col gap-4">
         <ErrorText>{error}</ErrorText>
-        <NodeAccessCard />
         <NodeDevicesCard />
-        <div className="mt-2">
-          <h2 className="text-lg font-semibold">Способ 2. По адресу офиса — для телефонов и браузера</h2>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Нужен, чтобы открывать CRM с телефона или в браузере без программы. Требует «белый» IP (или DDNS) и правило на роутере — шаги ниже.</p>
-        </div>
+        <h2 className="mt-2 text-lg font-semibold">Способы подключения</h2>
+        <NodeAccessCard />
+        <section className="card p-5">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold">Способ 2. По адресу офиса — для телефонов и браузера</h2>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Открывать CRM с телефона или в браузере без программы. Нужны «белый» IP (или DDNS) и правило на роутере.</p>
+            </div>
+            <Button variant={office2 ? 'secondary' : info.address ? 'secondary' : 'primary'} onClick={() => setSetupOpen(!office2)}>{office2 ? 'Скрыть настройку' : info.address ? 'Изменить' : 'Настроить'}</Button>
+          </div>
+          <p className="mt-3 text-sm">Сейчас: {info.address ? <Badge tone="green" dot>включён — {info.address}</Badge> : <Badge tone="slate" dot>выключен, только сеть офиса</Badge>}</p>
+        </section>
+        {office2 && <>
         {!info.https && <p className="card border-amber-300 p-4 text-sm text-amber-800 dark:text-amber-200">HTTPS выключен — открывать сервер в интернет нельзя. Включите HTTPS в настройках сервера.</p>}
         <section className="card p-5">
           <h2 className="mb-1 font-semibold">1. Внешний адрес офиса</h2>
@@ -439,11 +451,12 @@ export function AdminRemote() {
           <h2 className="mb-1 font-semibold">4. Сотрудники и телефоны</h2>
           <ul className="list-disc pl-5 text-sm text-slate-600 dark:text-slate-300">
             <li>Программа CRM на компьютере пробует по порядку: сеть офиса → адрес офиса → ключ сервера. Сотруднику выбирать ничего не нужно.</li>
-            <li>Кто ни разу не подключался в офисе — выдайте новый ключ (<b>Сотрудники → Ключ подключения</b>): в нём уже всё есть.</li>
-            <li>Телефон: <b>Сервер → Вход с телефона</b> — QR-коды для сертификата и для входа из интернета.</li>
+            <li>Кто ни разу не подключался в офисе — выдайте новый ключ (<b>Сотрудники → «Ключ · интернет»</b>): в нём уже всё есть.</li>
+            <li>Телефон: <b>Настройки → Сервер → Вход с телефона</b> — QR-коды для сертификата и для входа из интернета.</li>
           </ul>
         </section>
-        <TwoFactorPolicyCard />
+        </>}
+        <p className="text-sm text-slate-500">Когда спрашивать код из приложения — в разделе <a href="/admin/protection" className="font-medium text-brand-600 hover:underline">Защита входа</a>.</p>
       </div>
     </>
   );
