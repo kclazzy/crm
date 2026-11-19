@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import {
-  Archive, BookOpen, Building2, LayoutList, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
+  Archive, Building2, HelpCircle, LayoutList, LifeBuoy, ListChecks, LogOut, Menu, MessagesSquare, Search,
   Settings, ShieldCheck, Trash2, WifiOff, X, ChevronDown,
 } from 'lucide-react';
 import { api, roleName } from '../api';
@@ -15,6 +15,7 @@ import { ADMIN_SECTIONS, AdminTabs, sectionOf } from './AdminSections';
 import { ConfirmProvider } from './Confirm';
 import { ToastProvider } from './Toast';
 import { Tour } from './Tour';
+import { helpFor } from './Hint';
 
 function Item({ to, icon: Icon, label, count, onClick, tour }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void; tour?: string }) {
   return (
@@ -168,9 +169,9 @@ export function Shell() {
           <button className="rounded-xl p-2 lg:hidden" onClick={() => setMenu(true)} aria-label="Меню"><Menu className="size-5" /></button>
           <span className="flex-1 font-bold lg:hidden">CRM</span>
           {!online && <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" title="Обновления придут после восстановления связи"><WifiOff className="size-3.5" />Нет связи с сервером</span>}
-          {isOwner && pathname.startsWith('/admin') && (
-            <NavLink to="/admin/help" title="Инструкция администратора" className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800">
-              <BookOpen className="size-4" /><span className="hidden sm:inline">Инструкция</span>
+          {!pathname.includes('help') && (
+            <NavLink to={helpFor(pathname)} title="Справка по этой странице" className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800">
+              <HelpCircle className="size-4" /><span className="hidden sm:inline">Справка</span>
             </NavLink>
           )}
           <span data-tour="bell"><Bell /></span>

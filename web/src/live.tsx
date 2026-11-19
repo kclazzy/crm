@@ -36,7 +36,7 @@ function osNotify(title: string, body: string) {
 }
 
 function placeText(place: unknown): string {
-  return place === 'office' ? 'в офисе' : place === 'device' ? 'по ключу сервера, вне офиса' : 'из интернета';
+  return place === 'office' ? 'в офисе' : place === 'device' ? 'по ключу подключения, вне офиса' : 'из интернета';
 }
 
 /** Куда ведёт уведомление без задачи. */

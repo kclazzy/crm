@@ -6,6 +6,7 @@ import { ConnectionKey } from './AdminWork';
 import { api, journal, type Invite, type JournalItem, type Role, roleName, type Session, type StaffMember, timeAgo } from '../api';
 import { Avatar, Badge, Button, ErrorText, Field, Modal, PageHeader } from '../components/ui';
 import { useConfirm } from '../components/Confirm';
+import { Hint } from '../components/Hint';
 import { JournalRow } from './AdminSecurity';
 import { placeLabel, placeOfIp } from './AdminOverview';
 
@@ -197,7 +198,7 @@ function OfficeCode({ userId, name }: { userId: string; name: string }) {
           {ips.length > 0 && <p className="text-xs text-slate-500">или {ips.join(', ')}</p>}
         </div>
         <div>
-          <p className="text-xs text-slate-500">Код · {name}</p>
+          <p className="text-xs text-slate-500">Код для офиса · {name} <Hint word="Код для офиса" /></p>
           <p className="font-mono text-2xl font-bold tracking-widest select-all">{c.code}</p>
           <p className="text-xs text-slate-500">действует до {until}</p>
         </div>
