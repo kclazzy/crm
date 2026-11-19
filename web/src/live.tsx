@@ -45,6 +45,7 @@ export function noteTarget(n: Note): string {
     case 'login_failed': case 'login_locked': return '/admin/sessions';
     case 'reset_requested': return '/admin/staff';
     case 'device_pending': return '/admin/remote';
+    case 'problem_report': return `/admin/journal`;
     default: return '/admin/storage';
   }
 }
@@ -74,6 +75,8 @@ export function reminderText(n: Note): { title: string; body: string } {
       return { title: 'Просят сбросить пароль', body: `Логин «${p.username}» · «Сотрудники» → «Сбросить доступ»` };
     case 'device_pending':
       return { title: 'Новое устройство ждёт одобрения', body: `Код ${p.code} · «Удалённый доступ» → «Устройства вне офиса»` };
+    case 'problem_report':
+      return { title: `${p.from} сообщает о проблеме`, body: `${p.text} · стр. ${p.page || '—'} · версия ${p.version}` };
     default:
       return { title: 'Уведомление CRM', body: '' };
   }

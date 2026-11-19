@@ -178,3 +178,27 @@ async fn journal_entries_can_be_deleted_but_lockout_still_counts_them() {
         "{s}"
     );
 }
+
+/// «Сообщить о проблеме»: сотрудник пишет пару слов — владелец получает это в
+/// колокольчик с именем, страницей и версией.
+#[tokio::test]
+async fn problem_report_reaches_the_owner() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (_, ivan) = app.member(&owner, "ivan", "employee", OFFICE_PC).await;
+    let (s, _) = app
+        .call("POST", "/api/problem", LOCAL, Some(&ivan), Some(serde_json::json!({"text": "  ", "page": "/tasks"})))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "пустое не отправляется");
+    let long = "не открывается задача ".repeat(200);
+    let (s, _) = app
+        .call("POST", "/api/problem", LOCAL, Some(&ivan), Some(serde_json::json!({"text": long, "page": "/tasks/abc"})))
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let v = bell(&app, &owner).await;
+    let n = v["items"].as_array().unwrap().iter().find(|n| n["kind"] == "problem_report").expect("в колокольчике владельца").clone();
+    assert_eq!(n["payload"]["from"], "Сотрудник");
+    assert_eq!(n["payload"]["page"], "/tasks/abc");
+    assert!(n["payload"]["text"].as_str().unwrap().chars().count() <= 1000);
+    assert!(n["payload"]["version"].is_string());
+}

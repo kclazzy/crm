@@ -51,8 +51,12 @@ async fn explain(mut inbound: tokio::net::TcpStream, e: String) {
     let body = format!(
         "<!doctype html><meta charset=utf-8><title>CRM</title>\
          <body style=\"font-family:sans-serif;padding:40px\">\
-         <h2>Сервер CRM не отвечает</h2><p>{e}</p>\
-         <p>Проверьте интернет или сеть офиса и обновите страницу (F5).</p>"
+         <h2>Сервер CRM не отвечает</h2><p style=\"color:#64748b\">{e}</p>\
+         <h3>Что сделать</h3><ol style=\"line-height:1.7\">\
+         <li><b>В офисе?</b> Проверьте Wi-Fi или кабель и обновите страницу (F5).</li>\
+         <li><b>Не в офисе?</b> Нажмите внизу «← В программу CRM», затем «Подключиться» → «🏠 Не в офисе» и вставьте ключ подключения от владельца.</li>\
+         <li><b>Сервер выключен?</b> Сообщите владельцу: компьютер с CRM должен быть включён.</li>\
+         <li>Там же, в программе, кнопка «Проверить» покажет, что именно не отвечает.</li></ol>"
     );
     let resp = format!(
         "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

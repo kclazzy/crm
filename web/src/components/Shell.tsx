@@ -16,6 +16,7 @@ import { ConfirmProvider } from './Confirm';
 import { ToastProvider } from './Toast';
 import { Tour } from './Tour';
 import { helpFor } from './Hint';
+import { ReportProblem } from './Problem';
 
 function Item({ to, icon: Icon, label, count, onClick, tour }: { to: string; icon: ComponentType<{ className?: string }>; label: string; count?: number; onClick?: () => void; tour?: string }) {
   return (
@@ -139,6 +140,7 @@ export function Shell() {
       <nav className="mb-2 mt-auto flex flex-col gap-1 pt-6">
         <Item to="/security" icon={ShieldCheck} label="Код из приложения" onClick={close} tour="code" />
         <Item to="/help" icon={LifeBuoy} label="Справка" onClick={close} />
+        {!isOwner && <ReportProblem className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100" />}
       </nav>
       <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-800">
         <Avatar name={me.display_name} size="sm" />
@@ -168,7 +170,7 @@ export function Shell() {
         <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-slate-200/80 bg-slate-50/90 px-4 py-2 backdrop-blur lg:justify-end lg:border-none lg:bg-transparent lg:px-8 dark:border-slate-800 dark:bg-slate-950/90 lg:dark:bg-transparent">
           <button className="rounded-xl p-2 lg:hidden" onClick={() => setMenu(true)} aria-label="Меню"><Menu className="size-5" /></button>
           <span className="flex-1 font-bold lg:hidden">CRM</span>
-          {!online && <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" title="Обновления придут после восстановления связи"><WifiOff className="size-3.5" />Нет связи с сервером</span>}
+          {!online && <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" title="Новые изменения не сохранятся, пока связь не вернётся. Обновления придут сами."><WifiOff className="size-3.5" />Нет связи<span className="hidden sm:inline"> — изменения не сохранятся, пока она не вернётся</span></span>}
           {!pathname.includes('help') && (
             <NavLink to={helpFor(pathname)} title="Справка по этой странице" className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800">
               <HelpCircle className="size-4" /><span className="hidden sm:inline">Справка</span>

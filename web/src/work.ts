@@ -1,5 +1,5 @@
 // Рабочая часть: клиенты, задачи, чаты. Типы повторяют ответы сервера.
-import { ApiError } from './api';
+import { ApiError, humanError, request } from './api';
 
 export type Priority = 1 | 2 | 3;
 export type Status = 'waiting' | 'in_progress' | 'postponed' | 'completed';
@@ -150,18 +150,8 @@ export interface Hit {
   snippet: string;
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (res.status === 204) return undefined as T;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`);
-  return data as T;
-}
+/** Те же запросы, что в api.ts: одна обработка ошибок и второго шага входа. */
+const req = request;
 
 const q = (params: Record<string, string | number | boolean | undefined | null>) => {
   const s = new URLSearchParams();
@@ -172,14 +162,20 @@ const q = (params: Record<string, string | number | boolean | undefined | null>)
 
 /** Загрузка файла потоком: имя — в заголовке, чтобы не упираться в лимит JSON. */
 async function upload<T>(path: string, file: File): Promise<T> {
-  const res = await fetch(path, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'x-file-name': encodeURIComponent(file.name) },
-    body: file,
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'x-file-name': encodeURIComponent(file.name) },
+      body: file,
+    });
+  } catch {
+    throw new ApiError(0, humanError(0, ''));
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`);
+  if (res.status === 413) throw new ApiError(413, 'Файл слишком большой для вложения — сожмите его или положите в общую папку и пришлите ссылку.');
+  if (!res.ok) throw new ApiError(res.status, humanError(res.status, data.error ?? `Ошибка ${res.status}`));
   return data as T;
 }
 
@@ -232,6 +228,7 @@ export const work = {
   readNotifications: () => req<void>('POST', '/api/notifications/read'),
   deleteNotification: (id: string) => req<void>('DELETE', `/api/notifications/${id}`),
   deleteNotifications: () => req<void>('DELETE', '/api/notifications'),
+  reportProblem: (text: string, page: string) => req<void>('POST', '/api/problem', { text, page }),
   prefs: () => req<{ notify_always: boolean }>('GET', '/api/me/prefs'),
   setPrefs: (notify_always: boolean) => req<{ notify_always: boolean }>('PUT', '/api/me/prefs', { notify_always }),
 
