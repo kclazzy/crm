@@ -96,6 +96,11 @@ async fn diagnose_reports_every_address_with_a_reason() {
         .port();
     let d = diagnose(&server(free, &fp, &["127.0.0.1"])).await;
     assert_eq!(d[0].verdict, Verdict::Refused);
+    // Ни один адрес не ответил, а подключения без адреса в ключе нет — так и сказать:
+    // ключ выдан до включения удалённого доступа, нужен новый.
+    let last = d.last().unwrap();
+    assert_eq!(last.verdict, Verdict::NoAnswer);
+    assert!(last.message.contains("новый ключ"), "{}", last.message);
     running.stop().await.unwrap();
 }
 

@@ -22,7 +22,9 @@ use tokio::task::JoinHandle;
 pub const ALPN: &[u8] = b"crm/http/1";
 
 /// Сколько ждать соединение с узлом (прямое или через ретранслятор).
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Сколько ждать первого соединения: поиск узла, ретранслятор и пробивка роутера
+/// через интернет занимают до 10–15 секунд.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
