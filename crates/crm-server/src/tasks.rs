@@ -57,6 +57,8 @@ pub struct Details {
     pub unread: i64,
     pub children: usize,
     pub last_message_at: Option<i64>,
+    /// Мне назначили, а я ещё не открывал.
+    pub is_new: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,6 +89,7 @@ struct Row {
     stages_total: i64,
     stages_done: i64,
     last_message_at: Option<i64>,
+    is_new: bool,
 }
 
 fn ms(t: i64) -> chrono::DateTime<Utc> {
@@ -108,13 +111,17 @@ pub async fn summaries(
                 t.status, t.deadline_at, t.completed_at, t.archived_at, t.created_at,
                 (SELECT count(*) FROM task_stages s WHERE s.task_id = t.id) AS stages_total,
                 (SELECT count(*) FROM task_stages s WHERE s.task_id = t.id AND s.completed_at IS NOT NULL) AS stages_done,
-                (SELECT max(m.created_at) FROM messages m WHERE m.task_id = t.id) AS last_message_at
+                (SELECT max(m.created_at) FROM messages m WHERE m.task_id = t.id) AS last_message_at,
+                (t.created_by <> ?2
+                 AND EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?2)
+                 AND NOT EXISTS (SELECT 1 FROM task_views v WHERE v.task_id = t.id AND v.user_id = ?2)) AS is_new
          FROM tasks t JOIN clients c ON c.id = t.client_id
          WHERE t.deleted_at IS NULL AND c.deleted_at IS NULL
            AND (?1 IS NULL OR t.id IN (SELECT value FROM json_each(?1)))
          ORDER BY t.deadline_at",
     )
     .bind(&only)
+    .bind(me)
     .fetch_all(&app.pool)
     .await?;
     let mut assignees: HashMap<String, Vec<PersonRef>> = HashMap::new();
@@ -171,6 +178,7 @@ pub async fn summaries(
                 unread: unread.get(&r.id).copied().unwrap_or(0),
                 children: children.get(&r.id).copied().unwrap_or(0),
                 last_message_at: r.last_message_at,
+                is_new: r.is_new,
             })
         } else {
             None
@@ -329,6 +337,15 @@ pub async fn get(
 ) -> Result<Json<TaskCard>, ApiError> {
     let scope = Scope::for_card(&app.pool, &user.id, user.role, &id).await?;
     let access = scope.task_or_404(&id)?;
+    if access.can_read() {
+        // Открыл — задача больше не «новая» для него.
+        sqlx::query("INSERT OR IGNORE INTO task_views(task_id, user_id, seen_at) VALUES (?, ?, ?)")
+            .bind(&id)
+            .bind(&user.id)
+            .bind(Utc::now().timestamp_millis())
+            .execute(&app.pool)
+            .await?;
+    }
     let all = summaries(&app, &scope, &user.id).await?;
     let by_id: HashMap<&str, &TaskSummary> = all.iter().map(|t| (t.id.as_str(), t)).collect();
     let summary = by_id
