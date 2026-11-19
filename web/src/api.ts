@@ -225,9 +225,14 @@ export interface JournalItem {
   place: 'server' | 'office' | 'device' | 'internet';
 }
 
-export const journal = (q: { user?: string; kind?: string; before?: number; limit?: number }) => {
+type JournalQuery = { user?: string; kind?: string; before?: number; limit?: number };
+function journalQuery(q: JournalQuery) {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v));
   const s = p.toString();
-  return request<{ items: JournalItem[] }>('GET', `/api/admin/journal${s ? `?${s}` : ''}`);
-};
+  return s ? `?${s}` : '';
+}
+export const journal = (q: JournalQuery) => request<{ items: JournalItem[] }>('GET', `/api/admin/journal${journalQuery(q)}`);
+/** Удалить записи журнала по тем же фильтрам, что и список. */
+export const clearJournal = (q: { user?: string; kind?: string }) => request<void>('DELETE', `/api/admin/journal${journalQuery(q)}`);
+export const deleteJournalItem = (id: string) => request<void>('DELETE', `/api/admin/journal/${id}`);

@@ -135,7 +135,7 @@ pub struct Bell {
 pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Result<Json<Bell>, ApiError> {
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT id, task_id, kind, payload, created_at, read_at FROM notifications
-         WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+         WHERE user_id = ? AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 50",
     )
     .bind(&user.id)
     .fetch_all(&app.pool)
@@ -152,7 +152,7 @@ pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Result<Json
         })
         .collect();
     let unread = sqlx::query_scalar(
-        "SELECT count(*) FROM notifications WHERE user_id = ? AND read_at IS NULL",
+        "SELECT count(*) FROM notifications WHERE user_id = ? AND read_at IS NULL AND hidden_at IS NULL",
     )
     .bind(&user.id)
     .fetch_one(&app.pool)
@@ -185,6 +185,54 @@ pub async fn read_all(
         .bind(&user.id)
         .execute(&app.pool)
         .await?;
+    app.rt
+        .hub
+        .send(vec![user.id], serde_json::json!({ "type": "notification" }));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Удалить своё уведомление. Запись скрывается (и считается прочитанной), а не
+/// стирается: по ней та же тревога не приходит снова сразу же.
+pub async fn hide(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let now = now_ms();
+    let done = sqlx::query(
+        "UPDATE notifications SET hidden_at = ?, read_at = coalesce(read_at, ?)
+         WHERE id = ? AND user_id = ? AND hidden_at IS NULL",
+    )
+    .bind(now)
+    .bind(now)
+    .bind(&id)
+    .bind(&user.id)
+    .execute(&app.pool)
+    .await?;
+    if done.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+    app.rt
+        .hub
+        .send(vec![user.id], serde_json::json!({ "type": "notification" }));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Удалить все свои уведомления.
+pub async fn hide_all(
+    State(app): State<AppState>,
+    user: CurrentUser,
+) -> Result<StatusCode, ApiError> {
+    let now = now_ms();
+    sqlx::query(
+        "UPDATE notifications SET hidden_at = ?, read_at = coalesce(read_at, ?)
+         WHERE user_id = ? AND hidden_at IS NULL",
+    )
+    .bind(now)
+    .bind(now)
+    .bind(&user.id)
+    .execute(&app.pool)
+    .await?;
     app.rt
         .hub
         .send(vec![user.id], serde_json::json!({ "type": "notification" }));

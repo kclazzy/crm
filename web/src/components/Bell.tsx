@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Bell as BellIcon, BellRing, Moon } from 'lucide-react';
+import { Bell as BellIcon, BellRing, Moon, X } from 'lucide-react';
 import { timeAgo } from '../api';
 import { noteTarget, reminderText, useLive } from '../live';
 import { work } from '../work';
@@ -10,6 +10,7 @@ export function Bell() {
   const { bell, refreshBell } = useLive();
   const [open, setOpen] = useState(false);
   const [always, setAlways] = useState<boolean | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [perm, setPerm] = useState(typeof Notification === 'undefined' ? 'denied' : Notification.permission);
   const box = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -33,7 +34,17 @@ export function Bell() {
         <div className="card absolute right-0 z-40 mt-2 w-[min(92vw,360px)] overflow-hidden">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
             <p className="font-semibold">Уведомления</p>
-            {bell.unread > 0 && <button className="text-xs font-medium text-brand-600" onClick={async () => { await work.readNotifications(); refreshBell(); }}>Прочитать все</button>}
+            <span className="flex gap-3">
+              {bell.unread > 0 && <button className="text-xs font-medium text-brand-600" onClick={async () => { await work.readNotifications(); refreshBell(); }}>Прочитать все</button>}
+              {bell.items.length > 0 && (
+                confirmClear
+                  ? <span className="flex items-center gap-2 text-xs">Удалить все?
+                      <button className="font-semibold text-red-600" onClick={async () => { setConfirmClear(false); await work.deleteNotifications(); refreshBell(); }}>Да</button>
+                      <button className="text-slate-500" onClick={() => setConfirmClear(false)}>Нет</button>
+                    </span>
+                  : <button className="text-xs font-medium text-slate-500 hover:text-red-600" onClick={() => setConfirmClear(true)}>Удалить все</button>
+              )}
+            </span>
           </div>
           {bell.quiet && <p className="bg-slate-50 px-4 py-2 text-xs text-slate-500 dark:bg-slate-800/50"><Moon className="inline size-3.5" /> Сейчас нерабочее время — без звука и всплывающих уведомлений.</p>}
           <div className="max-h-80 overflow-y-auto">
@@ -41,12 +52,19 @@ export function Bell() {
             {bell.items.map((n) => {
               const t = reminderText(n);
               return (
-                <button key={n.id} onClick={() => { setOpen(false); if (n.task_id) navigate(`/tasks/${n.task_id}`); else navigate(noteTarget(n)); }}
-                  className={`block w-full border-b border-slate-100 px-4 py-2.5 text-left hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50 ${n.read_at ? 'opacity-60' : ''}`}>
-                  <p className="text-sm font-medium">{t.title}</p>
-                  <p className="truncate text-xs text-slate-500">{t.body}</p>
-                  <p className="text-[11px] text-slate-400">{timeAgo(n.created_at)}</p>
-                </button>
+                <div key={n.id} className={`group flex items-start border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50 ${n.read_at ? 'opacity-60' : ''}`}>
+                  <button onClick={() => { setOpen(false); if (n.task_id) navigate(`/tasks/${n.task_id}`); else navigate(noteTarget(n)); }}
+                    className="min-w-0 flex-1 px-4 py-2.5 text-left">
+                    <p className="text-sm font-medium">{t.title}</p>
+                    <p className="truncate text-xs text-slate-500">{t.body}</p>
+                    <p className="text-[11px] text-slate-400">{timeAgo(n.created_at)}</p>
+                  </button>
+                  <button onClick={async () => { await work.deleteNotification(n.id).catch(() => {}); refreshBell(); }}
+                    className="m-1.5 rounded-lg p-1.5 text-slate-400 opacity-60 hover:bg-slate-200 hover:text-red-600 group-hover:opacity-100 dark:hover:bg-slate-700"
+                    title="Удалить уведомление" aria-label="Удалить уведомление">
+                    <X className="size-4" />
+                  </button>
+                </div>
               );
             })}
           </div>

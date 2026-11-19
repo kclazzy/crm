@@ -153,7 +153,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/admin/backup/run", post(crate::admin::backup_now))
         .route("/api/admin/backups", get(crate::admin::backups))
         .route("/api/admin/security", get(crate::admin::security))
-        .route("/api/admin/journal", get(crate::admin::journal))
+        .route(
+            "/api/admin/journal",
+            get(crate::admin::journal).delete(crate::admin::journal_hide_all),
+        )
+        .route(
+            "/api/admin/journal/{id}",
+            delete(crate::admin::journal_hide),
+        )
         .route("/api/admin/restore", post(crate::admin::restore))
         .route("/api/admin/import-db", post(crate::merge::import_db))
         .route(
@@ -256,7 +263,11 @@ fn work_routes() -> Router<AppState> {
         .route("/api/unread/read-all", post(chat::read_all))
         .route("/api/messenger", get(chat::threads))
         .route("/api/search", get(search::search))
-        .route("/api/notifications", get(notify::list))
+        .route(
+            "/api/notifications",
+            get(notify::list).delete(notify::hide_all),
+        )
+        .route("/api/notifications/{id}", delete(notify::hide))
         .route("/api/notifications/read", post(notify::read_all))
         .route(
             "/api/me/prefs",
