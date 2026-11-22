@@ -193,7 +193,10 @@ impl<W: Write> EncWriter<W> {
     }
 
     fn finish(mut self) -> io::Result<()> {
-        let enc = self.enc.take().ok_or_else(|| io::Error::other("уже закрыт"))?;
+        let enc = self
+            .enc
+            .take()
+            .ok_or_else(|| io::Error::other("уже закрыт"))?;
         let ct = enc
             .encrypt_last(self.buf.as_slice())
             .map_err(|_| io::Error::other("шифрование"))?;
@@ -314,13 +317,19 @@ mod tests {
         pack(&db, &d.path().join("c"), None).unwrap();
         assert!(!is_encrypted(&d.path().join("c")).unwrap());
         unpack(&d.path().join("c"), &d.path().join("out"), None, None).unwrap();
-        assert_eq!(std::fs::read(&db).unwrap(), std::fs::read(d.path().join("out")).unwrap());
+        assert_eq!(
+            std::fs::read(&db).unwrap(),
+            std::fs::read(d.path().join("out")).unwrap()
+        );
 
         // Копия прежних версий: zstd::encode_all целиком.
         let old = zstd::encode_all(std::fs::read(&db).unwrap().as_slice(), 3).unwrap();
         std::fs::write(d.path().join("old"), old).unwrap();
         unpack(&d.path().join("old"), &d.path().join("out2"), None, None).unwrap();
-        assert_eq!(std::fs::read(&db).unwrap(), std::fs::read(d.path().join("out2")).unwrap());
+        assert_eq!(
+            std::fs::read(&db).unwrap(),
+            std::fs::read(d.path().join("out2")).unwrap()
+        );
     }
 
     #[test]
@@ -333,10 +342,16 @@ mod tests {
         assert!(is_encrypted(&c).unwrap());
         let raw = std::fs::read(&c).unwrap();
         let probe = &std::fs::read(&db).unwrap()[..64];
-        assert!(!raw.windows(64).any(|w| w == probe), "данные не лежат открыто");
+        assert!(
+            !raw.windows(64).any(|w| w == probe),
+            "данные не лежат открыто"
+        );
 
         let out = d.path().join("out");
-        assert!(matches!(unpack(&c, &out, None, None), Err(UnpackError::NeedPassword)));
+        assert!(matches!(
+            unpack(&c, &out, None, None),
+            Err(UnpackError::NeedPassword)
+        ));
         assert!(matches!(
             unpack(&c, &out, None, Some("не тот")),
             Err(UnpackError::WrongPassword)
@@ -347,7 +362,10 @@ mod tests {
         unpack(&c, &out, Some(&key), None).unwrap();
         // Ключ другого пароля не подходит — просим пароль.
         let other = BackupKey::from_password("другой").unwrap();
-        assert!(matches!(unpack(&c, &out, Some(&other), None), Err(UnpackError::NeedPassword)));
+        assert!(matches!(
+            unpack(&c, &out, Some(&other), None),
+            Err(UnpackError::NeedPassword)
+        ));
     }
 
     #[test]
@@ -363,11 +381,17 @@ mod tests {
         let first = 8 + SALT + NONCE;
         let len = u32::from_le_bytes(raw[first..first + 4].try_into().unwrap()) as usize;
         std::fs::write(&c, &raw[..first + 4 + len]).unwrap();
-        assert!(unpack(&c, &out, Some(&key), None).is_err(), "обрезанная копия");
+        assert!(
+            unpack(&c, &out, Some(&key), None).is_err(),
+            "обрезанная копия"
+        );
         let mut bad = raw.clone();
         bad[first + 10] ^= 1;
         std::fs::write(&c, bad).unwrap();
-        assert!(unpack(&c, &out, Some(&key), None).is_err(), "изменённая копия");
+        assert!(
+            unpack(&c, &out, Some(&key), None).is_err(),
+            "изменённая копия"
+        );
     }
 
     #[test]

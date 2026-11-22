@@ -151,6 +151,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::put(crate::admin::set_backup_dirs),
         )
         .route("/api/admin/backup/run", post(crate::admin::backup_now))
+        .route(
+            "/api/admin/backup/password",
+            axum::routing::put(crate::admin::set_backup_password),
+        )
         .route("/api/admin/backups", get(crate::admin::backups))
         .route("/api/admin/security", get(crate::admin::security))
         .route(
@@ -423,12 +427,25 @@ pub enum ApiError {
     /// Понятная владельцу причина сбоя операции (бэкап, перенос).
     #[error("{0}")]
     Failed(String),
+    /// Копия зашифрована: нужен (верный) пароль копий.
+    #[error("{0}")]
+    BackupPassword(String),
     #[error("внутренняя ошибка сервера")]
     Db(#[from] sqlx::Error),
     #[error("внутренняя ошибка сервера")]
     Secret(#[from] secrets::SecretError),
     #[error("внутренняя ошибка сервера")]
     Corrupt(String),
+}
+
+impl From<crate::restore::RestoreError> for ApiError {
+    fn from(e: crate::restore::RestoreError) -> Self {
+        if e.needs_password() {
+            Self::BackupPassword(e.to_string())
+        } else {
+            Self::BadRequest(e.to_string())
+        }
+    }
 }
 
 impl From<crm_core::auth::AccountError> for ApiError {
@@ -440,7 +457,7 @@ impl From<crm_core::auth::AccountError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = match &self {
-            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::BadRequest(_) | Self::BackupPassword(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized
             | Self::BadCredentials
             | Self::BadInvite
@@ -477,6 +494,7 @@ impl IntoResponse for ApiError {
         match self {
             Self::NeedCode | Self::BadTwoFactorCode => body["need_code"] = true.into(),
             Self::SetupTwoFactor => body["setup_2fa"] = true.into(),
+            Self::BackupPassword(_) => body["need_password"] = true.into(),
             _ => {}
         }
         (status, Json(body)).into_response()

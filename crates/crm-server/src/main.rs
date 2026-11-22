@@ -102,7 +102,15 @@ async fn owner_ticket(hash: String, config_path: Option<PathBuf>) -> Result<(), 
 #[tokio::main]
 async fn restore(source: PathBuf, config_path: Option<PathBuf>) -> Result<(), MainError> {
     let cfg = config::Config::load(&config_location(config_path))?;
-    let staged = crm_server::restore::stage(&cfg.storage, &source).await?;
+    let staged = match crm_server::restore::stage(&cfg.storage, &source, None).await {
+        Err(e) if e.needs_password() => {
+            // Копия зашифрована на другом компьютере — спросить пароль копий.
+            let password = rpassword::prompt_password("Пароль резервных копий: ")
+                .map_err(|e| MainError::Input(e.to_string()))?;
+            crm_server::restore::stage(&cfg.storage, &source, Some(&password)).await?
+        }
+        other => other?,
+    };
     let at = chrono::DateTime::from_timestamp_millis(staged.at)
         .map(|t| {
             t.with_timezone(&chrono::Local)

@@ -28,6 +28,15 @@ pub enum RestoreError {
     },
     #[error("пакет переноса повреждён: {0}")]
     Zip(String),
+    #[error("{0}")]
+    Locked(crate::backup_file::UnpackError),
+}
+
+impl RestoreError {
+    /// Копия зашифрована, а пароля нет или он неверный — спросить у владельца.
+    pub fn needs_password(&self) -> bool {
+        matches!(self, RestoreError::Locked(_))
+    }
 }
 
 fn io(path: &Path) -> impl Fn(std::io::Error) -> RestoreError + '_ {
@@ -47,7 +56,12 @@ pub struct Staged {
 }
 
 /// Подготовить восстановление: `source` — файл копии, папка копий или пакет переноса.
-pub async fn stage(storage: &Storage, source: &Path) -> Result<Staged, RestoreError> {
+/// `password` — пароль копий, если они зашифрованы на другом компьютере.
+pub async fn stage(
+    storage: &Storage,
+    source: &Path,
+    password: Option<&str>,
+) -> Result<Staged, RestoreError> {
     std::fs::create_dir_all(&storage.db_dir).map_err(io(&storage.db_dir))?;
     let is_pack = source
         .extension()
@@ -56,12 +70,12 @@ pub async fn stage(storage: &Storage, source: &Path) -> Result<Staged, RestoreEr
         let unpacked = storage.db_dir.join("restore-pack");
         let _ = std::fs::remove_dir_all(&unpacked);
         unzip(source, &unpacked)?;
-        let r = stage_dir(storage, &unpacked).await;
+        let r = stage_dir(storage, &unpacked, password).await;
         let _ = std::fs::remove_dir_all(&unpacked);
         return r;
     }
     if source.is_dir() {
-        return stage_dir(storage, source).await;
+        return stage_dir(storage, source, password).await;
     }
     let name = source
         .file_name()
@@ -69,7 +83,7 @@ pub async fn stage(storage: &Storage, source: &Path) -> Result<Staged, RestoreEr
         .unwrap_or_default();
     let at = crm_core::backup::parse_file_name(&name)
         .ok_or_else(|| RestoreError::Unknown(source.to_owned()))?;
-    stage_file(storage, source).await?;
+    stage_file(storage, source, password).await?;
     let dir = source.parent().unwrap_or(Path::new("."));
     let attachments_copied = bring_along(storage, dir)?;
     Ok(Staged {
@@ -80,7 +94,11 @@ pub async fn stage(storage: &Storage, source: &Path) -> Result<Staged, RestoreEr
 }
 
 /// Из папки копий — самая свежая целая.
-async fn stage_dir(storage: &Storage, dir: &Path) -> Result<Staged, RestoreError> {
+async fn stage_dir(
+    storage: &Storage,
+    dir: &Path,
+    password: Option<&str>,
+) -> Result<Staged, RestoreError> {
     let mut files = backup::list_dir(dir)?;
     if files.is_empty() {
         return Err(RestoreError::NoBackups(dir.to_owned()));
@@ -88,7 +106,7 @@ async fn stage_dir(storage: &Storage, dir: &Path) -> Result<Staged, RestoreError
     files.sort_by_key(|f| std::cmp::Reverse(f.at));
     let mut last_err = String::new();
     for f in files {
-        match stage_file(storage, &dir.join(&f.name)).await {
+        match stage_file(storage, &dir.join(&f.name), password).await {
             Ok(()) => {
                 let attachments_copied = bring_along(storage, dir)?;
                 return Ok(Staged {
@@ -97,6 +115,8 @@ async fn stage_dir(storage: &Storage, dir: &Path) -> Result<Staged, RestoreError
                     attachments_copied,
                 });
             }
+            // Пароль не подошёл — более старые копии зашифрованы так же.
+            Err(e) if e.needs_password() => return Err(e),
             Err(e) => {
                 tracing::warn!(file = %f.name, error = %e, "копия не подходит, беру предыдущую");
                 last_err = e.to_string();
@@ -108,15 +128,17 @@ async fn stage_dir(storage: &Storage, dir: &Path) -> Result<Staged, RestoreError
 
 /// Распаковать копию рядом с базой и проверить её. Файл копии — недоверенный:
 /// чужие `-wal`/`-shm` рядом с распакованной базой удаляются до открытия.
-async fn stage_file(storage: &Storage, file: &Path) -> Result<(), RestoreError> {
+async fn stage_file(
+    storage: &Storage,
+    file: &Path,
+    password: Option<&str>,
+) -> Result<(), RestoreError> {
     let staged = storage.db_dir.join(STAGED);
     let tmp = storage.db_dir.join(format!("{STAGED}.tmp"));
     for p in [&tmp, &sidecar(&tmp, "-wal"), &sidecar(&tmp, "-shm")] {
         let _ = std::fs::remove_file(p);
     }
-    let packed = std::fs::read(file).map_err(io(file))?;
-    let raw = zstd::decode_all(packed.as_slice()).map_err(io(file))?;
-    std::fs::write(&tmp, raw).map_err(io(&tmp))?;
+    unpack(storage, file, &tmp, password)?;
     if let Err(e) = backup::check_integrity(&tmp).await {
         let _ = std::fs::remove_file(&tmp);
         return Err(e.into());
@@ -128,9 +150,36 @@ async fn stage_file(storage: &Storage, file: &Path) -> Result<(), RestoreError> 
     Ok(())
 }
 
+/// Распаковать копию (потоком) — ключом этого сервера или паролем.
+pub(crate) fn unpack(
+    storage: &Storage,
+    file: &Path,
+    to: &Path,
+    password: Option<&str>,
+) -> Result<(), RestoreError> {
+    use crate::backup_file::{BackupKey, UnpackError};
+    let local = BackupKey::load(&storage.db_dir).map_err(io(&storage.db_dir))?;
+    match crate::backup_file::unpack(file, to, local.as_ref(), password) {
+        Ok(()) => Ok(()),
+        Err(UnpackError::Io(e)) => Err(io(file)(e)),
+        Err(e @ (UnpackError::NeedPassword | UnpackError::WrongPassword)) => {
+            let _ = std::fs::remove_file(to);
+            Err(RestoreError::Locked(e))
+        }
+        Err(UnpackError::NotBackup) => {
+            let _ = std::fs::remove_file(to);
+            Err(RestoreError::Unknown(file.to_owned()))
+        }
+    }
+}
+
 /// Ключи сервера и вложения из папки копии — чтобы сотрудники не переподключались.
 fn bring_along(storage: &Storage, dir: &Path) -> Result<usize, RestoreError> {
     backup::copy_tls(&dir.join("tls"), &storage.db_dir.join("tls"))?;
+    let p2p = dir.join(backup::P2P_KEY);
+    if p2p.exists() {
+        std::fs::copy(&p2p, storage.db_dir.join(backup::P2P_KEY)).map_err(io(&p2p))?;
+    }
     Ok(backup::copy_new_files(
         &dir.join("attachments"),
         &storage.attachments_dir,
@@ -196,6 +245,10 @@ pub fn pack(backup_dir: &Path, out: &Path) -> Result<PathBuf, RestoreError> {
         Ok(())
     };
     add(newest.name.clone(), &backup_dir.join(&newest.name))?;
+    let p2p = backup_dir.join(backup::P2P_KEY);
+    if p2p.exists() {
+        add(backup::P2P_KEY.to_owned(), &p2p)?;
+    }
     for sub in ["tls", "attachments"] {
         for (rel, abs) in walk(&backup_dir.join(sub)) {
             add(format!("{sub}/{rel}"), &abs)?;

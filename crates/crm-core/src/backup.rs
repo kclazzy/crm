@@ -374,7 +374,13 @@ mod tests {
     #[test]
     fn future_backups_are_kept() {
         let now = utc(13, 12);
-        assert!(to_delete(&sized(&[now + Duration::hours(3)]), now, Moscow, &Policy::default()).is_empty());
+        assert!(to_delete(
+            &sized(&[now + Duration::hours(3)]),
+            now,
+            Moscow,
+            &Policy::default()
+        )
+        .is_empty());
     }
 
     #[test]
@@ -431,7 +437,12 @@ mod tests {
         let five_days = now - Duration::days(5);
         let six_hours = now - Duration::hours(6);
         let (two, one) = (now - Duration::hours(2), now - Duration::hours(1));
-        let del = to_delete(&sized(&[ten_days, five_days, six_hours, two, one]), now, Moscow, &p);
+        let del = to_delete(
+            &sized(&[ten_days, five_days, six_hours, two, one]),
+            now,
+            Moscow,
+            &p,
+        );
         assert_eq!(
             del,
             vec![ten_days],
@@ -478,7 +489,10 @@ mod tests {
             }
         }
         assert!(ages.iter().all(|a| a[0] == 0), "первая — последняя копия");
-        assert!(ages.iter().all(|a| (1..48).contains(&a[1])), "вторая — моложе 2 суток");
+        assert!(
+            ages.iter().all(|a| (1..48).contains(&a[1])),
+            "вторая — моложе 2 суток"
+        );
         assert!(
             ages.iter().all(|a| (48..=16 * 24).contains(&a[2])),
             "третья — от 2 суток до ~2 недель"
@@ -497,9 +511,17 @@ mod tests {
         let copies: Vec<_> = (0..5).map(|h| (now - Duration::hours(h), gb / 2)).collect();
         let mut del = to_delete(&copies, now, Moscow, &p);
         del.sort();
-        assert_eq!(del, vec![now - Duration::hours(4), now - Duration::hours(3)], "старые — первыми");
+        assert_eq!(
+            del,
+            vec![now - Duration::hours(4), now - Duration::hours(3)],
+            "старые — первыми"
+        );
         let big: Vec<_> = (0..5).map(|h| (now - Duration::hours(h), gb * 2)).collect();
-        assert_eq!(to_delete(&big, now, Moscow, &p).len(), 2, "меньше 3 копий не оставляем");
+        assert_eq!(
+            to_delete(&big, now, Moscow, &p).len(),
+            2,
+            "меньше 3 копий не оставляем"
+        );
     }
 
     #[test]
@@ -510,6 +532,10 @@ mod tests {
         .unwrap();
         assert_eq!(p.keep_mode(), KeepMode::Window);
         assert_eq!(p.max_gb(), None);
-        assert!(Policy::from_raw(RawPolicy { max_gb: Some(0), ..p.into() }).is_err());
+        assert!(Policy::from_raw(RawPolicy {
+            max_gb: Some(0),
+            ..p.into()
+        })
+        .is_err());
     }
 }

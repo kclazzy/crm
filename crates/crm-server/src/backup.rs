@@ -1,6 +1,9 @@
 //! Резервное копирование (ТЗ §5): горячий снимок БД через VACUUM INTO, проверка
-//! целостности, сжатие zstd, копия в каждую папку бэкапов, ротация 48 ч / 30 дней.
+//! целостности, сжатие потоком (по желанию — шифрование паролем), копия в каждую
+//! папку отдельно — недоступная папка не мешает остальным; уборка старых копий
+//! и вложений, на которые не ссылается ни одна оставшаяся копия.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -9,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions, SqlitePool};
 
+use crate::backup_file::BackupKey;
 use crate::config::Config;
 use crate::http::AppState;
 
@@ -16,15 +20,50 @@ use crate::http::AppState;
 /// копия делается, когда с последней удачной прошёл выбранный владельцем интервал.
 const FIRST_DELAY: Duration = Duration::from_secs(120);
 const CHECK_EVERY: Duration = Duration::from_secs(60);
+/// После неудачи (никуда не сохранилось) — новая попытка не раньше чем через 15 минут,
+/// а не каждую минуту: полный снимок базы зря нагружает диск.
+pub const RETRY_AFTER_MS: i64 = 15 * 60 * 1000;
 const STATUS_KEY: &str = "backup.last";
+/// Список вложений, на которые ссылается копия: `<имя копии>.files`.
+const MANIFEST: &str = ".files";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     pub at: i64,
+    /// Копия записана во все папки.
     pub ok: bool,
     pub file: Option<String>,
     pub size: Option<u64>,
     pub error: Option<String>,
+    /// Итог по каждой папке.
+    #[serde(default)]
+    pub dirs: Vec<DirStatus>,
+}
+
+impl Status {
+    /// Копия сохранилась хотя бы в одну папку.
+    pub fn saved(&self) -> bool {
+        self.ok || self.dirs.iter().any(|d| d.ok)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirStatus {
+    pub path: PathBuf,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+/// Пора ли делать копию: по расписанию после удачной, через 15 минут после неудачной.
+pub fn due(policy: &crm_core::backup::Policy, last: Option<&Status>, now: i64) -> bool {
+    if !policy.enabled() {
+        return false;
+    }
+    match last {
+        None => true,
+        Some(s) if s.saved() => now - s.at >= i64::from(policy.every_hours()) * 3600 * 1000,
+        Some(s) => now - s.at >= RETRY_AFTER_MS,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,6 +88,8 @@ pub enum BackupError {
     },
     #[error("фоновая задача прервана: {0}")]
     Join(#[from] tokio::task::JoinError),
+    #[error("копия не записалась ни в одну папку: {0}")]
+    NowhereSaved(String),
 }
 
 fn io(path: &Path) -> impl Fn(std::io::Error) -> BackupError + '_ {
@@ -58,18 +99,27 @@ fn io(path: &Path) -> impl Fn(std::io::Error) -> BackupError + '_ {
     }
 }
 
-/// Сделать бэкап сейчас. Возвращает имя файла и размер сжатой копии.
+/// Сделать бэкап сейчас. Возвращает имя файла и размер копии; если хоть одна папка
+/// недоступна — копия в остальных всё равно делается, а статус это показывает.
 pub async fn run(app: &AppState) -> Result<BackupFile, BackupError> {
     let _one_at_a_time = app.rt.backup_lock.lock().await;
     let cfg = app.rt.config();
-    let result = run_locked(&app.pool, &cfg).await;
+    let tz = crate::org::load(&app.pool)
+        .await
+        .map(|o| o.tz())
+        .unwrap_or(chrono_tz::Europe::Moscow);
+    let result = run_locked(&app.pool, &cfg, tz).await;
     let status = match &result {
-        Ok(f) => Status {
-            at: Utc::now().timestamp_millis(),
-            ok: true,
+        Ok((f, dirs)) => Status {
+            at: f.at,
+            ok: dirs.iter().all(|d| d.ok),
             file: Some(f.name.clone()),
             size: Some(f.size),
-            error: None,
+            error: dirs
+                .iter()
+                .filter_map(|d| d.error.clone())
+                .reduce(|a, b| format!("{a}; {b}")),
+            dirs: dirs.clone(),
         },
         Err(e) => Status {
             at: Utc::now().timestamp_millis(),
@@ -77,6 +127,7 @@ pub async fn run(app: &AppState) -> Result<BackupFile, BackupError> {
             file: None,
             size: None,
             error: Some(e.to_string()),
+            dirs: Vec::new(),
         },
     };
     if let Ok(json) = serde_json::to_string(&status) {
@@ -86,17 +137,25 @@ pub async fn run(app: &AppState) -> Result<BackupFile, BackupError> {
             .execute(&app.pool)
             .await;
     }
-    result
+    result.map(|(f, _)| f)
 }
 
-async fn run_locked(pool: &SqlitePool, cfg: &Config) -> Result<BackupFile, BackupError> {
+async fn run_locked(
+    pool: &SqlitePool,
+    cfg: &Config,
+    tz: chrono_tz::Tz,
+) -> Result<(BackupFile, Vec<DirStatus>), BackupError> {
     let dirs = cfg.storage.backup_dirs.clone();
     if dirs.is_empty() {
         return Err(BackupError::NoDirs);
     }
-    let snapshot = cfg.storage.db_dir.join("backup-snapshot.tmp.db");
-    if snapshot.exists() {
-        std::fs::remove_file(&snapshot).map_err(io(&snapshot))?;
+    let db_dir = cfg.storage.db_dir.clone();
+    let snapshot = db_dir.join("backup-snapshot.tmp.db");
+    let packed = db_dir.join("backup-packed.tmp");
+    for p in [&snapshot, &packed] {
+        if p.exists() {
+            std::fs::remove_file(p).map_err(io(p))?;
+        }
     }
     // Горячий согласованный снимок: работа сотрудников не останавливается.
     sqlx::query("VACUUM INTO ?")
@@ -104,24 +163,97 @@ async fn run_locked(pool: &SqlitePool, cfg: &Config) -> Result<BackupFile, Backu
         .execute(pool)
         .await?;
     check_integrity(&snapshot).await?;
+    let manifest = attachment_list(&snapshot).await?;
 
     let now = Utc::now();
     let name = crm_core::backup::file_name(now);
-    let tls = cfg.storage.db_dir.join("tls");
-    let files = cfg.storage.attachments_dir.clone();
+    let key = BackupKey::load(&db_dir).map_err(io(&db_dir))?;
     let size = tokio::task::spawn_blocking({
-        let (snapshot, name) = (snapshot.clone(), name.clone());
-        let policy = cfg.backup;
-        move || write_copies(&snapshot, &name, &dirs, &tls, &files, now, &policy)
+        let (snapshot, packed) = (snapshot.clone(), packed.clone());
+        move || crate::backup_file::pack(&snapshot, &packed, key.as_ref()).map_err(io(&packed))
     })
     .await??;
     let _ = std::fs::remove_file(&snapshot);
-    tracing::info!(%name, size, "резервная копия создана");
-    Ok(BackupFile {
-        name,
-        at: now.timestamp_millis(),
-        size,
+
+    let results = tokio::task::spawn_blocking({
+        let (name, packed) = (name.clone(), packed.clone());
+        let files = cfg.storage.attachments_dir.clone();
+        let policy = cfg.backup;
+        move || {
+            dirs.iter()
+                .map(|dir| {
+                    let r = write_one(&packed, &name, &manifest, dir, &db_dir, &files, now, tz, &policy);
+                    if let Err(e) = &r {
+                        tracing::error!(dir = %dir.display(), error = %e, "копия в папку не записана");
+                    }
+                    DirStatus {
+                        path: dir.clone(),
+                        ok: r.is_ok(),
+                        error: r.err().map(|e| format!("{}: {e}", dir.display())),
+                    }
+                })
+                .collect::<Vec<_>>()
+        }
     })
+    .await?;
+    let _ = std::fs::remove_file(&packed);
+    if !results.iter().any(|d| d.ok) {
+        let why = results
+            .iter()
+            .filter_map(|d| d.error.clone())
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(BackupError::NowhereSaved(why));
+    }
+    tracing::info!(%name, size, "резервная копия создана");
+    Ok((
+        BackupFile {
+            name,
+            at: now.timestamp_millis(),
+            size,
+        },
+        results,
+    ))
+}
+
+/// Какие вложения есть в снимке — чтобы потом убирать из папки копий ненужные.
+async fn attachment_list(db: &Path) -> Result<Vec<String>, BackupError> {
+    let mut conn = SqliteConnectOptions::new()
+        .filename(db)
+        .read_only(true)
+        .connect()
+        .await?;
+    let list: Vec<String> = sqlx::query_scalar("SELECT sha256 FROM attachments")
+        .fetch_all(&mut conn)
+        .await?;
+    sqlx::Connection::close(conn).await?;
+    Ok(list)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_one(
+    packed: &Path,
+    name: &str,
+    manifest: &[String],
+    dir: &Path,
+    db_dir: &Path,
+    attachments: &Path,
+    now: DateTime<Utc>,
+    tz: chrono_tz::Tz,
+    policy: &crm_core::backup::Policy,
+) -> Result<(), BackupError> {
+    std::fs::create_dir_all(dir).map_err(io(dir))?;
+    crate::db::make_private(dir).map_err(|e| BackupError::Corrupt(e.to_string()))?;
+    let tmp = dir.join(format!("{name}.tmp"));
+    std::fs::copy(packed, &tmp).map_err(io(&tmp))?;
+    let list = dir.join(format!("{name}{MANIFEST}"));
+    std::fs::write(&list, manifest.join("\n")).map_err(io(&list))?;
+    std::fs::rename(&tmp, dir.join(name)).map_err(io(dir))?;
+    copy_keys(db_dir, dir)?;
+    copy_new_files(attachments, &dir.join("attachments"))?;
+    rotate(dir, now, tz, policy)?;
+    prune_attachments(dir)?;
+    Ok(())
 }
 
 /// Подключение к копии только на чтение: `PRAGMA integrity_check` должен ответить «ok».
@@ -142,30 +274,6 @@ pub async fn check_integrity(db: &Path) -> Result<(), BackupError> {
     } else {
         Err(BackupError::Corrupt(verdict))
     }
-}
-
-fn write_copies(
-    snapshot: &Path,
-    name: &str,
-    dirs: &[PathBuf],
-    tls: &Path,
-    attachments: &Path,
-    now: DateTime<Utc>,
-    policy: &crm_core::backup::Policy,
-) -> Result<u64, BackupError> {
-    let raw = std::fs::read(snapshot).map_err(io(snapshot))?;
-    let packed = zstd::encode_all(raw.as_slice(), 10).map_err(io(snapshot))?;
-    for dir in dirs {
-        std::fs::create_dir_all(dir).map_err(io(dir))?;
-        crate::db::make_private(dir).map_err(|e| BackupError::Corrupt(e.to_string()))?;
-        let tmp = dir.join(format!("{name}.tmp"));
-        std::fs::write(&tmp, &packed).map_err(io(&tmp))?;
-        std::fs::rename(&tmp, dir.join(name)).map_err(io(dir))?;
-        copy_tls(tls, &dir.join("tls"))?;
-        copy_new_files(attachments, &dir.join("attachments"))?;
-        rotate(dir, now, policy)?;
-    }
-    Ok(packed.len() as u64)
 }
 
 /// Вложения — инкрементально: файл с тем же именем (sha256) уже есть — не копируем.
@@ -199,7 +307,22 @@ pub(crate) fn copy_new_files(from: &Path, to: &Path) -> Result<usize, BackupErro
     Ok(copied)
 }
 
-/// Ключи и сертификат сервера — чтобы восстановленный сервер остался «тем же» для сотрудников.
+/// Ключи сервера — сертификат и ключ удалённого доступа: восстановленный сервер
+/// остаётся «тем же» для сотрудников (в офисе и из дома). Ключ шифрования копий
+/// (`backup.key`) сюда не попадает — иначе шифровать было бы незачем.
+pub(crate) fn copy_keys(db_dir: &Path, to: &Path) -> Result<(), BackupError> {
+    copy_tls(&db_dir.join("tls"), &to.join("tls"))?;
+    let p2p = db_dir.join(P2P_KEY);
+    if p2p.exists() {
+        std::fs::create_dir_all(to).map_err(io(to))?;
+        std::fs::copy(&p2p, to.join(P2P_KEY)).map_err(io(&p2p))?;
+    }
+    Ok(())
+}
+
+pub(crate) const P2P_KEY: &str = "p2p.key";
+
+/// Сертификат и ключ HTTPS.
 pub(crate) fn copy_tls(from: &Path, to: &Path) -> Result<(), BackupError> {
     let Ok(entries) = std::fs::read_dir(from) else {
         return Ok(()); // HTTPS выключен — копировать нечего
@@ -214,10 +337,12 @@ pub(crate) fn copy_tls(from: &Path, to: &Path) -> Result<(), BackupError> {
     Ok(())
 }
 
-/// Ротация: всё за 48 ч, дальше по одной в сутки за 30 дней. Чужие файлы не трогаем.
+/// Уборка старых копий по правилу владельца (сутки — по часовому поясу организации).
+/// Вместе с копией уходит её список вложений. Чужие файлы не трогаем.
 fn rotate(
     dir: &Path,
     now: DateTime<Utc>,
+    tz: chrono_tz::Tz,
     policy: &crm_core::backup::Policy,
 ) -> Result<(), BackupError> {
     let files = list_dir(dir)?;
@@ -225,11 +350,47 @@ fn rotate(
         .iter()
         .filter_map(|f| DateTime::from_timestamp_millis(f.at).map(|t| (t, f.size)))
         .collect();
-    for t in crm_core::backup::to_delete(&times, now, chrono_tz::UTC, policy) {
-        let p = dir.join(crm_core::backup::file_name(t));
+    for t in crm_core::backup::to_delete(&times, now, tz, policy) {
+        let name = crm_core::backup::file_name(t);
+        let p = dir.join(&name);
         std::fs::remove_file(&p).map_err(io(&p))?;
+        let _ = std::fs::remove_file(dir.join(format!("{name}{MANIFEST}")));
     }
     Ok(())
+}
+
+/// Убрать из папки копий вложения, на которые не ссылается ни одна оставшаяся копия.
+/// Если хоть у одной копии нет списка (сделана прежней версией) — ничего не трогаем.
+pub(crate) fn prune_attachments(dir: &Path) -> Result<usize, BackupError> {
+    let mut needed: HashSet<String> = HashSet::new();
+    for f in list_dir(dir)? {
+        let list = dir.join(format!("{}{MANIFEST}", f.name));
+        match std::fs::read_to_string(&list) {
+            Ok(s) => needed.extend(s.lines().map(str::to_owned)),
+            Err(_) => return Ok(0),
+        }
+    }
+    let root = dir.join("attachments");
+    let Ok(prefixes) = std::fs::read_dir(&root) else {
+        return Ok(0);
+    };
+    let mut removed = 0;
+    for p in prefixes.flatten() {
+        if !p.path().is_dir() || p.file_name().len() != 2 {
+            continue;
+        }
+        for f in std::fs::read_dir(p.path())
+            .map_err(io(&p.path()))?
+            .flatten()
+        {
+            let name = f.file_name().to_string_lossy().into_owned();
+            if !needed.contains(&name) {
+                std::fs::remove_file(f.path()).map_err(io(&f.path()))?;
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
 }
 
 /// Копии в папке, новые сверху.
@@ -273,15 +434,58 @@ pub async fn hourly(app: AppState) {
     loop {
         tick.tick().await;
         let cfg = app.rt.config();
-        let last_ok = last_status(&app.pool)
-            .await
-            .filter(|s| s.ok)
-            .and_then(|s| DateTime::from_timestamp_millis(s.at));
-        if cfg.storage.backup_dirs.is_empty() || !cfg.backup.is_due(last_ok, Utc::now()) {
+        let last = last_status(&app.pool).await;
+        let now = Utc::now().timestamp_millis();
+        if cfg.storage.backup_dirs.is_empty() || !due(&cfg.backup, last.as_ref(), now) {
             continue;
         }
         if let Err(e) = run(&app).await {
             tracing::error!(error = %e, "резервное копирование не удалось");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn st(at: i64, ok: bool, dirs: &[bool]) -> Status {
+        Status {
+            at,
+            ok,
+            file: None,
+            size: None,
+            error: None,
+            dirs: dirs
+                .iter()
+                .map(|&ok| DirStatus {
+                    path: PathBuf::from("x"),
+                    ok,
+                    error: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn retry_waits_15_minutes_but_partial_success_keeps_schedule() {
+        let p = crm_core::backup::Policy::default(); // каждый час
+        let h = 3600 * 1000;
+        assert!(due(&p, None, 0));
+        let failed = st(0, false, &[false, false]);
+        assert!(
+            !due(&p, Some(&failed), RETRY_AFTER_MS - 1),
+            "не каждую минуту"
+        );
+        assert!(due(&p, Some(&failed), RETRY_AFTER_MS));
+        let partly = st(0, false, &[false, true]);
+        assert!(
+            !due(&p, Some(&partly), RETRY_AFTER_MS),
+            "куда-то сохранилось — по расписанию"
+        );
+        assert!(due(&p, Some(&partly), h));
+        let old_format = st(0, true, &[]);
+        assert!(!due(&p, Some(&old_format), h - 1));
+        assert!(due(&p, Some(&old_format), h));
     }
 }

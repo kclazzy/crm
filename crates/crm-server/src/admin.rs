@@ -347,6 +347,51 @@ pub async fn backup_now(
 pub struct BackupsOut {
     last: Option<Status>,
     files: Vec<BackupFile>,
+    /// Копии шифруются паролем владельца.
+    encrypted: bool,
+}
+
+#[derive(Deserialize)]
+pub struct BackupPasswordIn {
+    /// Новый пароль копий; `null` — больше не шифровать.
+    password: Option<String>,
+}
+
+/// Пароль копий: новые копии шифруются им. Прежние остаются со старым паролем.
+pub async fn set_backup_password(
+    State(app): State<AppState>,
+    Owner(owner): Owner,
+    Json(req): Json<BackupPasswordIn>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let db_dir = app.rt.config().storage.db_dir;
+    let _one_at_a_time = app.rt.backup_lock.lock().await;
+    let action = match req.password {
+        Some(p) => {
+            if p.chars().count() < 10 {
+                return Err(ApiError::BadRequest(
+                    "пароль копий — не короче 10 символов".into(),
+                ));
+            }
+            let key = tokio::task::spawn_blocking(move || {
+                crate::backup_file::BackupKey::from_password(&p)
+            })
+            .await
+            .map_err(|e| ApiError::Failed(e.to_string()))?
+            .map_err(|e| ApiError::Failed(e.to_string()))?;
+            key.save(&db_dir)
+                .map_err(|e| ApiError::Failed(e.to_string()))?;
+            "backup.encrypted"
+        }
+        None => {
+            crate::backup_file::BackupKey::remove(&db_dir)
+                .map_err(|e| ApiError::Failed(e.to_string()))?;
+            "backup.unencrypted"
+        }
+    };
+    crate::auth::audit(&app.pool, Some(&owner.id), action, None, "local").await?;
+    Ok(Json(
+        serde_json::json!({ "encrypted": action == "backup.encrypted" }),
+    ))
 }
 
 pub async fn backups(State(app): State<AppState>, Owner(_): Owner) -> Json<BackupsOut> {
@@ -358,9 +403,14 @@ pub async fn backups(State(app): State<AppState>, Owner(_): Owner) -> Json<Backu
         .first()
         .and_then(|d| backup::list_dir(d).ok())
         .unwrap_or_default();
+    let encrypted = crate::backup_file::BackupKey::load(&app.rt.config().storage.db_dir)
+        .ok()
+        .flatten()
+        .is_some();
     Json(BackupsOut {
         last: backup::last_status(&app.pool).await,
         files: files.into_iter().take(100).collect(),
+        encrypted,
     })
 }
 
@@ -518,6 +568,8 @@ const JOURNAL: &[(&str, &str, &str)] = &[
         "Пароль владельца сброшен на сервере",
     ),
     ("p2p.key", "access", "Новый ключ удалённого доступа"),
+    ("backup.encrypted", "data", "Задан пароль резервных копий"),
+    ("backup.unencrypted", "data", "Шифрование копий выключено"),
     ("server.crt", "data", "Новый сертификат сервера"),
     ("server.key", "data", "Новый ключ сертификата"),
     (
@@ -688,6 +740,9 @@ pub struct RestoreIn {
     /// Папка копий (по умолчанию — первая из настроенных) и имя копии или пакета.
     dir: Option<String>,
     name: Option<String>,
+    /// Пароль копий — если они зашифрованы на другом компьютере.
+    #[serde(default)]
+    password: Option<String>,
 }
 
 /// Подготовить восстановление из копии; встанет на место после перезапуска.
@@ -715,9 +770,7 @@ pub async fn restore(
     };
     // Отдельная копия «до» не делается: при запуске прежняя база сохраняется
     // как before_restore_*.db (новая копия той же минуты затёрла бы выбранную).
-    let staged = crate::restore::stage(&cfg.storage, &source)
-        .await
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let staged = crate::restore::stage(&cfg.storage, &source, req.password.as_deref()).await?;
     app.rt.frozen.store(true, Ordering::SeqCst);
     crate::auth::audit(
         &app.pool,
