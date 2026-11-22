@@ -1,3 +1,4 @@
+import { SessionLimitsCard } from '../components/SessionLimitsCard';
 import { useCallback, useEffect, useState } from 'react';
 import { Globe, Home, Laptop, Monitor, Server as ServerIcon, Trash2 } from 'lucide-react';
 import { api, clearJournal, deleteJournalItem, journal, type JournalItem, type StaffMember } from '../api';
@@ -14,6 +15,7 @@ export function AdminProtection() {
       <PageHeader title="Защита входа" subtitle="Как подтверждается вход и что делать, если владелец потерял пароль." />
       <div className="flex max-w-3xl flex-col gap-5">
         <TwoFactorPolicyCard />
+        <SessionLimitsCard />
         <div className="grid gap-5 md:grid-cols-2"><RecoveryCodes /><SecurityPanel /></div>
       </div>
     </>

@@ -7,7 +7,7 @@ type Listener = (e: { type: string; task_id?: string; what?: string }) => void;
 interface Live {
   unread: number;
   unreadByTask: Record<string, number>;
-  bell: { unread: number; items: Note[]; quiet: boolean };
+  bell: { unread: number; items: Note[]; quiet: boolean; more?: boolean };
   online: boolean;
   refreshUnread: () => void;
   refreshBell: () => void;
@@ -66,7 +66,9 @@ export function reminderText(n: Note): { title: string; body: string } {
     case 'disk_warning':
       return { title: 'Диск заполняется', body: p.days_left ? `Том ${p.volume}: хватит примерно на ${p.days_left} дн.` : `Том ${p.volume}` };
     case 'backup_problem':
-      return { title: 'Резервные копии не делаются', body: String(p.error ?? 'Проверьте папку копий в «Хранилище и копии»') };
+      return p.verify
+        ? { title: 'Копия не прошла проверку', body: String(p.error ?? 'Сделайте новую копию в «Хранилище и копии»') }
+        : { title: 'Проблема с резервными копиями', body: String(p.error ?? 'Проверьте папку копий в «Хранилище и копии»') };
     case 'login_failed':
       return { title: 'Неудачная попытка входа', body: `Логин «${p.username}» · ${placeText(p.place)}` };
     case 'login_locked':

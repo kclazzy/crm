@@ -66,6 +66,10 @@ export interface BackupPolicy {
   every_hours: number;
   keep_all_hours: number;
   keep_days: number;
+  /** window — все за N часов + по одной в день; ladder — ровно 3 файла. */
+  keep?: 'window' | 'ladder';
+  /** Потолок места в одной папке, ГБ; null — без потолка. */
+  max_gb?: number | null;
 }
 
 export interface StorageInfo {
@@ -89,10 +93,36 @@ export interface BackupStatus {
   file: string | null;
   size: number | null;
   error: string | null;
+  /** Итог по каждой папке: недоступная папка не мешает остальным. */
+  dirs?: { path: string; ok: boolean; error: string | null }[];
+}
+
+/** Пробное восстановление: копия распакована отдельно и проверена. */
+export interface BackupVerified {
+  at: number;
+  ok: boolean;
+  file: string | null;
+  users: number;
+  clients: number;
+  tasks: number;
+  error: string | null;
+}
+
+export interface SessionLimits {
+  office_days: number;
+  remote_idle_hours: number;
+  remote_code_days: number;
+}
+
+export interface TrashPolicy {
+  days: number | null;
+  choices: number[];
+  old_items: number;
+  suggest: boolean;
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public data: { need_code?: boolean; setup_2fa?: boolean } = {}) {
+  constructor(public status: number, message: string, public data: { need_code?: boolean; setup_2fa?: boolean; need_password?: boolean } = {}) {
     super(message);
   }
 }
@@ -198,7 +228,14 @@ export const api = {
   saveBackup: (dirs: string[], policy: BackupPolicy) =>
     request<{ dirs: string[]; warnings: string[] }>('PUT', '/api/admin/backup', { dirs, policy }),
   backupNow: () => request<BackupFile>('POST', '/api/admin/backup/run'),
-  backups: () => request<{ last: BackupStatus | null; files: BackupFile[] }>('GET', '/api/admin/backups'),
+  backups: () => request<{ last: BackupStatus | null; files: BackupFile[]; encrypted: boolean; verified: BackupVerified | null }>('GET', '/api/admin/backups'),
+  verifyBackup: () => request<BackupVerified>('POST', '/api/admin/backup/verify'),
+  setBackupPassword: (password: string | null) => request<{ encrypted: boolean }>('PUT', '/api/admin/backup/password', { password }),
+  sessionLimits: () => request<SessionLimits>('GET', '/api/admin/session-limits'),
+  setSessionLimits: (l: SessionLimits) => request<SessionLimits>('PUT', '/api/admin/session-limits', l),
+  trashPolicy: () => request<TrashPolicy>('GET', '/api/admin/trash-policy'),
+  setTrashPolicy: (days: number | null) => request<{ days: number | null }>('PUT', '/api/admin/trash-policy', { days }),
+  dismissTrashSuggestion: () => request<{ ok: true }>('POST', '/api/admin/trash-policy/dismiss'),
   moveData: (data_dir: string) => request<{ data_dir: string; restart_required: boolean }>('POST', '/api/admin/storage/move', { data_dir }),
 };
 
