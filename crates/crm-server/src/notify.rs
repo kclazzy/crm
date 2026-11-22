@@ -130,16 +130,35 @@ pub struct Bell {
     items: Vec<Notification>,
     /// Сейчас тихие часы для этого пользователя: без звука и уведомлений ОС.
     quiet: bool,
+    /// Есть уведомления старше показанных — «Показать ещё».
+    more: bool,
 }
 
-pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Result<Json<Bell>, ApiError> {
-    let rows: Vec<Row> = sqlx::query_as(
+const PAGE: i64 = 50;
+
+#[derive(serde::Deserialize)]
+pub struct Page {
+    /// Показать уведомления старше этого времени (следующая страница).
+    before: Option<i64>,
+}
+
+pub async fn list(
+    State(app): State<AppState>,
+    user: CurrentUser,
+    axum::extract::Query(page): axum::extract::Query<Page>,
+) -> Result<Json<Bell>, ApiError> {
+    let mut rows: Vec<Row> = sqlx::query_as(
         "SELECT id, task_id, kind, payload, created_at, read_at FROM notifications
-         WHERE user_id = ? AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 50",
+         WHERE user_id = ?1 AND hidden_at IS NULL AND (?2 IS NULL OR created_at < ?2)
+         ORDER BY created_at DESC LIMIT ?3",
     )
     .bind(&user.id)
+    .bind(page.before)
+    .bind(PAGE + 1)
     .fetch_all(&app.pool)
     .await?;
+    let more = rows.len() as i64 > PAGE;
+    rows.truncate(PAGE as usize);
     let items = rows
         .into_iter()
         .map(|r| Notification {
@@ -161,6 +180,7 @@ pub async fn list(State(app): State<AppState>, user: CurrentUser) -> Result<Json
         unread,
         items,
         quiet: is_quiet(&app.pool, &user.id).await?,
+        more,
     }))
 }
 

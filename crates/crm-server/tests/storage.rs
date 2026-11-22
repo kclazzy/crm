@@ -66,6 +66,11 @@ async fn rotation_removes_old_copies_and_keeps_foreign_files() {
     let dir = app.dir().join("b");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("backup_2020_01_01_00_00.db.zst"), b"old").unwrap();
+    // Ещё две свежие: меньше трёх копий уборка не оставляет.
+    for h in [1, 2] {
+        let t = chrono::Utc::now() - chrono::Duration::hours(h);
+        std::fs::write(dir.join(crm_core::backup::file_name(t)), b"x").unwrap();
+    }
     std::fs::write(dir.join("мои-документы.txt"), b"keep").unwrap();
     app.call(
         "PUT",
@@ -249,6 +254,8 @@ async fn owner_sets_backup_schedule_and_retention() {
     .unwrap();
     let kept = crm_core::backup::file_name(chrono::Utc::now() - chrono::Duration::days(5));
     std::fs::write(dir.join(&kept), b"x").unwrap();
+    let hour_ago = crm_core::backup::file_name(chrono::Utc::now() - chrono::Duration::hours(1));
+    std::fs::write(dir.join(&hour_ago), b"x").unwrap();
     app.call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
         .await;
     let left: Vec<String> = std::fs::read_dir(&dir)
@@ -256,7 +263,11 @@ async fn owner_sets_backup_schedule_and_retention() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|n| n.ends_with(".zst"))
         .collect();
-    assert_eq!(left.len(), 2, "свежая + 5-дневная: {left:?}");
+    assert_eq!(
+        left.len(),
+        3,
+        "свежая, часовой давности и 5-дневная: {left:?}"
+    );
     assert!(left.contains(&kept));
 }
 
@@ -383,4 +394,244 @@ async fn folder_picker_lists_and_creates_folders_on_the_server() {
         .call("GET", "/api/admin/fs", LOCAL, Some(&emp), None)
         .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn unavailable_folder_does_not_stop_copies_to_the_others() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let usb = app.dir().join("usb");
+    let disk = app.dir().join("disk");
+    let (s, v) = app
+        .call(
+            "PUT",
+            "/api/admin/backup",
+            LOCAL,
+            Some(&owner),
+            Some(json!({ "dirs": [usb, disk] })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    // Флешку вынули: на месте папки — файл, писать некуда.
+    std::fs::remove_dir_all(&usb).ok();
+    std::fs::write(&usb, b"not a folder").unwrap();
+
+    let (s, report) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::OK,
+        "копия сохранилась хоть куда-то: {report}"
+    );
+    let name = report["name"].as_str().unwrap();
+    assert!(disk.join(name).exists(), "вторая папка получила копию");
+
+    let (_, list) = app
+        .call("GET", "/api/admin/backups", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(list["last"]["ok"], false, "владелец видит проблему: {list}");
+    assert_eq!(list["last"]["dirs"][0]["ok"], false);
+    assert_eq!(list["last"]["dirs"][1]["ok"], true);
+    assert!(list["last"]["dirs"][0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("usb"));
+}
+
+#[tokio::test]
+async fn copy_carries_remote_access_key_and_restore_brings_it_back() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let data = app.dir().join("data");
+    std::fs::write(data.join("p2p.key"), [7u8; 32]).unwrap();
+    let dir = app.dir().join("backups");
+    let (s, _) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(std::fs::read(dir.join("p2p.key")).unwrap(), [7u8; 32]);
+    assert!(!dir.join("backup.key").exists());
+
+    std::fs::remove_file(data.join("p2p.key")).unwrap();
+    let cfg = app.state.rt.config();
+    crm_server::restore::stage(&cfg.storage, &dir, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(data.join("p2p.key")).unwrap(),
+        [7u8; 32],
+        "ключи сотрудников продолжат работать"
+    );
+}
+
+#[tokio::test]
+async fn encrypted_copies_need_password_on_another_computer() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (s, v) = app
+        .call(
+            "PUT",
+            "/api/admin/backup/password",
+            LOCAL,
+            Some(&owner),
+            Some(json!({ "password": "короткий" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "слишком короткий пароль: {v}");
+    let (s, v) = app
+        .call(
+            "PUT",
+            "/api/admin/backup/password",
+            LOCAL,
+            Some(&owner),
+            Some(json!({ "password": "пароль копий 2026" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, report) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    let dir = app.dir().join("backups");
+    let file = dir.join(report["name"].as_str().unwrap());
+    assert!(crm_server::backup_file::is_encrypted(&file).unwrap());
+    let (_, list) = app
+        .call("GET", "/api/admin/backups", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(list["encrypted"], true);
+
+    let cfg = app.state.rt.config();
+    // Этот сервер открывает свои копии сам.
+    crm_server::restore::stage(&cfg.storage, &dir, None)
+        .await
+        .unwrap();
+    // Новый компьютер: ключа нет — нужен пароль.
+    std::fs::remove_file(cfg.storage.db_dir.join("backup.key")).unwrap();
+    let e = crm_server::restore::stage(&cfg.storage, &dir, None)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("пароль"), "{e}");
+    assert!(
+        crm_server::restore::stage(&cfg.storage, &dir, Some("не тот"))
+            .await
+            .is_err()
+    );
+    crm_server::restore::stage(&cfg.storage, &dir, Some("пароль копий 2026"))
+        .await
+        .unwrap();
+
+    let (s, _) = app
+        .call(
+            "POST",
+            "/api/admin/restore",
+            LOCAL,
+            Some(&owner),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::BAD_REQUEST,
+        "без пароля восстановление объясняет, чего не хватает"
+    );
+}
+
+#[tokio::test]
+async fn deleted_attachments_leave_backup_folder_with_the_last_copy_that_had_them() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let dir = app.dir().join("backups");
+    let (_, f) = app.upload(&owner, "scan.pdf", b"%PDF scan").await;
+    let sha = f["sha256"].as_str().unwrap().to_owned();
+    // Вложение, на которое не ссылается ни одна копия базы (давно удалённое).
+    let stale = dir.join("attachments").join("ff").join("ff".repeat(32));
+    std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+    std::fs::write(&stale, b"old").unwrap();
+
+    let (s, report) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK, "{report}");
+    let name = report["name"].as_str().unwrap();
+    assert!(
+        dir.join(format!("{name}.files")).exists(),
+        "список вложений копии"
+    );
+    assert!(dir.join("attachments").join(&sha[..2]).join(&sha).exists());
+    assert!(
+        !stale.exists(),
+        "ни одна копия на него не ссылается — убран"
+    );
+}
+
+#[tokio::test]
+async fn trial_restore_checks_latest_copy_without_touching_working_db() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/admin/backup/verify",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "копий ещё нет: {v}");
+    let (_, report) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/admin/backup/verify",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(v["users"].as_i64().unwrap() >= 1);
+    let data = app.dir().join("data");
+    assert!(!data.join("verify").exists(), "временный файл убран");
+    assert!(
+        !data.join("crm.db.restore").exists(),
+        "восстановление не готовится"
+    );
+
+    // Копия испортилась уже на флешке.
+    let file = app
+        .dir()
+        .join("backups")
+        .join(report["name"].as_str().unwrap());
+    std::fs::write(&file, b"broken").unwrap();
+    let (_, v) = app
+        .call(
+            "POST",
+            "/api/admin/backup/verify",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(v["ok"], false, "{v}");
+    let (_, list) = app
+        .call("GET", "/api/admin/backups", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(list["verified"]["ok"], false);
+    let (_, notes) = app
+        .call("GET", "/api/notifications", LOCAL, Some(&owner), None)
+        .await;
+    assert!(
+        notes["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["kind"] == "backup_problem"),
+        "владелец узнаёт: {notes}"
+    );
+    // Рабочая база цела.
+    let (s, _) = app.call("GET", "/api/me", LOCAL, Some(&owner), None).await;
+    assert_eq!(s, StatusCode::OK);
 }

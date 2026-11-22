@@ -224,7 +224,8 @@ export const work = {
   upload: (file: File) => upload<Attachment>('/api/attachments', file),
 
   search: (text: string, archive = false) => req<Hit[]>('GET', `/api/search${q({ q: text, archive })}`),
-  notifications: () => req<{ unread: number; items: Notification[]; quiet: boolean }>('GET', '/api/notifications'),
+  notifications: (before?: number) =>
+    req<{ unread: number; items: Notification[]; quiet: boolean; more: boolean }>('GET', `/api/notifications${before ? `?before=${before}` : ''}`),
   readNotifications: () => req<void>('POST', '/api/notifications/read'),
   deleteNotification: (id: string) => req<void>('DELETE', `/api/notifications/${id}`),
   deleteNotifications: () => req<void>('DELETE', '/api/notifications'),
@@ -264,11 +265,11 @@ export const work = {
   removeNodeDevice: (id: string) => req<void>('DELETE', `/api/admin/remote/devices/${id}`),
   setRemote: (address: string) => req<RemoteInfo>('PUT', '/api/admin/remote', { address }),
   phone: () => req<{ kind: 'cert' | 'office' | 'internet'; url: string; qr_svg: string }[]>('GET', '/api/admin/phone'),
-  restore: (name: string | null, dir: string | null) =>
-    req<{ name: string; at: number; attachments_copied: number }>('POST', '/api/admin/restore', { name, dir }),
-  importDb: (source: string, mode: 'replace' | 'merge') =>
+  restore: (name: string | null, dir: string | null, password?: string) =>
+    req<{ name: string; at: number; attachments_copied: number }>('POST', '/api/admin/restore', { name, dir, password: password || null }),
+  importDb: (source: string, mode: 'replace' | 'merge', password?: string) =>
     req<{ restart: true; staged: string } | { added: Record<string, number>; merged_users: number; attachments: number }>(
-      'POST', '/api/admin/import-db', { source, mode }),
+      'POST', '/api/admin/import-db', { source, mode, password: password || null }),
   moveOut: (dir: string) => req<{ file: string }>('POST', '/api/admin/move-out', { dir }),
 };
 

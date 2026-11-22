@@ -39,6 +39,9 @@ pub async fn hourly(app: &AppState) {
     if let Err(e) = health(app).await {
         tracing::error!(error = %e, "проверка диска и копий");
     }
+    if let Err(e) = crate::housekeeping::daily(app).await {
+        tracing::error!(error = %e, "уборка базы");
+    }
 }
 
 fn kind_of(s: &str) -> Option<ReminderKind> {
@@ -227,7 +230,7 @@ pub async fn health(app: &AppState) -> Result<(), ApiError> {
         let failing = last.as_ref().is_some_and(|s| !s.ok);
         let stale = last
             .as_ref()
-            .is_some_and(|s| s.ok && now_ms() - s.at > stale_after);
+            .is_some_and(|s| s.saved() && now_ms() - s.at > stale_after);
         if failing || stale {
             for o in &owners {
                 if !notify::recently(&app.pool, o, "backup_problem", 6 * HOUR_MS).await? {

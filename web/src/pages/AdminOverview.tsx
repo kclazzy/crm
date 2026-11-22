@@ -1,10 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
-  AlertTriangle, Check, CheckCircle2, Circle, DatabaseBackup, Globe, HardDrive, KeyRound, Laptop, Server as ServerIcon, ShieldAlert, UserPlus, Users,
+  AlertTriangle, Check, CheckCircle2, Circle, DatabaseBackup, Globe, HardDrive, KeyRound, Laptop, Server as ServerIcon, ShieldAlert, Trash2, UserPlus, Users,
 } from 'lucide-react';
-import { api, bytes, journal, timeAgo, type BackupStatus, type Health, type JournalItem, type Session, type StaffMember, type StorageInfo } from '../api';
-import { work, type NodeDevices, type RemoteInfo } from '../work';
+import { api, bytes, journal, timeAgo, type BackupStatus, type BackupVerified, type TrashPolicy, type Health, type JournalItem, type Session, type StaffMember, type StorageInfo } from '../api';
+import { plural, work, type NodeDevices, type RemoteInfo } from '../work';
 import { Badge, Button, PageHeader, Ago } from '../components/ui';
 import { JournalRow } from './AdminSecurity';
 
@@ -32,17 +32,20 @@ interface Data {
   ownerCode: boolean;
   blocked: number;
   failed: JournalItem[];
+  verified: BackupVerified | null;
+  trash: TrashPolicy | null;
 }
 
 const settle = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
 
 async function loadAll(): Promise<Data> {
-  const [health, staff, devices, storage, backups, recovery, sessions, node, remote, me2fa, security, failed] = await Promise.all([
+  const [health, staff, devices, storage, backups, trash, recovery, sessions, node, remote, me2fa, security, failed] = await Promise.all([
     settle(api.health(), null),
     settle(api.staff(), []),
     settle(work.nodeDevices(), null),
     settle(api.storage(), null),
-    settle(api.backups(), { last: null, files: [] }),
+    settle(api.backups(), { last: null, files: [], encrypted: false, verified: null }),
+    settle(api.trashPolicy(), null),
     settle(api.recoveryStatus(), null),
     settle(api.sessions(), []),
     settle(work.nodeAccess(), null),
@@ -53,7 +56,7 @@ async function loadAll(): Promise<Data> {
   ]);
   const day = Date.now() - 86_400_000;
   return {
-    health, staff, devices, storage, last: backups.last, recovery: recovery?.unused ?? null, sessions, node, remote,
+    health, staff, devices, storage, last: backups.last, verified: backups.verified, trash, recovery: recovery?.unused ?? null, sessions, node, remote,
     ownerCode: !!me2fa?.enabled,
     blocked: security.blocked.length,
     failed: failed.items.filter((e) => e.action.endsWith('.failed') && e.at > day),
@@ -108,7 +111,9 @@ export function AdminOverview() {
   const policy = d.storage?.policy;
   const backupsOn = !!policy?.enabled && (d.storage?.backup_dirs.length ?? 0) > 0;
   const staleAfter = Math.max(26, (policy?.every_hours ?? 24) * 2) * 3_600_000;
-  const backupStale = backupsOn && (!d.last || !d.last.ok || Date.now() - d.last.at > staleAfter);
+  const savedSomewhere = !!d.last && (d.last.ok || !!d.last.dirs?.some((x) => x.ok));
+  const backupStale = backupsOn && (!d.last || !savedSomewhere || Date.now() - d.last.at > staleAfter);
+  const someDirsFail = backupsOn && !!d.last && savedSomewhere && !d.last.ok;
   const lowDisk = d.storage?.volumes.filter((v) => v.level !== 'ok') ?? [];
   const items: ReactNode[] = [];
   for (const dev of pending) {
@@ -142,6 +147,34 @@ export function AdminOverview() {
       <Attention key="backup-stale" tone="red" icon={<DatabaseBackup className="size-5 text-red-600" />}
         action={<Button className="px-3 py-1.5 text-sm" busy={busy === 'backup'} onClick={() => act('backup', () => api.backupNow())}>Сделать копию сейчас</Button>}>
         {d.last && !d.last.ok ? <>Последняя копия не удалась: {d.last.error}</> : d.last ? <>Давно не было резервной копии: последняя — <Ago ms={d.last.at} />.</> : <>Резервных копий ещё не было.</>}
+      </Attention>,
+    );
+  }
+  if (someDirsFail && !backupStale) {
+    const bad = d.last?.dirs?.filter((x) => !x.ok).map((x) => x.path).join(', ');
+    items.push(
+      <Attention key="backup-partial" icon={<DatabaseBackup className="size-5 text-amber-600" />} action={<Button variant="secondary" className="px-3 py-1.5 text-sm" onClick={() => navigate('/admin/storage')}>Подробнее</Button>}>
+        Копии идут не во все папки: недоступна <b className="break-all font-mono text-xs">{bad}</b>. Подключите диск или флешку — в остальные папки копии сохраняются.
+      </Attention>,
+    );
+  }
+  if (d.verified && !d.verified.ok) {
+    items.push(
+      <Attention key="backup-verify" tone="red" icon={<DatabaseBackup className="size-5 text-red-600" />}
+        action={<Button className="px-3 py-1.5 text-sm" busy={busy === 'backup'} onClick={() => act('backup', async () => { await api.backupNow(); await api.verifyBackup(); })}>Сделать и проверить копию</Button>}>
+        Пробное восстановление не прошло: {d.verified.error}
+      </Attention>,
+    );
+  }
+  if (d.trash?.suggest) {
+    items.push(
+      <Attention key="trash" icon={<Trash2 className="size-5 text-amber-600" />}
+        action={<>
+          <Button className="px-3 py-1.5 text-sm" busy={busy === 'trash'} onClick={() => act('trash', () => api.setTrashPolicy(90))}>Включить</Button>
+          <Button variant="secondary" className="px-3 py-1.5 text-sm" onClick={() => act('trash', () => api.dismissTrashSuggestion())}>Не сейчас</Button>
+        </>}>
+        <b>Предложение:</b> в корзине {d.trash.old_items} {plural(d.trash.old_items, 'запись', 'записи', 'записей')} старше 90 дней. Включить автоочистку — удалять из корзины навсегда через 90 дней?
+        <span className="block text-xs text-slate-500">Решаете вы: без вашего согласия ничего не удаляется. Срок можно поменять в «Корзине».</span>
       </Attention>,
     );
   }
@@ -226,8 +259,8 @@ export function AdminOverview() {
 
       <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tile to="/admin/server" icon={<ServerIcon className="size-4" />} title="Сервер" value={d.health ? 'Работает' : 'Нет ответа'} tone={d.health ? 'ok' : 'warn'} hint={d.health && `версия ${d.health.version}`} />
-        <Tile to="/admin/storage" icon={<DatabaseBackup className="size-4" />} title="Копии" tone={backupStale || !backupsOn ? 'warn' : 'ok'}
-          value={!backupsOn ? 'Не настроены' : d.last ? (d.last.ok ? timeAgo(d.last.at) : 'Ошибка') : 'Ещё не было'}
+        <Tile to="/admin/storage" icon={<DatabaseBackup className="size-4" />} title="Копии" tone={backupStale || !backupsOn || someDirsFail ? 'warn' : 'ok'}
+          value={!backupsOn ? 'Не настроены' : d.last ? (d.last.ok ? timeAgo(d.last.at) : savedSomewhere ? `${timeAgo(d.last.at)}, не везде` : 'Ошибка') : 'Ещё не было'}
           hint={backupsOn && policy ? `каждые ${policy.every_hours} ч · ${d.storage?.backup_dirs[0]}` : undefined} />
         <Tile to="/admin/storage" icon={<HardDrive className="size-4" />} title="Диск" tone={lowDisk.length ? 'warn' : 'ok'}
           value={d.storage?.volumes[0] ? `${bytes(d.storage.volumes[0].free_bytes)} свободно` : '—'}

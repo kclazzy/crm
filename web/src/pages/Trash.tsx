@@ -1,3 +1,4 @@
+import { TrashAutoClean } from '../components/TrashAutoClean';
 import { useCallback, useEffect, useState } from 'react';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { useAuth } from '../auth';
@@ -22,6 +23,7 @@ export function Trash() {
     <>
       <PageHeader title="Корзина" subtitle="Удалённое можно вернуть. Окончательно удаляет только владелец." />
       <ErrorText>{error}</ErrorText>
+      {me?.role === 'host' && <TrashAutoClean />}
       <div className="grid gap-5 md:grid-cols-2">
         <section className="card p-5">
           <h2 className="mb-3 font-semibold">Клиенты</h2>

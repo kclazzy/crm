@@ -1,7 +1,7 @@
 import { PathInput } from './FolderPicker';
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, DatabaseBackup, FolderOpen, Plus, Trash2, XCircle } from 'lucide-react';
-import { type BackupPolicy, type BackupStatus, bytes } from '../api';
+import { AlertTriangle, CheckCircle2, Clock, DatabaseBackup, FolderOpen, Plus, ShieldCheck, Trash2, XCircle } from 'lucide-react';
+import { type BackupPolicy, type BackupStatus, type BackupVerified, bytes } from '../api';
 import { Button, Ago } from './ui';
 
 const EVERY = [
@@ -10,6 +10,7 @@ const EVERY = [
 ] as const;
 const KEEP_ALL = [[6, '6 часов'], [12, '12 часов'], [24, 'сутки'], [48, '2 суток'], [72, '3 суток'], [168, 'неделю']] as const;
 const KEEP_DAYS = [[7, 'неделю'], [14, '2 недели'], [30, 'месяц'], [60, '2 месяца'], [90, '3 месяца'], [180, 'полгода'], [365, 'год']] as const;
+const MAX_GB = [0, 5, 10, 20, 50, 100, 200] as const;
 
 function label<T extends readonly (readonly [number, string])[]>(list: T, v: number) {
   return list.find(([k]) => k === v)?.[1] ?? `${v}`;
@@ -17,6 +18,7 @@ function label<T extends readonly (readonly [number, string])[]>(list: T, v: num
 
 /** Сколько копий будет в папке — та же формула, что на сервере (Policy::expected_copies). */
 function expected(p: BackupPolicy) {
+  if (p.keep === 'ladder') return 3;
   return Math.max(1, Math.floor(p.keep_all_hours / p.every_hours)) + Math.max(0, p.keep_days - Math.ceil(p.keep_all_hours / 24));
 }
 
@@ -37,11 +39,13 @@ export function BackupSettings(props: {
   dirs: string[];
   policy: BackupPolicy;
   last: BackupStatus | null;
+  verified: BackupVerified | null;
   hasSavedDirs: boolean;
-  busy: '' | 'save' | 'run' | 'move';
+  busy: '' | 'save' | 'run' | 'move' | 'verify';
   warnings: string[];
   onSave: (dirs: string[], policy: BackupPolicy) => void;
   onRun: () => void;
+  onVerify: () => void;
 }) {
   const [dirs, setDirs] = useState(props.dirs.length ? props.dirs : ['']);
   const [p, setP] = useState<BackupPolicy>(props.policy);
@@ -97,16 +101,34 @@ export function BackupSettings(props: {
           </div>
         </Step>
 
-        <Step n={3} icon={DatabaseBackup} title="Сколько хранить" hint="Старые копии удаляются сами, чтобы не переполнить диск.">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px]">
-            <span>Хранить все копии за</span>
-            <select className={select} value={p.keep_all_hours} onChange={(e) => set({ keep_all_hours: Number(e.target.value) })}>
-              {KEEP_ALL.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-            </select>
-            <span>, затем по одной копии в день ещё</span>
-            <select className={select} value={p.keep_days} onChange={(e) => set({ keep_days: Number(e.target.value) })}>
-              {KEEP_DAYS.filter(([d]) => d * 24 >= p.keep_all_hours).map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-            </select>
+        <Step n={3} icon={DatabaseBackup} title="Сколько хранить" hint="Старые копии удаляются сами, чтобы не переполнить диск. Самая новая копия и не меньше трёх копий остаются всегда.">
+          <div className="flex flex-col gap-3">
+            <label className="flex cursor-pointer items-start gap-2.5 text-[15px]">
+              <input type="radio" className="mt-1 size-4 accent-brand-600" checked={p.keep !== 'ladder'} onChange={() => set({ keep: 'window' })} />
+              <span><b>Подробно</b> — можно откатиться на любой час за последние дни и на любой день дальше.</span>
+            </label>
+            {p.keep !== 'ladder' && (
+              <div className="ml-7 flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px]">
+                <span>Хранить все копии за</span>
+                <select className={select} value={p.keep_all_hours} onChange={(e) => set({ keep_all_hours: Number(e.target.value) })}>
+                  {KEEP_ALL.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                </select>
+                <span>, затем по одной копии в день ещё</span>
+                <select className={select} value={p.keep_days} onChange={(e) => set({ keep_days: Number(e.target.value) })}>
+                  {KEEP_DAYS.filter(([d]) => d * 24 >= p.keep_all_hours).map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                </select>
+              </div>
+            )}
+            <label className="flex cursor-pointer items-start gap-2.5 text-[15px]">
+              <input type="radio" className="mt-1 size-4 accent-brand-600" checked={p.keep === 'ladder'} onChange={() => set({ keep: 'ladder' })} />
+              <span><b>Лесенка — всего 3 файла:</b> последняя копия, копия до 2 суток давности и копия от 2 суток до 2 недель. Меньше всего места, но откатиться можно только на эти три момента.</span>
+            </label>
+            <div className="flex flex-wrap items-center gap-3 text-[15px]">
+              <span>Не занимать больше</span>
+              <select className={select} value={p.max_gb ?? 0} onChange={(e) => set({ max_gb: Number(e.target.value) || null })}>
+                {MAX_GB.map((g) => <option key={g} value={g}>{g ? `${g} ГБ в папке` : 'без ограничения'}</option>)}
+              </select>
+            </div>
           </div>
         </Step>
       </div>
@@ -114,8 +136,9 @@ export function BackupSettings(props: {
       <div className="mt-8 rounded-2xl bg-brand-50 p-4 text-[15px] text-brand-900 dark:bg-brand-500/10 dark:text-brand-100">
         {p.enabled ? (
           <>
-            <b>Итого:</b> {label(EVERY, p.every_hours).toLowerCase()} сервер сохраняет копию. Все копии хранятся {label(KEEP_ALL, p.keep_all_hours)}, затем по одной в день — {label(KEEP_DAYS, p.keep_days)}.
-            В папке будет около <b>{count}</b> копий{size && <> — примерно <b>{size}</b></>}.
+            <b>Итого:</b> {label(EVERY, p.every_hours).toLowerCase()} сервер сохраняет копию.{' '}
+            {p.keep === 'ladder' ? 'В папке всегда 3 копии: последняя, недавняя и постарше.' : <>Все копии хранятся {label(KEEP_ALL, p.keep_all_hours)}, затем по одной в день — {label(KEEP_DAYS, p.keep_days)}.</>}
+            {' '}В папке будет около <b>{count}</b> копий{size && <> — примерно <b>{size}</b></>}{p.max_gb ? <>, но не больше <b>{p.max_gb} ГБ</b> (сверх — удаляются самые старые)</> : null}.
           </>
         ) : (
           <><b>Автоматические копии выключены.</b> Делайте копию вручную кнопкой ниже — иначе при сбое данные не восстановить.</>
@@ -125,11 +148,26 @@ export function BackupSettings(props: {
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Button busy={props.busy === 'save'} onClick={() => props.onSave(dirs.map((d) => d.trim()).filter(Boolean), p)}>Сохранить настройки</Button>
         <Button variant="secondary" busy={props.busy === 'run'} disabled={!props.hasSavedDirs} onClick={props.onRun}>Сделать копию сейчас</Button>
+        <Button variant="ghost" busy={props.busy === 'verify'} disabled={!props.last} onClick={props.onVerify}><ShieldCheck className="size-4" />Проверить копию</Button>
       </div>
       <div className="mt-4">
         {!props.last && <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"><AlertTriangle className="size-4" />Копий ещё не было — укажите папку и сохраните настройки.</p>}
-        {props.last && !props.last.ok && <p className="flex items-start gap-2 text-sm text-red-600"><XCircle className="mt-0.5 size-4 shrink-0" />Последняя попытка <Ago ms={props.last.at} /> не удалась: {props.last.error}</p>}
-        {props.last?.ok && <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" />Последняя копия <Ago ms={props.last.at} /> · {bytes(props.last.size ?? 0)} · целостность проверена</p>}
+        {props.last && !props.last.ok && !props.last.dirs?.some((d) => d.ok) && <p className="flex items-start gap-2 text-sm text-red-600"><XCircle className="mt-0.5 size-4 shrink-0" /><span>Последняя попытка <Ago ms={props.last.at} /> не удалась: {props.last.error}. Сервер попробует снова через 15 минут.</span></p>}
+        {props.last?.dirs?.some((d) => d.ok) && !props.last.ok && <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"><AlertTriangle className="size-4" /><span>Копия <Ago ms={props.last.at} /> сохранилась не во все папки:</span></p>}
+        {props.last?.ok && <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" /><span>Последняя копия <Ago ms={props.last.at} /> · {bytes(props.last.size ?? 0)} · целостность проверена</span></p>}
+        {props.last?.dirs && props.last.dirs.length > 1 && (
+          <ul className="mt-2 flex flex-col gap-1 text-sm">
+            {props.last.dirs.map((d) => (
+              <li key={d.path} className={`flex items-start gap-2 ${d.ok ? 'text-slate-600 dark:text-slate-300' : 'text-red-600'}`}>
+                {d.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}
+                <span className="break-all"><span className="font-mono text-xs">{d.path}</span>{!d.ok && <> — недоступна. Подключите диск или флешку; остальные папки копии получают.</>}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {props.verified && (props.verified.ok
+          ? <p className="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"><ShieldCheck className="size-4 shrink-0 text-emerald-600" /><span>Пробное восстановление <Ago ms={props.verified.at} />: копия открывается, в ней {props.verified.clients} клиентов и {props.verified.tasks} задач. Проверяется само раз в неделю.</span></p>
+          : <p className="mt-2 flex items-start gap-2 text-sm text-red-600"><XCircle className="mt-0.5 size-4 shrink-0" /><span>Пробное восстановление <Ago ms={props.verified.at} /> не прошло: {props.verified.error}. Сделайте новую копию и проверьте диск с копиями.</span></p>)}
       </div>
     </section>
   );

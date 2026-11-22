@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, DatabaseZap, FolderInput, HardDrive, History, RefreshCw, Truck } from 'lucide-react';
-import { api, type BackupFile, type BackupPolicy, type BackupStatus, bytes, type StorageInfo } from '../api';
+import { api, ApiError, type BackupFile, type BackupPolicy, type BackupStatus, type BackupVerified, bytes, type StorageInfo } from '../api';
+import { BackupPassword } from '../components/BackupPassword';
 import { BackupScheme } from '../components/BackupScheme';
 import { BackupSettings } from '../components/BackupSettings';
 import { PathInput } from '../components/FolderPicker';
@@ -60,10 +61,15 @@ function Volumes({ info }: { info: StorageInfo }) {
 export function AdminStorage() {
   const [info, setInfo] = useState<StorageInfo | null>(null);
   const [last, setLast] = useState<BackupStatus | null>(null);
+  const [verified, setVerified] = useState<BackupVerified | null>(null);
+  const [encrypted, setEncrypted] = useState(false);
+  // Копия зашифрована на другом компьютере — спросить пароль копий.
+  const [askPassword, setAskPassword] = useState(false);
+  const [password, setPassword] = useState('');
   const [files, setFiles] = useState<BackupFile[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState<'' | 'save' | 'run' | 'move'>('');
+  const [busy, setBusy] = useState<'' | 'save' | 'run' | 'move' | 'verify'>('');
   const [moving, setMoving] = useState(false);
   const [restoring, setRestoring] = useState<BackupFile | null>(null);
   const [movingOut, setMovingOut] = useState(false);
@@ -77,13 +83,15 @@ export function AdminStorage() {
       setInfo(s);
       setLast(b.last);
       setFiles(b.files);
+      setVerified(b.verified);
+      setEncrypted(b.encrypted);
     } catch (x) {
       setError((x as Error).message);
     }
   }, []);
   useEffect(() => void load(), [load]);
 
-  async function act(kind: 'save' | 'run', fn: () => Promise<unknown>) {
+  async function act(kind: 'save' | 'run' | 'verify', fn: () => Promise<unknown>) {
     setBusy(kind);
     setError('');
     try {
@@ -134,8 +142,10 @@ export function AdminStorage() {
 
       <div className="mt-6">
         <BackupSettings key={JSON.stringify([info.backup_dirs, info.policy])} dirs={info.backup_dirs} policy={info.policy} last={last}
-          hasSavedDirs={info.backup_dirs.length > 0} busy={busy} warnings={warnings} onSave={saveBackup} onRun={() => act('run', api.backupNow)} />
+          hasSavedDirs={info.backup_dirs.length > 0} busy={busy} warnings={warnings} onSave={saveBackup} onRun={() => act('run', api.backupNow)}
+          verified={verified} onVerify={() => act('verify', api.verifyBackup)} />
       </div>
+      <div className="mt-6"><BackupPassword encrypted={encrypted} onChanged={load} /></div>
 
       <div className="mt-6">
         <section className="card p-6">
@@ -206,6 +216,11 @@ export function AdminStorage() {
           Данные вернутся к состоянию на <b>{restoring && new Date(restoring.at).toLocaleString('ru-RU')}</b>. Всё, что сделано после, пропадёт из рабочей базы
           (текущая база сохранится рядом как <code className="font-mono">before_restore_….db</code>). Копия будет проверена; встанет на место после перезапуска сервера.
         </p>
+        {askPassword && (
+          <Field label="Пароль копий" hint="Копия зашифрована на другом компьютере — введите пароль, который задавали для копий.">
+            <input type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+          </Field>
+        )}
         <ErrorText>{error}</ErrorText>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setRestoring(null)}>Отмена</Button>
@@ -214,11 +229,16 @@ export function AdminStorage() {
             setBusy('move');
             setError('');
             try {
-              const r = await work.restore(restoring.name, null);
+              const r = await work.restore(restoring.name, null, password);
               setRestoring(null);
+              setAskPassword(false);
+              setPassword('');
               setDone(`Копия ${r.name} проверена. Перезапустите сервер (трей → «Перезапустить сервер») — данные вернутся.`);
               load();
-            } catch (x) { setError((x as Error).message); } finally { setBusy(''); }
+            } catch (x) {
+              if (x instanceof ApiError && x.data.need_password) setAskPassword(true);
+              setError((x as Error).message);
+            } finally { setBusy(''); }
           }}>Восстановить</Button>
         </div>
       </Modal>
@@ -230,17 +250,27 @@ export function AdminStorage() {
           setBusy('move');
           setError('');
           try {
-            const r = await work.importDb(source, importMode);
+            const r = await work.importDb(source, importMode, password);
             setImporting(false);
+            setAskPassword(false);
+            setPassword('');
             setDone('restart' in r
               ? `Копия ${r.staged} проверена и заменит базу после перезапуска сервера (трей → «Перезапустить сервер»).`
               : importReport(r));
             load();
-          } catch (x) { setError((x as Error).message); } finally { setBusy(''); }
+          } catch (x) {
+            if (x instanceof ApiError && x.data.need_password) setAskPassword(true);
+            setError((x as Error).message);
+          } finally { setBusy(''); }
         }}>
           <Field label="Откуда" hint="Файл или папка на компьютере с CRM — флешка, сетевая папка. Копия от более старой версии CRM подойдёт.">
             <PathInput name="source" placeholder="E:\crm_move_….crmpack" required backups />
           </Field>
+          {askPassword && (
+            <Field label="Пароль копий" hint="Копия зашифрована — введите пароль, который задавали для копий на старом сервере.">
+              <input type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+            </Field>
+          )}
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1 text-sm font-medium">Как импортировать</legend>
             {([

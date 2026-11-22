@@ -49,6 +49,9 @@ pub struct ImportIn {
     source: String,
     /// `replace` — заменить данные этого сервера; `merge` — добавить к ним.
     mode: String,
+    /// Пароль копий, если копия зашифрована на другом компьютере.
+    #[serde(default)]
+    password: Option<String>,
 }
 
 pub async fn import_db(
@@ -66,9 +69,7 @@ pub async fn import_db(
     let storage = app.rt.config().storage;
     match req.mode.as_str() {
         "replace" => {
-            let staged = crate::restore::stage(&storage, &source)
-                .await
-                .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+            let staged = crate::restore::stage(&storage, &source, req.password.as_deref()).await?;
             app.rt
                 .frozen
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -83,7 +84,7 @@ pub async fn import_db(
             Ok(Json(json!({ "restart": true, "staged": staged })))
         }
         "merge" => {
-            let report = merge(&app, &storage, &source).await?;
+            let report = merge(&app, &storage, &source, req.password.as_deref()).await?;
             audit(
                 &app.pool,
                 Some(&owner.id),
@@ -114,7 +115,12 @@ fn fail(e: impl std::fmt::Display) -> ApiError {
 }
 
 /// Распаковать копию во временную папку и привести её к схеме этой версии.
-async fn prepare(work: &Path, source: &Path) -> Result<(PathBuf, PathBuf), ApiError> {
+async fn prepare(
+    work: &Path,
+    storage: &crate::config::Storage,
+    source: &Path,
+    password: Option<&str>,
+) -> Result<(PathBuf, PathBuf), ApiError> {
     let _ = std::fs::remove_dir_all(work);
     std::fs::create_dir_all(work).map_err(fail)?;
     let is_pack = source
@@ -137,11 +143,14 @@ async fn prepare(work: &Path, source: &Path) -> Result<(PathBuf, PathBuf), ApiEr
     } else {
         source.to_owned()
     };
-    let packed = std::fs::read(&file).map_err(fail)?;
-    let raw =
-        zstd::decode_all(packed.as_slice()).map_err(|_| fail("это не копия CRM (.db.zst)"))?;
     let db = work.join("source.db");
-    std::fs::write(&db, raw).map_err(fail)?;
+    crate::restore::unpack(storage, &file, &db, password).map_err(|e| {
+        if e.needs_password() {
+            ApiError::from(e)
+        } else {
+            fail(e)
+        }
+    })?;
     crate::backup::check_integrity(&db).await.map_err(fail)?;
     // Копия могла быть с более старой версии — догоняем схему до этой.
     let pool = sqlx::SqlitePool::connect_with(SqliteConnectOptions::new().filename(&db))
@@ -223,9 +232,10 @@ async fn merge(
     app: &AppState,
     storage: &crate::config::Storage,
     source: &Path,
+    password: Option<&str>,
 ) -> Result<Report, ApiError> {
     let work = storage.db_dir.join("import-merge");
-    let (db, dir) = prepare(&work, source).await?;
+    let (db, dir) = prepare(&work, storage, source, password).await?;
     let result = merge_db(app, &db).await;
     let attachments = match &result {
         Ok(_) => crate::backup::copy_new_files(&dir.join("attachments"), &storage.attachments_dir)

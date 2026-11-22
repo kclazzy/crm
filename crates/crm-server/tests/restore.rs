@@ -108,7 +108,7 @@ async fn corrupt_backup_is_refused() {
         zstd::encode_all(&b"not a database at all"[..], 3).unwrap(),
     )
     .unwrap();
-    let e = crm_server::restore::stage(&cfg.storage, &bad)
+    let e = crm_server::restore::stage(&cfg.storage, &bad, None)
         .await
         .unwrap_err();
     assert!(e.to_string().contains("целостности"), "{e}");
@@ -189,7 +189,7 @@ async fn move_package_carries_data_files_and_freezes_old_server() {
     // Новый компьютер: пустые папки, восстановление из пакета.
     let new_pc = tempfile::tempdir().unwrap();
     let cfg = config_in(new_pc.path());
-    let staged = crm_server::restore::stage(&cfg.storage, &pack)
+    let staged = crm_server::restore::stage(&cfg.storage, &pack, None)
         .await
         .unwrap();
     assert_eq!(staged.attachments_copied, 1);
