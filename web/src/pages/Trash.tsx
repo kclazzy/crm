@@ -4,9 +4,11 @@ import { RotateCcw, Trash2 } from 'lucide-react';
 import { useAuth } from '../auth';
 import { type Client, work } from '../work';
 import { Button, ErrorText, Modal, PageHeader, Ago } from '../components/ui';
+import { useConfirm } from '../components/Confirm';
 
 export function Trash() {
   const { me } = useAuth();
+  const ask = useConfirm();
   const [clients, setClients] = useState<Client[]>([]);
   const [tasks, setTasks] = useState<Awaited<ReturnType<typeof work.trashedTasks>>>([]);
   const [error, setError] = useState('');
@@ -46,6 +48,9 @@ export function Trash() {
               <li key={t.id} className="flex items-center gap-2 py-2.5 text-sm">
                 <span className="min-w-0 flex-1"><b>{t.title}</b><br /><span className="text-xs text-slate-500">{t.client_name} · <Ago ms={t.deleted_at} /></span></span>
                 <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => act(() => work.restoreTask(t.id))}><RotateCcw className="size-3.5" />Вернуть</Button>
+                {me?.role === 'host' && <Button variant="ghost" className="px-2 py-1.5 text-red-600" title="Удалить навсегда" onClick={async () => {
+                  if (await ask({ title: 'Удалить задачу навсегда?', text: <>«{t.title}» с подзадачами, чатом и файлами — без возможности вернуть (кроме как из резервной копии).</>, ok: 'Удалить навсегда', danger: true })) act(() => work.purgeTask(t.id));
+                }}><Trash2 className="size-4" /></Button>}
               </li>
             ))}
           </ul>

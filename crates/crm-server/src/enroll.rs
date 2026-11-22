@@ -34,13 +34,15 @@ pub async fn new_code(
     Owner(_): Owner,
     Path(user_id): Path<String>,
 ) -> Result<Json<CodeOut>, ApiError> {
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ? AND is_active = 1)")
+    let active: Option<bool> =
+        sqlx::query_scalar("SELECT is_active = 1 FROM users WHERE id = ? AND deleted_at IS NULL")
             .bind(&user_id)
-            .fetch_one(&app.pool)
+            .fetch_optional(&app.pool)
             .await?;
-    if !exists {
-        return Err(ApiError::NotFound);
+    match active {
+        None => return Err(ApiError::NotFound),
+        Some(false) => return Err(crate::auth::disabled_error()),
+        Some(true) => {}
     }
     let expires_at = now_ms() + INVITE_TTL.num_milliseconds();
     let mut tx = crate::db::write_tx(&app.pool).await?;

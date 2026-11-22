@@ -95,6 +95,8 @@ export interface BackupStatus {
   error: string | null;
   /** Итог по каждой папке: недоступная папка не мешает остальным. */
   dirs?: { path: string; ok: boolean; error: string | null }[];
+  /** Последняя проверка, когда копия не понадобилась: данные не менялись. */
+  unchanged_at?: number | null;
 }
 
 /** Пробное восстановление: копия распакована отдельно и проверена. */

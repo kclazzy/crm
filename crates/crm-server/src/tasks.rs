@@ -1339,7 +1339,8 @@ pub async fn unarchive(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Удалить из архива навсегда (с подзадачами, чатом и файлами) — только владелец.
+/// Удалить навсегда (с подзадачами, чатом и файлами) — только владелец и только
+/// задачу из архива или из корзины: рабочую задачу сначала убирают.
 pub async fn purge(
     State(app): State<AppState>,
     user: CurrentUser,
@@ -1348,10 +1349,16 @@ pub async fn purge(
     if user.role != Role::Host {
         return Err(ApiError::Forbidden);
     }
-    let cur = current(&app.pool, &id).await?;
-    if cur.archived_at.is_none() {
+    let (title, archived, trashed): (String, bool, bool) = sqlx::query_as(
+        "SELECT title, archived_at IS NOT NULL, deleted_at IS NOT NULL FROM tasks WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&app.pool)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    if !archived && !trashed {
         return Err(ApiError::Conflict(
-            "удалить навсегда можно только задачу из архива",
+            "удалить навсегда можно только задачу из архива или корзины",
         ));
     }
     let to = crate::access::audience(&app.pool, &id).await?;
@@ -1364,7 +1371,7 @@ pub async fn purge(
         &app.pool,
         Some(&user.id),
         "task.purged",
-        Some(&cur.title),
+        Some(&title),
         "local",
     )
     .await?;

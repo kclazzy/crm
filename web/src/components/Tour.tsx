@@ -22,9 +22,16 @@ export function Tour({ user, steps }: { user: string; steps: TourStep[] }) {
       setBox(el ? el.getBoundingClientRect() : null);
     };
     place();
+    // Esc — то же, что «Пропустить».
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      try { localStorage.setItem(KEY(user), '1'); } catch { /* без памяти — покажем ещё раз */ }
+      setI(null);
+    };
     window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
-  }, [step]);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('keydown', esc); };
+  }, [step, user]);
 
   if (!step || i === null) return null;
   const finish = () => {

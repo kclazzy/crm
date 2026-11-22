@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDismiss } from './useDismiss';
 import { Ago } from './ui';
 import { useNavigate } from 'react-router';
 import { Bell as BellIcon, BellRing, Moon, X } from 'lucide-react';
@@ -30,10 +31,8 @@ export function Bell() {
   useEffect(() => {
     if (!open) return;
     work.prefs().then((p) => setAlways(p.notify_always)).catch(() => {});
-    const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
   }, [open]);
+  useDismiss(open, useCallback(() => setOpen(false), []), box);
 
   return (
     <div className="relative" ref={box}>

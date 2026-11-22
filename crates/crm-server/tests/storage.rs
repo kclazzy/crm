@@ -635,3 +635,89 @@ async fn trial_restore_checks_latest_copy_without_touching_working_db() {
     let (s, _) = app.call("GET", "/api/me", LOCAL, Some(&owner), None).await;
     assert_eq!(s, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn scheduled_copy_is_skipped_when_nothing_changed() {
+    use crm_server::backup::{scheduled, Scheduled};
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let dir = app.dir().join("backups");
+    let copies = || {
+        std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".db.zst"))
+            .count()
+    };
+
+    assert!(
+        matches!(scheduled(&app.state).await, Scheduled::Saved(_)),
+        "первая копия"
+    );
+    assert_eq!(copies(), 1);
+    // Служебные записи (вход, уведомления, журнал) — не повод для новой копии.
+    let (_, _) = app.call("GET", "/api/me", LOCAL, Some(&owner), None).await;
+    sqlx::query("INSERT INTO audit_log(id, action, created_at) VALUES ('x', 'login.failed', 0)")
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    assert!(
+        matches!(scheduled(&app.state).await, Scheduled::Unchanged),
+        "ночью и в выходные копии не пишутся"
+    );
+    assert_eq!(copies(), 1);
+    let (_, list) = app
+        .call("GET", "/api/admin/backups", LOCAL, Some(&owner), None)
+        .await;
+    assert!(
+        list["last"]["unchanged_at"].as_i64().is_some(),
+        "владелец видит, что проверка была: {list}"
+    );
+
+    // Сотрудник поменял данные — копия нужна.
+    let (s, _) = app
+        .call(
+            "POST",
+            "/api/clients",
+            LOCAL,
+            Some(&owner),
+            Some(json!({"kind": "person", "name": "Новый клиент"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED);
+    assert!(
+        matches!(scheduled(&app.state).await, Scheduled::Saved(_)),
+        "данные изменились — копия"
+    );
+}
+
+#[tokio::test]
+async fn temporary_files_go_to_backup_disk_not_to_database_disk() {
+    let data = std::path::Path::new("/data");
+    let usb = tempfile::tempdir().unwrap();
+    let missing = usb.path().join("нет-такой").join("папки");
+    let picked = crm_server::backup::workspace(&[missing.clone(), usb.path().to_owned()], data);
+    assert_eq!(picked, usb.path(), "первая доступная папка копий");
+    assert_eq!(
+        crm_server::backup::workspace(&[missing], data),
+        data,
+        "нет доступных — рядом с базой"
+    );
+
+    // После копии временных файлов не остаётся ни там, ни там.
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (s, _) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    for d in [app.dir().join("data"), app.dir().join("backups")] {
+        let tmp: Vec<_> = std::fs::read_dir(&d)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains("tmp") || n.starts_with(".crm-"))
+            .collect();
+        assert!(tmp.is_empty(), "{}: {tmp:?}", d.display());
+    }
+}

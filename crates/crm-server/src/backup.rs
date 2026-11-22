@@ -38,6 +38,12 @@ pub struct Status {
     /// Итог по каждой папке.
     #[serde(default)]
     pub dirs: Vec<DirStatus>,
+    /// Счётчик изменений данных на момент копии.
+    #[serde(default)]
+    pub marker: Option<i64>,
+    /// Когда последний раз проверили и копия не понадобилась (данные не менялись).
+    #[serde(default)]
+    pub unchanged_at: Option<i64>,
 }
 
 impl Status {
@@ -45,6 +51,123 @@ impl Status {
     pub fn saved(&self) -> bool {
         self.ok || self.dirs.iter().any(|d| d.ok)
     }
+
+    /// Когда последний раз копия была сделана или оказалась не нужна.
+    pub fn checked_at(&self) -> i64 {
+        self.unchanged_at.map_or(self.at, |u| u.max(self.at))
+    }
+}
+
+/// Таблицы, изменения в которых — не повод для новой копии: вход, уведомления,
+/// журнал, отметки «прочитано», служебные настройки и сам счётчик.
+const NOT_WORTH_A_COPY: &[&str] = &[
+    "settings",
+    "sessions",
+    "notifications",
+    "audit_log",
+    "reminders_sent",
+    "task_alerts",
+    "task_views",
+    "chat_reads",
+    "local_tickets",
+    "enroll_codes",
+    "disk_usage_snapshots",
+    "backup_marker",
+    "_sqlx_migrations",
+];
+
+/// Поставить триггеры-счётчики на все рабочие таблицы (повторно — ничего не меняет).
+pub async fn install_change_marker(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let all: Vec<(String, String)> = sqlx::query_as(
+        "SELECT name, coalesce(sql, '') FROM sqlite_master
+         WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .fetch_all(pool)
+    .await?;
+    // Поиск (FTS) — виртуальная таблица и её служебные: их содержимое выводится
+    // из рабочих таблиц, а триггеры на них ставить нельзя.
+    let virtual_tables: Vec<&str> = all
+        .iter()
+        .filter(|(_, sql)| sql.to_uppercase().starts_with("CREATE VIRTUAL"))
+        .map(|(n, _)| n.as_str())
+        .collect();
+    let derived = |t: &str| {
+        virtual_tables
+            .iter()
+            .any(|v| t == *v || t.starts_with(&format!("{v}_")))
+    };
+    for (t, _) in all
+        .iter()
+        .filter(|(t, _)| !NOT_WORTH_A_COPY.contains(&t.as_str()) && !derived(t))
+    {
+        if !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            continue; // имена таблиц наши; на всякий случай — только простые
+        }
+        for op in ["INSERT", "UPDATE", "DELETE"] {
+            let sql = format!(
+                "CREATE TRIGGER IF NOT EXISTS crm_mark_{t}_{op} AFTER {op} ON \"{t}\"
+                 BEGIN UPDATE backup_marker SET n = n + 1 WHERE id = 1; END"
+            );
+            sqlx::query(sqlx::AssertSqlSafe(sql)).execute(pool).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn change_marker(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT n FROM backup_marker WHERE id = 1")
+        .fetch_one(pool)
+        .await
+}
+
+/// Итог копии по расписанию.
+#[derive(Debug)]
+pub enum Scheduled {
+    Saved(BackupFile),
+    /// С прошлой копии рабочие данные не менялись — копия не нужна.
+    Unchanged,
+    Failed(String),
+}
+
+/// Копия по расписанию: пропускается, если данные не менялись с прошлой удачной.
+pub async fn scheduled(app: &AppState) -> Scheduled {
+    let last = last_status(&app.pool).await;
+    if let (Some(s), Ok(now)) = (&last, change_marker(&app.pool).await) {
+        if s.ok && s.marker == Some(now) {
+            let mut s = s.clone();
+            s.unchanged_at = Some(Utc::now().timestamp_millis());
+            save_status(&app.pool, &s).await;
+            return Scheduled::Unchanged;
+        }
+    }
+    match run(app).await {
+        Ok(f) => Scheduled::Saved(f),
+        Err(e) => Scheduled::Failed(e.to_string()),
+    }
+}
+
+async fn save_status(pool: &SqlitePool, s: &Status) {
+    if let Ok(json) = serde_json::to_string(s) {
+        let _ = sqlx::query("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .bind(STATUS_KEY)
+            .bind(json)
+            .execute(pool)
+            .await;
+    }
+}
+
+/// Где делать временный снимок и сжатие: на диске копий (первая доступная папка),
+/// чтобы не изнашивать диск с базой; если ни одна не доступна — рядом с базой.
+pub fn workspace(dirs: &[PathBuf], db_dir: &Path) -> PathBuf {
+    for d in dirs {
+        let probe = d.join(".crm-probe");
+        // Только существующая папка: отключённую флешку или диск не создаём.
+        if d.is_dir() && std::fs::write(&probe, b"").is_ok() {
+            let _ = std::fs::remove_file(&probe);
+            return d.clone();
+        }
+    }
+    db_dir.to_owned()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,7 +184,9 @@ pub fn due(policy: &crm_core::backup::Policy, last: Option<&Status>, now: i64) -
     }
     match last {
         None => true,
-        Some(s) if s.saved() => now - s.at >= i64::from(policy.every_hours()) * 3600 * 1000,
+        Some(s) if s.saved() => {
+            now - s.checked_at() >= i64::from(policy.every_hours()) * 3600 * 1000
+        }
         Some(s) => now - s.at >= RETRY_AFTER_MS,
     }
 }
@@ -110,9 +235,12 @@ pub async fn run(app: &AppState) -> Result<BackupFile, BackupError> {
         .await
         .map(|o| o.tz())
         .unwrap_or(chrono_tz::Europe::Moscow);
+    let marker = change_marker(&app.pool).await.ok();
     let result = run_locked(&app.pool, &cfg, tz).await;
     let status = match &result {
         Ok((f, dirs)) => Status {
+            marker,
+            unchanged_at: None,
             at: f.at,
             ok: dirs.iter().all(|d| d.ok),
             file: Some(f.name.clone()),
@@ -130,15 +258,11 @@ pub async fn run(app: &AppState) -> Result<BackupFile, BackupError> {
             size: None,
             error: Some(e.to_string()),
             dirs: Vec::new(),
+            marker: None,
+            unchanged_at: None,
         },
     };
-    if let Ok(json) = serde_json::to_string(&status) {
-        let _ = sqlx::query("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-            .bind(STATUS_KEY)
-            .bind(json)
-            .execute(&app.pool)
-            .await;
-    }
+    save_status(&app.pool, &status).await;
     result.map(|(f, _)| f)
 }
 
@@ -152,8 +276,10 @@ async fn run_locked(
         return Err(BackupError::NoDirs);
     }
     let db_dir = cfg.storage.db_dir.clone();
-    let snapshot = db_dir.join("backup-snapshot.tmp.db");
-    let packed = db_dir.join("backup-packed.tmp");
+    // Снимок и сжатие — на диске копий: диск с базой (SSD) почти не пишется.
+    let work = workspace(&dirs, &db_dir);
+    let snapshot = work.join(".crm-snapshot.tmp.db");
+    let packed = work.join(".crm-packed.tmp");
     for p in [&snapshot, &packed] {
         if p.exists() {
             std::fs::remove_file(p).map_err(io(p))?;
@@ -182,9 +308,13 @@ async fn run_locked(
         let files = cfg.storage.attachments_dir.clone();
         let policy = cfg.backup;
         move || {
-            dirs.iter()
+            // Папка, где лежит сжатая копия, — последней: туда файл переносится, а не копируется.
+            let mut order: Vec<&PathBuf> = dirs.iter().filter(|d| **d != work).collect();
+            order.extend(dirs.iter().filter(|d| **d == work));
+            let mut out: Vec<DirStatus> = order
+                .into_iter()
                 .map(|dir| {
-                    let r = write_one(&packed, &name, &manifest, dir, &db_dir, &files, now, tz, &policy);
+                    let r = write_one(&packed, &name, &manifest, dir, &db_dir, &files, now, tz, &policy, *dir == work);
                     if let Err(e) = &r {
                         tracing::error!(dir = %dir.display(), error = %e, "копия в папку не записана");
                     }
@@ -194,7 +324,10 @@ async fn run_locked(
                         error: r.err().map(|e| format!("{}: {e}", dir.display())),
                     }
                 })
-                .collect::<Vec<_>>()
+                .collect();
+            // В статусе — в том порядке, в каком папки заданы.
+            out.sort_by_key(|d| dirs.iter().position(|x| *x == d.path));
+            out
         }
     })
     .await?;
@@ -243,11 +376,16 @@ fn write_one(
     now: DateTime<Utc>,
     tz: chrono_tz::Tz,
     policy: &crm_core::backup::Policy,
+    move_packed: bool,
 ) -> Result<(), BackupError> {
     std::fs::create_dir_all(dir).map_err(io(dir))?;
     crate::db::make_private(dir).map_err(|e| BackupError::Corrupt(e.to_string()))?;
     let tmp = dir.join(format!("{name}.tmp"));
-    std::fs::copy(packed, &tmp).map_err(io(&tmp))?;
+    if move_packed {
+        std::fs::rename(packed, &tmp).map_err(io(&tmp))?;
+    } else {
+        std::fs::copy(packed, &tmp).map_err(io(&tmp))?;
+    }
     let list = dir.join(format!("{name}{MANIFEST}"));
     std::fs::write(&list, manifest.join("\n")).map_err(io(&list))?;
     std::fs::rename(&tmp, dir.join(name)).map_err(io(dir))?;
@@ -460,7 +598,8 @@ pub async fn verify(app: &AppState) -> Result<Verified, BackupError> {
     if newest.is_empty() {
         return Err(BackupError::NothingToVerify);
     }
-    let work = cfg.storage.db_dir.join("verify");
+    // Распаковка для проверки — тоже на диске копий, а не на диске с базой.
+    let work = workspace(&cfg.storage.backup_dirs, &cfg.storage.db_dir).join(".crm-verify");
     let mut result = Verified {
         at: Utc::now().timestamp_millis(),
         ok: true,
@@ -570,7 +709,7 @@ pub async fn hourly(app: AppState) {
             continue;
         }
         if due(&cfg.backup, last.as_ref(), now) {
-            if let Err(e) = run(&app).await {
+            if let Scheduled::Failed(e) = scheduled(&app).await {
                 tracing::error!(error = %e, "резервное копирование не удалось");
             }
         } else if verify_due(last.as_ref(), last_verified(&app.pool).await.as_ref(), now) {
@@ -598,7 +737,22 @@ mod tests {
                     error: None,
                 })
                 .collect(),
+            marker: None,
+            unchanged_at: None,
         }
+    }
+
+    #[test]
+    fn unchanged_check_counts_as_a_check_for_the_schedule() {
+        let p = crm_core::backup::Policy::default(); // каждый час
+        let h = 3600 * 1000;
+        let mut s = st(0, true, &[]);
+        s.unchanged_at = Some(5 * h);
+        assert!(
+            !due(&p, Some(&s), 5 * h + h - 1),
+            "проверили час назад — ещё рано"
+        );
+        assert!(due(&p, Some(&s), 6 * h));
     }
 
     #[test]

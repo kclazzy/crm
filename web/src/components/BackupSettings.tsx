@@ -155,6 +155,9 @@ export function BackupSettings(props: {
         {props.last && !props.last.ok && !props.last.dirs?.some((d) => d.ok) && <p className="flex items-start gap-2 text-sm text-red-600"><XCircle className="mt-0.5 size-4 shrink-0" /><span>Последняя попытка <Ago ms={props.last.at} /> не удалась: {props.last.error}. Сервер попробует снова через 15 минут.</span></p>}
         {props.last?.dirs?.some((d) => d.ok) && !props.last.ok && <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"><AlertTriangle className="size-4" /><span>Копия <Ago ms={props.last.at} /> сохранилась не во все папки:</span></p>}
         {props.last?.ok && <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="size-4" /><span>Последняя копия <Ago ms={props.last.at} /> · {bytes(props.last.size ?? 0)} · целостность проверена</span></p>}
+        {props.last?.ok && props.last.unchanged_at && props.last.unchanged_at > props.last.at && (
+          <p className="mt-1 flex items-center gap-2 text-sm text-slate-500"><Clock className="size-4 shrink-0" /><span>Проверено <Ago ms={props.last.unchanged_at} />: данные с прошлой копии не менялись — новая копия не нужна, диск не изнашивается.</span></p>
+        )}
         {props.last?.dirs && props.last.dirs.length > 1 && (
           <ul className="mt-2 flex flex-col gap-1 text-sm">
             {props.last.dirs.map((d) => (

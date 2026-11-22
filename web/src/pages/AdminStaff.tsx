@@ -20,6 +20,8 @@ const filters: { id: string; label: string; test: (m: StaffMember) => boolean }[
 
 /** «Код · локальная сеть» и «Ключ · интернет» рядом. */
 function ConnectButtons({ m, onCode, onKey }: { m: StaffMember; onCode: () => void; onKey: () => void }) {
+  // Отключённому подключаться не к чему: сначала «Включить».
+  if (m.state === 'disabled') return <span className="text-xs text-slate-400">отключён</span>;
   return (
     <>
       <Button variant="secondary" className="flex-col gap-0 px-3 py-1 text-xs leading-tight" onClick={onCode} title="Адрес сервера и 8 символов — для программы CRM в офисе, без интернета">
@@ -121,7 +123,7 @@ function StaffCard({ m, onClose, onChanged, onCode, onKey, onReset, onDelete }: 
           </section>
           {!host && (
             <section className="flex flex-wrap gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
-              <Button variant="secondary" onClick={onReset}><RotateCcw className="size-4" />Сбросить доступ</Button>
+              {m.state !== 'disabled' && <Button variant="secondary" onClick={onReset}><RotateCcw className="size-4" />Сбросить доступ</Button>}
               {m.state === 'disabled'
                 ? <Button variant="secondary" onClick={() => act(() => api.enableUser(m.id))}><UserCheck className="size-4" />Включить</Button>
                 : <Button variant="secondary" onClick={async () => {

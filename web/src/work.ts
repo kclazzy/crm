@@ -138,7 +138,6 @@ export interface OrgSettings {
   work_end: string;
   holidays: string[];
   warn_hours: number;
-  archive_after_days: number;
 }
 
 export interface Hit {

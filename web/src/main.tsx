@@ -27,12 +27,14 @@ import { Security } from './pages/Security';
 import { AdminOverview } from './pages/AdminOverview';
 import { AdminJournal, AdminProtection } from './pages/AdminSecurity';
 
-function Gate({ children, owner = false }: { children: ReactNode; owner?: boolean }) {
+function Gate({ children, owner = false, manager = false }: { children: ReactNode; owner?: boolean; manager?: boolean }) {
   const { me, loading } = useAuth();
   if (loading) return <div className="grid h-dvh place-items-center"><Loader2 className="size-7 animate-spin text-brand-500" /></div>;
   if (!me) return <Navigate to="/login" replace />;
   // Админ-панель — только владельцу; остальным сервер всё равно ответит 403.
   if (owner && me.role !== 'host') return <Navigate to="/" replace />;
+  // Корзина — руководителю и владельцу: у сотрудника её нет в меню и нет прав.
+  if (manager && me.role === 'employee') return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -46,14 +48,14 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/forgot" element={<Forgot />} />
           <Route element={<Gate><LiveProvider><Shell /></LiveProvider></Gate>}>
             <Route index element={<TaskList mode="mine" />} />
-            <Route path="tasks" element={<TaskList mode="all" />} />
+            <Route path="tasks" element={<Gate manager><TaskList mode="all" /></Gate>} />
             <Route path="archive" element={<Archive />} />
             <Route path="tasks/:id" element={<TaskPage />} />
             <Route path="clients" element={<Clients />} />
             <Route path="clients/import" element={<ImportClients />} />
             <Route path="clients/:id" element={<ClientCard />} />
             <Route path="messenger" element={<Messenger />} />
-            <Route path="trash" element={<Trash />} />
+            <Route path="trash" element={<Gate manager><Trash /></Gate>} />
             <Route path="admin" element={<Gate owner><AdminOverview /></Gate>} />
             <Route path="admin/protection" element={<Gate owner><AdminProtection /></Gate>} />
             <Route path="admin/journal" element={<Gate owner><AdminJournal /></Gate>} />
