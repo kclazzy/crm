@@ -20,7 +20,23 @@ pub struct Policy {
     every_hours: u32,
     keep_all_hours: u32,
     keep_days: u32,
+    keep: KeepMode,
+    max_gb: Option<u32>,
 }
+
+/// Как хранить копии.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeepMode {
+    /// Все копии за `keep_all_hours`, дальше по одной в сутки `keep_days` дней.
+    #[default]
+    Window,
+    /// Ровно 3 файла: последняя, моложе 2 суток и от 2 суток до ~2 недель.
+    Ladder,
+}
+
+/// Меньше стольких копий уборка не оставляет никогда (если они вообще есть).
+pub const MIN_KEEP: usize = 3;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -29,6 +45,11 @@ pub struct RawPolicy {
     pub every_hours: u32,
     pub keep_all_hours: u32,
     pub keep_days: u32,
+    #[serde(default)]
+    pub keep: KeepMode,
+    /// Потолок места под копии в одной папке, ГБ; `None` — без потолка.
+    #[serde(default)]
+    pub max_gb: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -41,6 +62,8 @@ pub enum PolicyError {
     KeepDays,
     #[error("срок хранения ежедневных копий должен быть не меньше срока хранения всех копий")]
     Order,
+    #[error("потолок места для копий — от 1 до 10000 ГБ")]
+    MaxGb,
 }
 
 impl Default for Policy {
@@ -50,6 +73,8 @@ impl Default for Policy {
             every_hours: 1,
             keep_all_hours: 48,
             keep_days: 30,
+            keep: KeepMode::Window,
+            max_gb: None,
         }
     }
 }
@@ -57,7 +82,7 @@ impl Default for Policy {
 impl TryFrom<RawPolicy> for Policy {
     type Error = PolicyError;
     fn try_from(r: RawPolicy) -> Result<Self, PolicyError> {
-        Policy::new(r.enabled, r.every_hours, r.keep_all_hours, r.keep_days)
+        Policy::from_raw(r)
     }
 }
 
@@ -68,6 +93,8 @@ impl From<Policy> for RawPolicy {
             every_hours: p.every_hours,
             keep_all_hours: p.keep_all_hours,
             keep_days: p.keep_days,
+            keep: p.keep,
+            max_gb: p.max_gb,
         }
     }
 }
@@ -96,7 +123,28 @@ impl Policy {
             every_hours,
             keep_all_hours,
             keep_days,
+            keep: KeepMode::Window,
+            max_gb: None,
         })
+    }
+
+    /// Полная проверка, включая способ хранения и потолок места.
+    pub fn from_raw(r: RawPolicy) -> Result<Self, PolicyError> {
+        let mut p = Policy::new(r.enabled, r.every_hours, r.keep_all_hours, r.keep_days)?;
+        if r.max_gb.is_some_and(|g| !(1..=10_000).contains(&g)) {
+            return Err(PolicyError::MaxGb);
+        }
+        p.keep = r.keep;
+        p.max_gb = r.max_gb;
+        Ok(p)
+    }
+
+    pub fn keep_mode(&self) -> KeepMode {
+        self.keep
+    }
+
+    pub fn max_gb(&self) -> Option<u32> {
+        self.max_gb
     }
 
     pub fn enabled(&self) -> bool {
@@ -111,6 +159,9 @@ impl Policy {
 
     /// Сколько копий будет лежать в папке в установившемся режиме (для подсказки владельцу).
     pub fn expected_copies(&self) -> u32 {
+        if self.keep == KeepMode::Ladder {
+            return MIN_KEEP as u32;
+        }
         let recent = (self.keep_all_hours / self.every_hours).max(1);
         let daily = self
             .keep_days
@@ -143,42 +194,117 @@ pub fn parse_file_name(name: &str) -> Option<DateTime<Utc>> {
         .map(|n| n.and_utc())
 }
 
-/// Какие бэкапы удалить. Хранится: всё моложе `keep_all`; старше — последняя копия
-/// за каждые сутки (по часовому поясу организации) в пределах `keep_days`; остальное — удалить.
-/// Повторный вызов на результате ничего не удаляет (идемпотентно).
+/// Какие копии удалить. `copies` — время и размер каждой копии в папке.
+///
+/// 1. Основное правило — по способу хранения ([`KeepMode`]).
+/// 2. Самая новая копия не удаляется никогда, и меньше [`MIN_KEEP`] копий не остаётся.
+/// 3. Потолок места: сверх него удаляются самые старые, но не ниже п. 2.
+///
+/// Сутки считаются по часовому поясу организации. Повторный вызов на результате
+/// ничего не удаляет (идемпотентно).
 pub fn to_delete(
-    backups: &[DateTime<Utc>],
+    copies: &[(DateTime<Utc>, u64)],
     now: DateTime<Utc>,
     tz: Tz,
     policy: &Policy,
 ) -> Vec<DateTime<Utc>> {
-    use std::collections::BTreeMap;
-
-    let mut delete = Vec::new();
-    // Последняя копия каждых суток в зоне 48 ч … 30 дней.
-    let mut newest_per_day: BTreeMap<NaiveDate, DateTime<Utc>> = BTreeMap::new();
-    for &t in backups {
-        let age = now - t;
-        if age <= policy.keep_all() {
-            continue;
+    let mut all: Vec<(DateTime<Utc>, u64)> = copies.to_vec();
+    all.sort_by_key(|c| std::cmp::Reverse(c.0)); // новые первыми
+    all.dedup_by_key(|c| c.0);
+    let times: Vec<DateTime<Utc>> = all.iter().map(|c| c.0).collect();
+    let mut keep: Vec<bool> = match policy.keep {
+        KeepMode::Window => window_keep(&times, now, tz, policy),
+        KeepMode::Ladder => ladder_keep(&times, now),
+    };
+    // Самая новая и не меньше MIN_KEEP — добираем самыми новыми из удаляемых.
+    for k in keep.iter_mut().take(1) {
+        *k = true;
+    }
+    let mut kept = keep.iter().filter(|k| **k).count();
+    for k in keep.iter_mut() {
+        if kept >= MIN_KEEP.min(times.len()) {
+            break;
         }
-        if age > policy.keep_daily() {
-            delete.push(t);
-            continue;
+        if !*k {
+            *k = true;
+            kept += 1;
         }
-        let day = t.with_timezone(&tz).date_naive();
-        match newest_per_day.get(&day) {
-            Some(&kept) if kept >= t => delete.push(t),
-            Some(&kept) => {
-                delete.push(kept);
-                newest_per_day.insert(day, t);
+    }
+    if let Some(gb) = policy.max_gb {
+        let cap = u64::from(gb) << 30;
+        let mut total: u64 = all
+            .iter()
+            .zip(&keep)
+            .filter(|(_, k)| **k)
+            .map(|(c, _)| c.1)
+            .sum();
+        for i in (0..all.len()).rev() {
+            if total <= cap || kept <= MIN_KEEP {
+                break;
             }
-            None => {
-                newest_per_day.insert(day, t);
+            if keep[i] && i > 0 {
+                keep[i] = false;
+                kept -= 1;
+                total -= all[i].1;
             }
         }
     }
-    delete
+    all.iter()
+        .zip(&keep)
+        .filter(|(_, k)| !**k)
+        .map(|(c, _)| c.0)
+        .collect()
+}
+
+/// Окно: всё моложе `keep_all`, дальше последняя копия каждых суток до `keep_days`.
+fn window_keep(times: &[DateTime<Utc>], now: DateTime<Utc>, tz: Tz, p: &Policy) -> Vec<bool> {
+    let mut seen_days: Vec<NaiveDate> = Vec::new();
+    times
+        .iter()
+        .map(|&t| {
+            let age = now - t;
+            if age <= p.keep_all() {
+                return true;
+            }
+            if age > p.keep_daily() {
+                return false;
+            }
+            // Новые идут первыми — первая встреченная за сутки и есть последняя.
+            let day = t.with_timezone(&tz).date_naive();
+            if seen_days.contains(&day) {
+                false
+            } else {
+                seen_days.push(day);
+                true
+            }
+        })
+        .collect()
+}
+
+/// Лесенка: последняя; самая старая из моложе 2 суток; самая старая из «от суток до
+/// 2 недель» (а если такой нет — самая старая из оставшихся, чтобы не терять историю).
+fn ladder_keep(times: &[DateTime<Utc>], now: DateTime<Utc>) -> Vec<bool> {
+    let mut keep = vec![false; times.len()];
+    if times.is_empty() {
+        return keep;
+    }
+    keep[0] = true;
+    let age = |i: usize| now - times[i];
+    let oldest = |pred: &dyn Fn(usize) -> bool, keep: &[bool]| {
+        (1..times.len()).rev().find(|&i| !keep[i] && pred(i))
+    };
+    if let Some(b) = oldest(&|i| age(i) < Duration::hours(48), &keep) {
+        keep[b] = true;
+    }
+    let c = oldest(
+        &|i| age(i) >= Duration::hours(24) && age(i) < Duration::days(14),
+        &keep,
+    )
+    .or_else(|| oldest(&|_| true, &keep));
+    if let Some(c) = c {
+        keep[c] = true;
+    }
+    keep
 }
 
 #[cfg(test)]
@@ -205,7 +331,7 @@ mod tests {
         let now = utc(13, 12);
         // Каждый час за последние 40 суток.
         let all: Vec<_> = (0..40 * 24).map(|h| now - Duration::hours(h)).collect();
-        let del = to_delete(&all, now, Moscow, &Policy::default());
+        let del = to_delete(&sized(&all), now, Moscow, &Policy::default());
         let kept: Vec<_> = all.iter().filter(|t| !del.contains(t)).copied().collect();
 
         assert!(
@@ -240,7 +366,7 @@ mod tests {
         assert_eq!(five_days_ago, Some(&utc(8, 20)));
 
         assert!(
-            to_delete(&kept, now, Moscow, &Policy::default()).is_empty(),
+            to_delete(&sized(&kept), now, Moscow, &Policy::default()).is_empty(),
             "повторная ротация ничего не удаляет"
         );
     }
@@ -248,7 +374,7 @@ mod tests {
     #[test]
     fn future_backups_are_kept() {
         let now = utc(13, 12);
-        assert!(to_delete(&[now + Duration::hours(3)], now, Moscow, &Policy::default()).is_empty());
+        assert!(to_delete(&sized(&[now + Duration::hours(3)]), now, Moscow, &Policy::default()).is_empty());
     }
 
     #[test]
@@ -304,11 +430,86 @@ mod tests {
         let ten_days = now - Duration::days(10);
         let five_days = now - Duration::days(5);
         let six_hours = now - Duration::hours(6);
-        let del = to_delete(&[ten_days, five_days, six_hours], now, Moscow, &p);
+        let (two, one) = (now - Duration::hours(2), now - Duration::hours(1));
+        let del = to_delete(&sized(&[ten_days, five_days, six_hours, two, one]), now, Moscow, &p);
         assert_eq!(
             del,
             vec![ten_days],
             "старше 7 дней — удалить, остальные оставить"
         );
+    }
+
+    fn sized(ts: &[DateTime<Utc>]) -> Vec<(DateTime<Utc>, u64)> {
+        ts.iter().map(|t| (*t, 1)).collect()
+    }
+
+    #[test]
+    fn newest_copy_and_at_least_three_survive_any_rule() {
+        let now = utc(13, 12);
+        // Копии перестали делаться два месяца назад — все «старые».
+        let old: Vec<_> = (0..5).map(|d| now - Duration::days(60 + d)).collect();
+        let del = to_delete(&sized(&old), now, Moscow, &Policy::default());
+        assert_eq!(del.len(), 2, "из 5 старых остаются 3");
+        assert!(!del.contains(&old[0]), "самая новая не удаляется никогда");
+        assert!(!del.contains(&old[1]) && !del.contains(&old[2]));
+    }
+
+    #[test]
+    fn ladder_keeps_three_files_latest_recent_and_older() {
+        let p = Policy::from_raw(RawPolicy {
+            keep: KeepMode::Ladder,
+            ..Policy::default().into()
+        })
+        .unwrap();
+        // Каждый час 60 дней: после каждой копии — уборка, как на сервере.
+        let start = utc(1, 0);
+        let mut files: Vec<DateTime<Utc>> = Vec::new();
+        let mut ages = Vec::new();
+        for h in 0..60 * 24 {
+            let now = start + Duration::hours(h);
+            files.push(now);
+            let del = to_delete(&sized(&files), now, Moscow, &p);
+            files.retain(|t| !del.contains(t));
+            if h > 30 * 24 {
+                assert_eq!(files.len(), 3, "лесенка — ровно 3 файла");
+                let mut a: Vec<i64> = files.iter().map(|t| (now - *t).num_hours()).collect();
+                a.sort_unstable();
+                ages.push(a);
+            }
+        }
+        assert!(ages.iter().all(|a| a[0] == 0), "первая — последняя копия");
+        assert!(ages.iter().all(|a| (1..48).contains(&a[1])), "вторая — моложе 2 суток");
+        assert!(
+            ages.iter().all(|a| (48..=16 * 24).contains(&a[2])),
+            "третья — от 2 суток до ~2 недель"
+        );
+    }
+
+    #[test]
+    fn size_cap_removes_oldest_but_keeps_three() {
+        let now = utc(13, 12);
+        let p = Policy::from_raw(RawPolicy {
+            max_gb: Some(1),
+            ..Policy::default().into()
+        })
+        .unwrap();
+        let gb = 1 << 30;
+        let copies: Vec<_> = (0..5).map(|h| (now - Duration::hours(h), gb / 2)).collect();
+        let mut del = to_delete(&copies, now, Moscow, &p);
+        del.sort();
+        assert_eq!(del, vec![now - Duration::hours(4), now - Duration::hours(3)], "старые — первыми");
+        let big: Vec<_> = (0..5).map(|h| (now - Duration::hours(h), gb * 2)).collect();
+        assert_eq!(to_delete(&big, now, Moscow, &p).len(), 2, "меньше 3 копий не оставляем");
+    }
+
+    #[test]
+    fn old_config_without_new_fields_still_reads() {
+        let p: Policy = serde_json::from_str(
+            r#"{"enabled":true,"every_hours":6,"keep_all_hours":48,"keep_days":30}"#,
+        )
+        .unwrap();
+        assert_eq!(p.keep_mode(), KeepMode::Window);
+        assert_eq!(p.max_gb(), None);
+        assert!(Policy::from_raw(RawPolicy { max_gb: Some(0), ..p.into() }).is_err());
     }
 }
