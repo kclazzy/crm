@@ -272,3 +272,39 @@ async fn notifications_come_in_pages() {
     assert_eq!(next["more"], false);
     assert_eq!(next["unread"], 60, "счётчик — по всем, не по странице");
 }
+
+#[tokio::test]
+async fn owner_can_delete_trashed_task_for_good_others_cannot() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let t = trashed_task(&app, &owner, "В корзине", 1).await;
+    let (_, mgr) = app.member(&owner, "maria", "manager", LOCAL).await;
+    let (s, _) = app
+        .call(
+            "DELETE",
+            &format!("/api/tasks/{t}/purge"),
+            LOCAL,
+            Some(&mgr),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, v) = app
+        .call(
+            "DELETE",
+            &format!("/api/tasks/{t}/purge"),
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "из корзины — навсегда: {v}");
+    assert_eq!(
+        count(
+            &app,
+            &format!("SELECT count(*) FROM tasks WHERE id = '{t}'")
+        )
+        .await,
+        0
+    );
+}
