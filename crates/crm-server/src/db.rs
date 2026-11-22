@@ -49,6 +49,7 @@ pub async fn open(storage: &Storage) -> Result<SqlitePool, DbError> {
         .connect_with(options)
         .await?;
     sqlx::migrate!("../../migrations").run(&pool).await?;
+    crate::backup::install_change_marker(&pool).await?;
     Ok(pool)
 }
 

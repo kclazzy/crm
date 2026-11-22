@@ -230,7 +230,7 @@ pub async fn health(app: &AppState) -> Result<(), ApiError> {
         let failing = last.as_ref().is_some_and(|s| !s.ok);
         let stale = last
             .as_ref()
-            .is_some_and(|s| s.saved() && now_ms() - s.at > stale_after);
+            .is_some_and(|s| s.saved() && now_ms() - s.checked_at() > stale_after);
         if failing || stale {
             for o in &owners {
                 if !notify::recently(&app.pool, o, "backup_problem", 6 * HOUR_MS).await? {
