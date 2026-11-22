@@ -152,6 +152,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/admin/backup/run", post(crate::admin::backup_now))
         .route(
+            "/api/admin/backup/verify",
+            post(crate::admin::verify_backup),
+        )
+        .route(
             "/api/admin/backup/password",
             axum::routing::put(crate::admin::set_backup_password),
         )

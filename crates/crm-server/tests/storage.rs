@@ -563,3 +563,75 @@ async fn deleted_attachments_leave_backup_folder_with_the_last_copy_that_had_the
         "ни одна копия на него не ссылается — убран"
     );
 }
+
+#[tokio::test]
+async fn trial_restore_checks_latest_copy_without_touching_working_db() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/admin/backup/verify",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "копий ещё нет: {v}");
+    let (_, report) = app
+        .call("POST", "/api/admin/backup/run", LOCAL, Some(&owner), None)
+        .await;
+    let (s, v) = app
+        .call(
+            "POST",
+            "/api/admin/backup/verify",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(v["users"].as_i64().unwrap() >= 1);
+    let data = app.dir().join("data");
+    assert!(!data.join("verify").exists(), "временный файл убран");
+    assert!(
+        !data.join("crm.db.restore").exists(),
+        "восстановление не готовится"
+    );
+
+    // Копия испортилась уже на флешке.
+    let file = app
+        .dir()
+        .join("backups")
+        .join(report["name"].as_str().unwrap());
+    std::fs::write(&file, b"broken").unwrap();
+    let (_, v) = app
+        .call(
+            "POST",
+            "/api/admin/backup/verify",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(v["ok"], false, "{v}");
+    let (_, list) = app
+        .call("GET", "/api/admin/backups", LOCAL, Some(&owner), None)
+        .await;
+    assert_eq!(list["verified"]["ok"], false);
+    let (_, notes) = app
+        .call("GET", "/api/notifications", LOCAL, Some(&owner), None)
+        .await;
+    assert!(
+        notes["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["kind"] == "backup_problem"),
+        "владелец узнаёт: {notes}"
+    );
+    // Рабочая база цела.
+    let (s, _) = app.call("GET", "/api/me", LOCAL, Some(&owner), None).await;
+    assert_eq!(s, StatusCode::OK);
+}

@@ -349,6 +349,19 @@ pub struct BackupsOut {
     files: Vec<BackupFile>,
     /// Копии шифруются паролем владельца.
     encrypted: bool,
+    /// Последнее пробное восстановление.
+    verified: Option<backup::Verified>,
+}
+
+/// Пробное восстановление сейчас (кнопка «Проверить копию»).
+pub async fn verify_backup(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+) -> Result<Json<backup::Verified>, ApiError> {
+    backup::verify(&app).await.map(Json).map_err(|e| match e {
+        BackupError::NothingToVerify => ApiError::BadRequest(e.to_string()),
+        other => ApiError::Failed(other.to_string()),
+    })
 }
 
 #[derive(Deserialize)]
@@ -411,6 +424,7 @@ pub async fn backups(State(app): State<AppState>, Owner(_): Owner) -> Json<Backu
         last: backup::last_status(&app.pool).await,
         files: files.into_iter().take(100).collect(),
         encrypted,
+        verified: backup::last_verified(&app.pool).await,
     })
 }
 

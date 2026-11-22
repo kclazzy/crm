@@ -90,6 +90,8 @@ pub enum BackupError {
     Join(#[from] tokio::task::JoinError),
     #[error("копия не записалась ни в одну папку: {0}")]
     NowhereSaved(String),
+    #[error("копий ещё нет — проверять нечего")]
+    NothingToVerify,
 }
 
 fn io(path: &Path) -> impl Fn(std::io::Error) -> BackupError + '_ {
@@ -427,6 +429,134 @@ pub async fn last_status(pool: &SqlitePool) -> Option<Status> {
     json.and_then(|j| serde_json::from_str(&j).ok())
 }
 
+const VERIFY_KEY: &str = "backup.verified";
+/// Пробное восстановление — раз в неделю.
+pub const VERIFY_EVERY_MS: i64 = 7 * 24 * 3600 * 1000;
+
+/// Итог пробного восстановления.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Verified {
+    pub at: i64,
+    pub ok: bool,
+    pub file: Option<String>,
+    /// Сколько в копии сотрудников, клиентов и задач — «копия не пустая».
+    pub users: i64,
+    pub clients: i64,
+    pub tasks: i64,
+    pub error: Option<String>,
+}
+
+/// Пробное восстановление: самая новая копия каждой папки распаковывается во
+/// временную папку, открывается только на чтение и проверяется. Рабочая база
+/// не затрагивается. При сбое владелец получает уведомление.
+pub async fn verify(app: &AppState) -> Result<Verified, BackupError> {
+    let cfg = app.rt.config();
+    let mut newest: Vec<(PathBuf, BackupFile)> = Vec::new();
+    for d in &cfg.storage.backup_dirs {
+        if let Some(f) = list_dir(d).ok().and_then(|l| l.into_iter().next()) {
+            newest.push((d.clone(), f));
+        }
+    }
+    if newest.is_empty() {
+        return Err(BackupError::NothingToVerify);
+    }
+    let work = cfg.storage.db_dir.join("verify");
+    let mut result = Verified {
+        at: Utc::now().timestamp_millis(),
+        ok: true,
+        file: None,
+        users: 0,
+        clients: 0,
+        tasks: 0,
+        error: None,
+    };
+    for (dir, f) in &newest {
+        let _ = std::fs::remove_dir_all(&work);
+        let checked = async {
+            std::fs::create_dir_all(&work).map_err(io(&work))?;
+            let db = work.join("check.db");
+            crate::restore::unpack(&cfg.storage, &dir.join(&f.name), &db, None)
+                .map_err(|e| BackupError::Corrupt(e.to_string()))?;
+            check_integrity(&db).await?;
+            counts(&db).await
+        }
+        .await;
+        let _ = std::fs::remove_dir_all(&work);
+        result.file = Some(f.name.clone());
+        match checked {
+            Ok((u, c, t)) if u > 0 => (result.users, result.clients, result.tasks) = (u, c, t),
+            Ok(_) => {
+                result.ok = false;
+                result.error = Some(format!(
+                    "{}: в копии нет ни одного сотрудника",
+                    dir.display()
+                ));
+            }
+            Err(e) => {
+                result.ok = false;
+                result.error = Some(format!("{}/{}: {e}", dir.display(), f.name));
+            }
+        }
+        if !result.ok {
+            break;
+        }
+    }
+    if let Ok(json) = serde_json::to_string(&result) {
+        let _ = sqlx::query("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .bind(VERIFY_KEY)
+            .bind(json)
+            .execute(&app.pool)
+            .await;
+    }
+    if !result.ok {
+        tracing::error!(error = ?result.error, "пробное восстановление не прошло");
+        if let Ok(owners) = crate::notify::owners(app).await {
+            for o in owners {
+                let _ = crate::notify::push(
+                    app,
+                    &o,
+                    None,
+                    "backup_problem",
+                    serde_json::json!({ "error": result.error, "verify": true }),
+                )
+                .await;
+            }
+        }
+    }
+    Ok(result)
+}
+
+async fn counts(db: &Path) -> Result<(i64, i64, i64), BackupError> {
+    let mut conn = SqliteConnectOptions::new()
+        .filename(db)
+        .read_only(true)
+        .connect()
+        .await?;
+    let n: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM clients),
+                (SELECT count(*) FROM tasks)",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    sqlx::Connection::close(conn).await?;
+    Ok(n)
+}
+
+pub async fn last_verified(pool: &SqlitePool) -> Option<Verified> {
+    let json: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+        .bind(VERIFY_KEY)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    json.and_then(|j| serde_json::from_str(&j).ok())
+}
+
+/// Пора ли пробное восстановление: копия есть, а проверки не было неделю.
+pub fn verify_due(last_copy: Option<&Status>, last_check: Option<&Verified>, now: i64) -> bool {
+    last_copy.is_some_and(Status::saved) && last_check.is_none_or(|v| now - v.at >= VERIFY_EVERY_MS)
+}
+
 /// Фоновый воркер: копия по расписанию владельца, если папка выбрана.
 pub async fn hourly(app: AppState) {
     tokio::time::sleep(FIRST_DELAY).await;
@@ -436,11 +566,15 @@ pub async fn hourly(app: AppState) {
         let cfg = app.rt.config();
         let last = last_status(&app.pool).await;
         let now = Utc::now().timestamp_millis();
-        if cfg.storage.backup_dirs.is_empty() || !due(&cfg.backup, last.as_ref(), now) {
+        if cfg.storage.backup_dirs.is_empty() {
             continue;
         }
-        if let Err(e) = run(&app).await {
-            tracing::error!(error = %e, "резервное копирование не удалось");
+        if due(&cfg.backup, last.as_ref(), now) {
+            if let Err(e) = run(&app).await {
+                tracing::error!(error = %e, "резервное копирование не удалось");
+            }
+        } else if verify_due(last.as_ref(), last_verified(&app.pool).await.as_ref(), now) {
+            let _ = verify(&app).await;
         }
     }
 }
@@ -465,6 +599,26 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn trial_restore_runs_weekly_once_a_copy_exists() {
+        let saved = st(0, true, &[]);
+        let failed = st(0, false, &[false]);
+        assert!(!verify_due(None, None, 0), "копий нет");
+        assert!(!verify_due(Some(&failed), None, 0));
+        assert!(verify_due(Some(&saved), None, 0));
+        let v = |at| Verified {
+            at,
+            ok: true,
+            file: None,
+            users: 1,
+            clients: 0,
+            tasks: 0,
+            error: None,
+        };
+        assert!(!verify_due(Some(&saved), Some(&v(0)), VERIFY_EVERY_MS - 1));
+        assert!(verify_due(Some(&saved), Some(&v(0)), VERIFY_EVERY_MS));
     }
 
     #[test]
