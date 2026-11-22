@@ -1116,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "crm-mobile"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "crm-connect",
  "crm-core",
