@@ -18,7 +18,9 @@ use crate::secrets::{hash_password, new_token, token_hash, verify_password};
 use crm_core::totp::Login;
 
 pub const INVITE_TTL: Duration = Duration::hours(72);
-pub const SESSION_TTL: Duration = Duration::days(30);
+/// Верхняя граница жизни входа (cookie, запись сессии); точный срок — настройка
+/// владельца (`[sessions]`), проверяется при каждом запросе.
+pub const SESSION_TTL: Duration = Duration::days(90);
 pub const LOCKOUT_WINDOW: Duration = Duration::minutes(15);
 pub const LOCKOUT_LIMIT: i64 = 5;
 /// Как часто продлевать сессию (чтобы не писать в БД на каждый запрос).
@@ -55,6 +57,7 @@ struct SessionRow {
     last_seen_at: i64,
     needs_setup: bool,
     mfa_ok: bool,
+    mfa_at: Option<i64>,
 }
 
 impl FromRequestParts<AppState> for CurrentUser {
@@ -67,7 +70,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         let now = now_ms();
         let row: Option<SessionRow> = sqlx::query_as(
             "SELECT s.id AS session_id, u.id, u.username, u.display_name, u.role, s.last_seen_at,
-                    s.needs_2fa_setup AS needs_setup, s.mfa_ok
+                    s.needs_2fa_setup AS needs_setup, s.mfa_ok, s.mfa_at
              FROM sessions s JOIN users u ON u.id = s.user_id
              WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.is_active = 1",
         )
@@ -84,15 +87,34 @@ impl FromRequestParts<AppState> for CurrentUser {
             last_seen_at: last_seen,
             needs_setup,
             mfa_ok,
+            mfa_at,
         } = row.ok_or(ApiError::Unauthorized)?;
-        // Вошли в офисе без кода, а запрос пришёл из интернета: та же проверка, что при входе.
+        let limits = app.rt.config().sessions;
         let path = parts.uri.path();
-        if !mfa_ok && path != "/api/auth/verify" && path != "/api/auth/logout" {
-            let from = parts
-                .extensions
-                .get::<ConnectInfo<SocketAddr>>()
-                .map(|c| c.0.ip().to_string());
-            if let Some(ip) = from.filter(|ip| !crm_core::remote::is_office_addr(ip)) {
+        let remote_ip = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|c| c.0.ip().to_string())
+            .filter(|ip| !crm_core::remote::is_office_addr(ip));
+        // Долго ничего не делали — вход закончен: из интернета свой срок, в офисе свой.
+        let idle_over = if remote_ip.is_some() {
+            limits.remote_idle_expired(last_seen, now)
+        } else {
+            now - last_seen > limits.ttl_ms()
+        };
+        if idle_over {
+            sqlx::query("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+                .bind(now)
+                .bind(&session_id)
+                .execute(&app.pool)
+                .await?;
+            return Err(ApiError::Unauthorized);
+        }
+        // Вошли в офисе без кода (или код вводили давно), а запрос из интернета:
+        // та же проверка, что при входе.
+        let code_stale = remote_ip.is_some() && limits.remote_code_stale(mfa_at, now);
+        if (!mfa_ok || code_stale) && path != "/api/auth/verify" && path != "/api/auth/logout" {
+            if let Some(ip) = remote_ip {
                 match crm_core::totp::login_rule(
                     crate::two_factor::policy(&app.pool).await?,
                     crate::two_factor::enrolled(&app.pool, &id).await?,
@@ -115,7 +137,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         if now - last_seen > TOUCH_EVERY.num_milliseconds() {
             sqlx::query("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?")
                 .bind(now)
-                .bind(now + SESSION_TTL.num_milliseconds())
+                .bind(now + limits.ttl_ms())
                 .bind(&session_id)
                 .execute(&app.pool)
                 .await?;
@@ -389,7 +411,7 @@ pub(crate) async fn session_without_password(
     };
     let ip = addr.ip().to_string();
     let out = start_session(pool, user, &device, &ip, false).await?;
-    sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE token_hash = ?")
+    sqlx::query("UPDATE sessions SET mfa_ok = 1, mfa_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE token_hash = ?")
         .bind(token_hash(&out.token))
         .execute(pool)
         .await?;
@@ -609,7 +631,7 @@ pub async fn login(
     };
     let out = start_session(&app.pool, user, &req.device, &ip, needs_setup).await?;
     if mfa_ok {
-        sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE token_hash = ?")
+        sqlx::query("UPDATE sessions SET mfa_ok = 1, mfa_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE token_hash = ?")
             .bind(token_hash(&out.token))
             .execute(&app.pool)
             .await?;
@@ -637,7 +659,7 @@ pub async fn verify(
         alert_failed_login(&app, &key, &ip).await?;
         return Err(ApiError::BadTwoFactorCode);
     }
-    sqlx::query("UPDATE sessions SET mfa_ok = 1 WHERE id = ?")
+    sqlx::query("UPDATE sessions SET mfa_ok = 1, mfa_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE id = ?")
         .bind(&user.session_id)
         .execute(&app.pool)
         .await?;

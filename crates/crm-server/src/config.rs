@@ -25,6 +25,9 @@ pub struct Config {
     /// Поиск сервера программой в сети офиса (UDP).
     #[serde(default)]
     pub discovery: Discovery,
+    /// Сколько живёт вход в офисе и из интернета (выбирает владелец).
+    #[serde(default)]
+    pub sessions: crm_core::sessions::Limits,
     /// Откуда прочитан конфиг — туда же сохраняются изменения из админ-панели.
     #[serde(skip)]
     pub source: Option<PathBuf>,
@@ -77,6 +80,7 @@ impl Default for Config {
             backup: crm_core::backup::Policy::default(),
             p2p_relay: true,
             discovery: Discovery::default(),
+            sessions: crm_core::sessions::Limits::default(),
             source: None,
         }
     }

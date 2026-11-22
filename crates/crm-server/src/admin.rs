@@ -353,6 +353,26 @@ pub struct BackupsOut {
     verified: Option<backup::Verified>,
 }
 
+/// Сроки входа: в офисе и из интернета.
+pub async fn get_sessions(
+    State(app): State<AppState>,
+    Owner(_): Owner,
+) -> Json<crm_core::sessions::Limits> {
+    Json(app.rt.config().sessions)
+}
+
+pub async fn set_sessions(
+    State(app): State<AppState>,
+    Owner(owner): Owner,
+    Json(raw): Json<crm_core::sessions::RawLimits>,
+) -> Result<Json<crm_core::sessions::Limits>, ApiError> {
+    let limits = crm_core::sessions::Limits::try_from(raw)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    save(&app, |c| c.sessions = limits)?;
+    crate::auth::audit(&app.pool, Some(&owner.id), "sessions.limits", None, "local").await?;
+    Ok(Json(limits))
+}
+
 /// Пробное восстановление сейчас (кнопка «Проверить копию»).
 pub async fn verify_backup(
     State(app): State<AppState>,
@@ -584,6 +604,7 @@ const JOURNAL: &[(&str, &str, &str)] = &[
     ("p2p.key", "access", "Новый ключ удалённого доступа"),
     ("backup.encrypted", "data", "Задан пароль резервных копий"),
     ("trash.policy", "data", "Изменена автоочистка корзины"),
+    ("sessions.limits", "access", "Изменены сроки входа"),
     ("trash.auto_purged", "data", "Корзина очищена автоматически"),
     ("backup.unencrypted", "data", "Шифрование копий выключено"),
     ("server.crt", "data", "Новый сертификат сервера"),

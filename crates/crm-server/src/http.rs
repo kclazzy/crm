@@ -156,6 +156,10 @@ pub fn router(state: AppState) -> Router {
             post(crate::admin::verify_backup),
         )
         .route(
+            "/api/admin/session-limits",
+            get(crate::admin::get_sessions).put(crate::admin::set_sessions),
+        )
+        .route(
             "/api/admin/trash-policy",
             get(crate::housekeeping::get_trash_policy).put(crate::housekeeping::set_trash_policy),
         )

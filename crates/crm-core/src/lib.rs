@@ -12,5 +12,6 @@ pub mod org;
 pub mod reminders;
 pub mod remote;
 pub mod schedule;
+pub mod sessions;
 pub mod task;
 pub mod totp;
