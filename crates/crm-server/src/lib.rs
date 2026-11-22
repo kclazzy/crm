@@ -5,6 +5,7 @@ pub mod admin;
 pub mod attachments;
 pub mod auth;
 pub mod backup;
+pub mod backup_file;
 pub mod chat;
 pub mod cli;
 pub mod clients;

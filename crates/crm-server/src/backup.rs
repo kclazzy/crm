@@ -221,9 +221,9 @@ fn rotate(
     policy: &crm_core::backup::Policy,
 ) -> Result<(), BackupError> {
     let files = list_dir(dir)?;
-    let times: Vec<DateTime<Utc>> = files
+    let times: Vec<(DateTime<Utc>, u64)> = files
         .iter()
-        .filter_map(|f| DateTime::from_timestamp_millis(f.at))
+        .filter_map(|f| DateTime::from_timestamp_millis(f.at).map(|t| (t, f.size)))
         .collect();
     for t in crm_core::backup::to_delete(&times, now, chrono_tz::UTC, policy) {
         let p = dir.join(crm_core::backup::file_name(t));
