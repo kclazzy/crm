@@ -239,3 +239,36 @@ async fn maintenance_shrinks_database_after_large_deletions() {
         .unwrap();
     assert!(!again.vacuumed, "сжимать больше нечего");
 }
+
+#[tokio::test]
+async fn notifications_come_in_pages() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let uid: String = sqlx::query_scalar("SELECT id FROM users LIMIT 1")
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    for i in 0..60 {
+        sqlx::query("INSERT INTO notifications(id, user_id, kind, payload, created_at) VALUES (?, ?, 'assigned', '{}', ?)")
+            .bind(format!("p-{i:02}")).bind(&uid).bind(now() - i * 1000).execute(&app.pool).await.unwrap();
+    }
+    let (_, first) = app
+        .call("GET", "/api/notifications", LOCAL, Some(&owner), None)
+        .await;
+    let items = first["items"].as_array().unwrap();
+    assert_eq!(items.len(), 50);
+    assert_eq!(first["more"], true, "есть ещё");
+    let last = items.last().unwrap()["created_at"].as_i64().unwrap();
+    let (_, next) = app
+        .call(
+            "GET",
+            &format!("/api/notifications?before={last}"),
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert_eq!(next["items"].as_array().unwrap().len(), 10);
+    assert_eq!(next["more"], false);
+    assert_eq!(next["unread"], 60, "счётчик — по всем, не по странице");
+}

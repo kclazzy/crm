@@ -5,6 +5,11 @@ use std::path::PathBuf;
 use crm_server::cli::{self, Command, ServiceCmd};
 use crm_server::{config, logging, server};
 
+/// mimalloc вместо системного распределителя: сервер работает месяцами, и память
+/// после пиков (импорт, копии, вложения) лучше возвращается системе.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Debug, thiserror::Error)]
 enum MainError {
     #[error(transparent)]

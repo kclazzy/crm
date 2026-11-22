@@ -16,8 +16,14 @@ fn step() -> u64 {
 }
 
 async fn set(app: &App, owner: &str, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
-    app.call("PUT", "/api/admin/session-limits", LOCAL, Some(owner), Some(body))
-        .await
+    app.call(
+        "PUT",
+        "/api/admin/session-limits",
+        LOCAL,
+        Some(owner),
+        Some(body),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -25,7 +31,13 @@ async fn owner_sets_session_limits_within_sensible_bounds() {
     let app = App::new().await;
     let owner = app.owner().await;
     let (s, v) = app
-        .call("GET", "/api/admin/session-limits", LOCAL, Some(&owner), None)
+        .call(
+            "GET",
+            "/api/admin/session-limits",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["office_days"], 30, "по умолчанию — как раньше");
@@ -53,7 +65,13 @@ async fn owner_sets_session_limits_within_sensible_bounds() {
     .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     let (_, v) = app
-        .call("GET", "/api/admin/session-limits", LOCAL, Some(&owner), None)
+        .call(
+            "GET",
+            "/api/admin/session-limits",
+            LOCAL,
+            Some(&owner),
+            None,
+        )
         .await;
     assert_eq!(v["office_days"], 14);
     let (emp_id, emp) = app.member(&owner, "ivan", "employee", OFFICE_PC).await;
