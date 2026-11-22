@@ -1,15 +1,11 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useRef, useState } from 'react';
+import { useDismiss } from './useDismiss';
 
-/** Выпадающее меню «⋯»: закрывается щелчком мимо. */
+/** Выпадающее меню «⋯»: закрывается щелчком мимо и Esc. */
 export function Menu({ button, children, right = false }: { button: (toggle: () => void) => ReactNode; children: (close: () => void) => ReactNode; right?: boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
+  useDismiss(open, useCallback(() => setOpen(false), []), box);
   return (
     <div className="relative" ref={box}>
       {button(() => setOpen((o) => !o))}

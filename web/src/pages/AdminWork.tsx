@@ -108,9 +108,6 @@ export function AdminOrg() {
         <Field label="«Скоро дедлайн» за, часов" hint="Задача желтеет за столько часов до срока">
           <input type="number" min={1} max={168} className="input" value={o.warn_hours} onChange={(e) => set({ warn_hours: Number(e.target.value) })} />
         </Field>
-        <Field label="Архив через, дней" hint="Завершённые задачи уходят в архив и не мешают в списках">
-          <input type="number" min={1} max={365} className="input" value={o.archive_after_days} onChange={(e) => set({ archive_after_days: Number(e.target.value) })} />
-        </Field>
         <div className="sm:col-span-2">
           <p className="mb-2 text-sm font-medium">Праздники и нерабочие дни</p>
           <div className="mb-2 flex flex-wrap gap-1.5">

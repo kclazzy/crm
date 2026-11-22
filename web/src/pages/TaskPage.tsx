@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   AlertTriangle,
@@ -188,10 +188,17 @@ export function TaskPage() {
   const [sub, setSub] = useState(false);
   const [trash, setTrash] = useState(false);
 
-  const load = useCallback(() => work.task(id).then(setT).catch((e) => setError(e.message)), [id]);
+  // Задачу убирают в корзину: больше её не перечитываем (иначе — 404 от живого обновления).
+  const gone = useRef(false);
+  const [leaving, setLeaving] = useState(false);
+  const load = useCallback(() => {
+    if (gone.current) return Promise.resolve();
+    return work.task(id).then(setT).catch((e) => setError(e.message));
+  }, [id]);
   useEffect(() => { setT(null); setError(''); setNote(''); void load(); }, [load]);
   useLiveReload(load, id);
 
+  if (leaving) return null;
   if (error && !t) return <><BackButton fallback="/" /><ErrorText>{error === 'не найдено' ? 'Задача не найдена или у вас нет к ней доступа.' : error}</ErrorText></>;
   if (!t || !t.status) return null;
   const manage = t.access === 'manage';
@@ -357,9 +364,20 @@ export function TaskPage() {
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setTrash(false)}>Отмена</Button>
           <Button variant="danger" onClick={async () => {
-            await work.trashTask(t.id);
-            navigate(`/clients/${t.client_id}`);
-            toast('Задача в корзине', { undo: async () => { await work.restoreTask(t.id); navigate(`/tasks/${t.id}`); } });
+            // Сначала уходим со страницы: иначе живое обновление успеет перечитать
+            // уже удалённую задачу и чат (404 в консоли, мигание ошибки).
+            const { id: tid, client_id: cid } = t;
+            gone.current = true;
+            setLeaving(true);
+            try {
+              await work.trashTask(tid);
+              navigate(`/clients/${cid}`);
+              toast('Задача в корзине', { undo: async () => { await work.restoreTask(tid); navigate(`/tasks/${tid}`); } });
+            } catch (x) {
+              gone.current = false;
+              setLeaving(false);
+              toast(`Не удалось убрать в корзину: ${(x as Error).message}`);
+            }
           }}>В корзину</Button>
         </div>
       </Modal>
