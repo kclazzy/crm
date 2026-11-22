@@ -156,6 +156,14 @@ pub fn router(state: AppState) -> Router {
             post(crate::admin::verify_backup),
         )
         .route(
+            "/api/admin/trash-policy",
+            get(crate::housekeeping::get_trash_policy).put(crate::housekeeping::set_trash_policy),
+        )
+        .route(
+            "/api/admin/trash-policy/dismiss",
+            post(crate::housekeeping::dismiss_trash_suggestion),
+        )
+        .route(
             "/api/admin/backup/password",
             axum::routing::put(crate::admin::set_backup_password),
         )

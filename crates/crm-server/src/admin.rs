@@ -583,6 +583,8 @@ const JOURNAL: &[(&str, &str, &str)] = &[
     ),
     ("p2p.key", "access", "Новый ключ удалённого доступа"),
     ("backup.encrypted", "data", "Задан пароль резервных копий"),
+    ("trash.policy", "data", "Изменена автоочистка корзины"),
+    ("trash.auto_purged", "data", "Корзина очищена автоматически"),
     ("backup.unencrypted", "data", "Шифрование копий выключено"),
     ("server.crt", "data", "Новый сертификат сервера"),
     ("server.key", "data", "Новый ключ сертификата"),

@@ -17,6 +17,7 @@ pub mod download;
 pub mod enroll;
 pub mod events;
 pub mod folders;
+pub mod housekeeping;
 pub mod http;
 pub mod install_plan;
 pub mod limits;

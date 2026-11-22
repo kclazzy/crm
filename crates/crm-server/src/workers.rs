@@ -39,6 +39,9 @@ pub async fn hourly(app: &AppState) {
     if let Err(e) = health(app).await {
         tracing::error!(error = %e, "проверка диска и копий");
     }
+    if let Err(e) = crate::housekeeping::daily(app).await {
+        tracing::error!(error = %e, "уборка базы");
+    }
 }
 
 fn kind_of(s: &str) -> Option<ReminderKind> {
