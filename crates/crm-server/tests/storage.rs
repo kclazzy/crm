@@ -685,7 +685,10 @@ async fn scheduled_copy_is_skipped_when_nothing_changed() {
         )
         .await;
     assert_eq!(s, StatusCode::CREATED);
-    assert!(matches!(scheduled(&app.state).await, Scheduled::Saved(_)), "данные изменились — копия");
+    assert!(
+        matches!(scheduled(&app.state).await, Scheduled::Saved(_)),
+        "данные изменились — копия"
+    );
 }
 
 #[tokio::test]

@@ -854,6 +854,14 @@ pub async fn reset_access(
     Owner(owner): Owner,
     Path(id): Path<String>,
 ) -> Result<Json<InviteOut>, ApiError> {
+    let disabled: Option<bool> =
+        sqlx::query_scalar("SELECT is_active = 0 FROM users WHERE id = ? AND deleted_at IS NULL")
+            .bind(&id)
+            .fetch_optional(&app.pool)
+            .await?;
+    if disabled == Some(true) {
+        return Err(disabled_error());
+    }
     let mut tx = crate::db::write_tx(&app.pool).await?;
     let username: Option<String> = sqlx::query_scalar(
         "UPDATE users SET password_hash = NULL WHERE id = ? AND role <> 'host' RETURNING username",
@@ -881,6 +889,11 @@ pub async fn reset_access(
     )
     .await?;
     Ok(Json(invite))
+}
+
+/// Отключённому сотруднику нельзя выдать код или новое приглашение — сначала включить.
+pub(crate) fn disabled_error() -> ApiError {
+    ApiError::BadRequest("сотрудник отключён — сначала нажмите «Включить»".into())
 }
 
 /// Сотрудник (не владелец, не удалён) — для отключения и удаления.

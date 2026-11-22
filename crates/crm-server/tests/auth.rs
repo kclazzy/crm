@@ -414,3 +414,37 @@ async fn invite_can_be_checked_before_showing_the_password_form() {
         "использованное приглашение не действует"
     );
 }
+
+#[tokio::test]
+async fn disabled_employee_gets_clear_message_instead_of_not_found() {
+    let app = App::new().await;
+    let owner = app.owner().await;
+    let (id, invite) = app.invite(&owner, "oleg", "employee").await;
+    app.accept(&invite, "пароль-сотрудника-1", LOCAL).await;
+    let (s, _) = app
+        .call(
+            "POST",
+            &format!("/api/admin/users/{id}/disable"),
+            LOCAL,
+            Some(&owner),
+            None,
+        )
+        .await;
+    assert!(s.is_success());
+    for path in ["reset", "enroll-code"] {
+        let (s, v) = app
+            .call(
+                "POST",
+                &format!("/api/admin/users/{id}/{path}"),
+                LOCAL,
+                Some(&owner),
+                None,
+            )
+            .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{path}: {v}");
+        assert!(
+            v["error"].as_str().unwrap().contains("отключён"),
+            "{path}: {v}"
+        );
+    }
+}
